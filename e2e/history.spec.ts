@@ -338,3 +338,77 @@ test('an empty database shows nothing recorded rather than an empty grid', async
   expect(h.rows).toEqual([])
   expect(h.next_before).toBeNull()
 })
+
+/**
+ * The Log column. A journal entry is prose and will not fit a grid cell, so the
+ * column says only whether there is one and opens it on demand.
+ */
+test('a day with a log offers a control that opens it; a day without offers none', async ({
+  page,
+  app,
+}) => {
+  app.seed.task({ name: 'MED', cadence: 'day' })
+  app.seed.day(app.today, { log: 'Long day.\nThe gate is finally fixed.' })
+  app.seed.day(addDays(app.today, -1), { mood: 'balanced' }) // a day, but no log
+
+  await page.goto(app.url)
+  await page.getByRole('button', { name: /^history$/i }).click()
+
+  const opener = page.getByRole('button', { name: new RegExp(`^Read the log for`) })
+  await expect(opener).toHaveCount(1) // only the day that has one
+
+  await opener.click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toBeVisible()
+
+  // The entry's own line breaks survive: it was typed as prose.
+  const body = sheet.locator('.hist-read__log')
+  await expect(body).toContainText('The gate is finally fixed.')
+  expect(await body.innerText()).toContain('\n')
+
+  await sheet.getByRole('button', { name: /^close$/i }).click()
+  await expect(sheet).toHaveCount(0)
+})
+
+test('the grid stays read-only: opening a log changes nothing', async ({ page, app }) => {
+  const id = app.seed.task({ name: 'MED', cadence: 'day' })
+  app.seed.completion(id, app.today)
+  app.seed.day(app.today, { log: 'noted' })
+
+  const before = await (await fetch(`${app.url}/api/history`)).json()
+
+  await page.goto(app.url)
+  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^Read the log for/ }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: /^close$/i }).click()
+
+  const after = await (await fetch(`${app.url}/api/history`)).json()
+  expect(after).toEqual(before)
+})
+
+test('columns are ordered by baseline, then category, then name', async ({ page, app }) => {
+  const post = (name: string, extra: Record<string, unknown>) =>
+    fetch(`${app.url}/api/commands/create_task`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, cadence: 'day', ...extra }),
+    })
+  // Alphabetically Aardvark < Brush < Dishes < Zzz; by the real rule the
+  // baseline task leads despite its name, then Dog, House, uncategorised.
+  await post('Zzz vital', { is_baseline: true, category: 'Zebra' })
+  await post('Aardvark chore', { category: 'House' })
+  await post('Brush Ringo', { category: 'Dog' })
+  await post('Dishes', {})
+
+  await page.goto(app.url)
+  await page.getByRole('button', { name: /^history$/i }).click()
+
+  const heads = await page.locator('.hist-h--task').allInnerTexts()
+  expect(heads.map((h) => h.trim())).toEqual([
+    'Zzz vital',
+    'Brush Ringo',
+    'Aardvark chore',
+    'Dishes',
+  ])
+})

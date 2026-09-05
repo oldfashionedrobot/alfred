@@ -43,3 +43,27 @@ export function sortTasks<T extends Pick<TaskRow, 'id' | 'name' | 'is_baseline'>
     return a.name.localeCompare(b.name)
   })
 }
+
+/**
+ * Baseline first, then category (uncategorised last), then name.
+ *
+ * The tie-break shared by the To do panel and History's columns. It is NOT
+ * `sortTasks` — there is no `days.task_order` here, and baseline outranks
+ * category deliberately, which `views.md` states along with its cost.
+ *
+ * One implementation because two screens show the same tasks in what should be
+ * the same order: a column in the grid and a row in the panel are the same
+ * thing seen twice, and finding them ordered differently reads as a bug.
+ */
+export function byBaselineCategoryName(
+  a: Pick<TaskRow, 'name' | 'is_baseline' | 'category'>,
+  b: Pick<TaskRow, 'name' | 'is_baseline' | 'category'>,
+): number {
+  if (a.is_baseline !== b.is_baseline) return a.is_baseline ? -1 : 1
+  if (a.category !== b.category) {
+    if (a.category === null) return 1
+    if (b.category === null) return -1
+    return a.category.localeCompare(b.category)
+  }
+  return a.name.localeCompare(b.name)
+}

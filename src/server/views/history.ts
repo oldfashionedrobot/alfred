@@ -9,7 +9,7 @@ import type {
 import type { DB } from '../db.ts'
 import { completions, days, moods, tasks } from '../schema.ts'
 import { addDays } from '../period.ts'
-import { sortTasks } from '../sort.ts'
+import { byBaselineCategoryName } from '../sort.ts'
 import { today } from '../today.ts'
 
 const DEFAULT_LIMIT = 60
@@ -40,7 +40,8 @@ export function buildHistoryView(
     .from(tasks)
     .where(and(eq(tasks.active, true), eq(tasks.cadence, 'day')))
     .all()
-  const columns: HistoryColumn[] = sortTasks(daily, null).map((t) => ({
+  // The same order the To do panel uses, so a task is in the same place in both.
+  const columns: HistoryColumn[] = [...daily].sort(byBaselineCategoryName).map((t) => ({
     task_id: t.id,
     name: t.name,
   }))
@@ -73,6 +74,12 @@ export function buildHistoryView(
     else completedByDate.set(c.completed_on, new Set([c.task_id]))
   }
   const moodByDate = new Map(dayRows.filter((d) => d.mood !== null).map((d) => [d.date, d.mood!]))
+  // A log is text, not a flag: the grid shows whether one exists and opens it on
+  // demand, so the row carries the entry itself rather than a boolean the client
+  // would then have to fetch behind.
+  const logByDate = new Map(
+    dayRows.filter((d) => d.log !== null && d.log !== '').map((d) => [d.date, d.log!]),
+  )
   const moodBySlug = new Map(moodRows.map((m) => [m.slug, m]))
 
   const rows: HistoryRow[] = []
@@ -84,6 +91,7 @@ export function buildHistoryView(
       mood: slug === undefined ? null : (moodBySlug.get(slug) ?? null),
       // Column order, so the grid reads left to right.
       completed: ticked === undefined ? [] : taskIds.filter((id) => ticked.has(id)),
+      log: logByDate.get(d) ?? null,
     })
   }
 

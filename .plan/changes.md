@@ -164,3 +164,72 @@ Rows keep a plain solid left stripe carrying only whose row it is — border gre
 The mechanism was sound and the colour work it forced is kept: the stripe is still drawn inside the row's box rather than as a `border`, which is what stops a striped row indenting away from an unstriped one.
 
 Recorded because the path here was three rounds of colour tuning — mix-to-between, fixed-and-brighter, derived-from-text — and none of that was wasted on the wrong question so much as on the wrong feature. The tuning kept improving how legible the dashes were; nobody asked whether counting dashes was worth doing at all.
+
+### Category headings are removed
+
+A category is now a sort key and nothing else — no heading, no chip, no label. It still clusters same-category tasks inside a period group; that clustering is all it does on screen.
+
+The headings failed on two counts, both visible only once there was real data in the app:
+
+- **They repeated per band.** Ordering is band → baseline → category → name, so a category that has both unfinished and completed rows drew its heading twice in one group — `DOG-BARNEY` above the live rows and `DOG-BARNEY` again above the struck-through ones.
+- **They restated the heading above them.** A row already sits under *Today* or *This week*; adding *Dog* over it costs a line and says less than the group heading already does.
+
+The "Other" heading went with them, and so did the rule it existed for — with nothing rendered, an uncategorised row can no longer be misread as belonging to the category above it.
+
+Worth noting what this cost: the "Other" heading was itself a fix, added an hour earlier because uncategorised rows were falling under the previous category's heading. Both the problem and the fix disappeared when the feature they belonged to did. The clustering — the thing actually wanted — needed no rendering at all.
+
+---
+
+## v6 — History gains a log, and colour survives completion
+
+### History columns share the To do panel's order
+
+Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the To do panel also uses for its tie-break.
+
+One implementation rather than two, because a column in the grid and a row in the panel are the same task seen twice. Two orderings that are each defensible alone still read as a bug when you notice the same tasks in different sequences on two screens. A unit test asserts the two agree, so they cannot drift.
+
+### A log column, opening into a sheet
+
+`HistoryRow` gains `log`. The column shows a control on days that have an entry and **nothing** on days that do not — the absence is the information, and a disabled control would say less while taking the same space.
+
+The entry opens in a sheet rather than inlining: it is prose and will not fit a grid cell. Line breaks are preserved, because they belong to whoever wrote them. History stays read-only; the sheet reads and closes.
+
+Empty strings are already stored as `null` by `set_log`, so an "empty entry" is not a state the column has to render.
+
+### A completed task keeps its colour
+
+Both the tick and the name now stay in a baseline task's colour once ticked, instead of dropping to the dim text colour.
+
+The strike-through and the filled box already say "done" twice over. Dimming the name as well removed the colour at exactly the point the completed section is longest and the grouping cue is most useful — the colour was doing its most work precisely where it was being taken away.
+
+---
+
+## v6 — History gains a log, and colour survives completion
+
+### History columns share the To do panel's order
+
+Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the To do panel also uses for its tie-break.
+
+One implementation rather than two, because a column in the grid and a row in the panel are the same task seen twice. Two orderings that are each defensible alone still read as a bug when the same tasks appear in different sequences on two screens. A unit test asserts the two agree, so they cannot drift.
+
+### A log column, opening into a sheet
+
+`HistoryRow` gains `log`. The column shows a control on days that have an entry and **nothing** on days that do not — the absence is the information, and a disabled control would say less while taking the same space.
+
+The entry opens in a sheet rather than inlining: it is prose and will not fit a grid cell. Line breaks are preserved, because they belong to whoever wrote them. History stays read-only; the sheet reads and closes, and a test asserts the whole model is byte-identical afterwards.
+
+Empty strings are already stored as `null` by `set_log`, so an "empty entry" is not a state the column has to render.
+
+### A completed task keeps its colour
+
+Both the tick and the name now stay in a baseline task's colour once ticked, instead of dropping to the dim text colour.
+
+The strike-through and the filled box already say "done" twice over. Dimming the name as well removed the colour at exactly the point the completed section is longest and the grouping cue most useful — the colour was doing its most work precisely where it was being taken away.
+
+### A favicon
+
+`assets/alfred.png` is the source art; `src/client/icons/` holds the two sizes the page links — 32px for the browser tab, 180px for an iOS home screen. Bun bundles both from `index.html` and serves them with hashed URLs, so there is no static directory and no route to add.
+
+Two sizes rather than one, because scaling in either direction costs something on pixel art: a 32px tab icon downscaled from 180px loses the hard edges that make it legible at that size, and a 180px touch icon upscaled from 32px is worse.
+
+The source is kept out of `src/client/` on purpose. It is 348KB and nothing references it, and anything sitting in the client tree invites being imported by accident.

@@ -179,7 +179,9 @@ Period boundaries are computed on the server like every other derivation, and sh
 
 ### Colour
 
-A baseline task may carry a colour, set in the task editor. Where it is set it paints **a left stripe on the row and the task's name**, on Day and here. Nothing else uses it: no background fill, no badge, no dot.
+A baseline task may carry a colour, set in the task editor. Where it is set it paints **the row's left stripe, the task's name, and its tick once ticked**, on Day and here. Nothing else uses it: no background fill, no badge, no dot.
+
+**A completed task keeps its colour.** It already reads as done from the strike-through and the filled box, so dimming the name as well only threw the colour away at the moment the list is longest and the grouping cue most useful.
 
 The stripe must not move the row. It is drawn inside the row's own box, so a coloured row and a plain one share the same left edge and the list still reads as a column — a stripe that indents the rows it marks is worse than no stripe.
 
@@ -205,13 +207,13 @@ Each row carries at most three, all read off fields the server ships:
 
 ### Categories
 
-A task may carry a **category** — free text, set in the task editor and suggested from those already in use. Inside a period group, tasks cluster under a category sub-heading.
+A task may carry a **category** — free text, set in the task editor and suggested from those already in use.
 
-**Headings appear only where categories are used.** A group in which nothing is categorised renders no headings at all, so the feature stays invisible until it is used — the panel looks exactly as it did before rather than growing a heading over an untouched list.
+**A category is a sort key and renders nothing.** No heading, no chip, no label. Inside a period group it clusters same-category tasks together, and that clustering is the whole of what it does on screen.
 
-Once a group does use categories, the uncategorised rows are gathered under **Other**. They sort last, so without a heading of their own they fall under the previous category's and read as belonging to it — an uncategorised task appearing under `House` is worse than an extra heading.
+It was first drawn as a sub-heading over each cluster, which failed twice over. The headings repeated once per band, so a category appeared again above the completed rows and the same name showed twice in one group. And they restated the group heading directly above them: a row already sits under *This week*, and adding *Dog* over it says less than it costs. Sorting alone puts the dog tasks together, which was the point.
 
-Categories do not replace name prefixes. `Dog: Feed Barney 1` still orders alphabetically inside its category — a prefix groups within one list, a category groups across the six.
+Categories do not replace name prefixes. `Dog: Feed Barney 1` still orders alphabetically inside its category — a prefix groups within one list, a category groups across the six. A prefix is also the thing that *shows*, since the category itself does not.
 
 The Day list ignores categories entirely. It is arranged for doing, by `sort()` and `days.task_order`; a second hierarchy on the screen you tick things off on would be noise.
 
@@ -257,8 +259,13 @@ The grid the current spreadsheet does well, and the main thing every off-the-she
 
 - Dates down, most recent first; every `active` daily task across; filled cells for completions
 - A mood column showing that day's emoji, blank where none was recorded
+- A log column: a control on days that have a journal entry, opening it; nothing on days that do not
 - Read-only — nothing in the system writes to a past date, so there is nothing here to edit
 - Scrolls back through whatever exists; no filters, no range picker, no streak counts
+
+**Columns are ordered exactly as the To do panel orders its rows** — baseline, then category, then name — from one shared comparator. A column in the grid and a row in the panel are the same task seen twice, and finding them in different orders reads as a bug even when each order is defensible alone.
+
+**The log opens rather than inlining.** A journal entry is prose and will not fit a grid cell, so the column carries only whether there is one. A day without an entry gets nothing to click rather than a disabled control — the absence is the information. The entry's own line breaks survive when it opens; they belong to whoever wrote it.
 
 Gaps are real and permanent. A daily task not ticked on the day it was due stays empty forever, because it can never be caught up. That is the grid doing its job — it is a record, not a checklist.
 

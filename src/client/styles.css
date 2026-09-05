@@ -221,10 +221,21 @@ select {
 }
 
 .tick__box[data-done] {
-  border-color: var(--done);
-  background: var(--done);
+  /* --tick-colour so a coloured baseline task can claim its own tick; the
+     default is the neutral done green. */
+  --tick-colour: var(--done);
+  border-color: var(--tick-colour);
+  background: var(--tick-colour);
   background-image: linear-gradient(transparent, transparent);
-  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 22px var(--done);
+  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 22px var(--tick-colour);
+}
+
+/* A baseline task with a colour keeps that colour when it is ticked, in the box
+   and in its name. The colour is the point of setting one — dropping it the
+   moment the task is done is exactly when the list is busiest and the grouping
+   is most useful. */
+[data-colour] .tick__box[data-done] {
+  --tick-colour: var(--task-colour);
 }
 
 .tick--static .tick__box {
@@ -481,10 +492,12 @@ select {
   font-weight: 600;
 }
 
-/* Struck through wins: a completed task reads as completed first. */
+/* A completed coloured task keeps its colour. It reads as done from the strike
+   and the filled tick; dimming the name as well threw away the grouping cue at
+   exactly the moment the list is longest. */
 [data-colour][data-done] .todo-row__name,
 .day-row--done[data-colour] .day-name-text {
-  color: var(--text-dim);
+  color: var(--task-colour);
 }
 
 /* --- colour input --------------------------------------------------------- */

@@ -5,6 +5,7 @@ import type { DB } from '../db.ts'
 import { tasks } from '../schema.ts'
 import type { CompletionRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue, periodEnd, periodStart } from '../period.ts'
+import { byBaselineCategoryName } from '../sort.ts'
 import { loadCurrentCompletions, placeableDates } from './completions.ts'
 import { today } from '../today.ts'
 
@@ -117,19 +118,6 @@ function keepOneOff(own: CompletionRow[], weekStart: ISODate): boolean {
  * doing. `.plan/review-findings.md` closes this: one function with flags would
  * be worse than two small ones.
  */
-/**
- * Uncategorised sorts LAST and renders without a heading, so the feature is
- * invisible until it is used: with nothing categorised the panel looks exactly
- * as it did before, rather than growing an "Uncategorised" heading over
- * everything.
- */
-function byCategory(a: TodoTask, b: TodoTask): number {
-  if (a.category === b.category) return 0
-  if (a.category === null) return 1
-  if (b.category === null) return -1
-  return a.category.localeCompare(b.category)
-}
-
 function band(t: TodoTask): number {
   if (t.is_done) return 4
   if (t.is_overdue) return 1
@@ -146,12 +134,7 @@ function byBand(a: TodoTask, b: TodoTask): number {
   // dailies are never placed and never overdue, so the whole Today group sits in
   // one band and baseline-within-band is baseline-at-the-top.
   if (band(a) !== band(b)) return band(a) - band(b)
-  // Baseline outranks category, deliberately: baseline tasks stay an unheaded
-  // block at the top of the group and the category headings begin below them.
-  // The cost is that a baseline task never appears under its own category —
-  // `views.md` states it rather than leaving it to be discovered.
-  if (a.is_baseline !== b.is_baseline) return a.is_baseline ? -1 : 1
-  const byCat = byCategory(a, b)
-  if (byCat !== 0) return byCat
-  return a.name.localeCompare(b.name)
+  // Baseline, then category, then name — shared with History's columns so the
+  // two screens cannot order the same tasks differently.
+  return byBaselineCategoryName(a, b)
 }

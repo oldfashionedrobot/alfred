@@ -218,19 +218,3 @@
   border-top: 1px solid var(--border);
 }
 
-/* A category heading inside a period group. Not a list item in the semantic
-   sense — it is a label over the rows that follow, and the rows themselves
-   carry the meaning — so it is aria-hidden and the row keeps its own name. */
-.todo-cat {
-  list-style: none;
-  padding: var(--gap-3) 0 var(--gap-1);
-  color: var(--text-dim);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.todo-cat:first-child {
-  padding-top: var(--gap-1);
-}

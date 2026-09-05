@@ -180,6 +180,8 @@ export interface HistoryRow {
   /** Resolved, including retired moods. */
   mood: Mood | null
   completed: number[]
+  /** That day's journal entry, if one was written. */
+  log: string | null
 }
 
 export interface HistoryView {

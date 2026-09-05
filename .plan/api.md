@@ -195,8 +195,13 @@ interface HistoryRow {
   date: ISODate
   mood: Mood | null                // resolved, including retired moods
   completed: number[]              // task_ids with a completion on this date
+  log: string | null               // that day's entry, if one was written
 }
 ```
+
+`columns` are ordered by baseline, then category, then name — the same comparator the To do panel uses for its tie-break, so the two screens cannot show the same tasks in different orders.
+
+`log` carries the entry itself rather than a flag, so the client can open it without a second request. `set_log` already stores `""` as `null`, so an empty entry is not a state this has to express.
 
 Rows cover every date in the range, including days with nothing recorded — a gap is a fact the grid is there to show, so the server emits the empty row rather than making the client fill holes.
 

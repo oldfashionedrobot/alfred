@@ -176,3 +176,38 @@
   color: var(--text-faint);
   font-size: 0.82rem;
 }
+
+/* --- log column ----------------------------------------------------------- */
+
+.hist-h--log,
+.hist-log {
+  width: 34px;
+  text-align: center;
+}
+
+.hist-log__open {
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.hist-log__open:hover {
+  color: var(--accent);
+}
+
+.hist-read__mood {
+  margin: 0 0 var(--gap-3);
+  color: var(--text-dim);
+}
+
+/* The entry was typed as prose; its line breaks belong to whoever wrote it. */
+.hist-read__log {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}

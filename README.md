@@ -27,6 +27,18 @@ bun run dev             # → http://localhost:3000
 
 `bun run dev` runs migrations on startup and seeds the eight starting moods if the `moods` table is empty. Nothing else is seeded — the ~30 tasks are entered by hand, which `views.md` treats as a feature rather than a gap.
 
+### Regenerating the icons
+
+`assets/alfred.png` is the source; `src/client/icons/` holds the sizes the page links. Bun bundles them from `index.html`, so nothing needs copying into place.
+
+```sh
+for size in 32 180; do
+  sips -z $size $size assets/alfred.png --out src/client/icons/icon-$size.png
+done
+```
+
+Two sizes rather than one: a 32px tab icon rendered by downscaling a 180px image loses the pixel art's edges, and a 180px Apple touch icon upscaled from 32px is worse still.
+
 ### Changing the moods
 
 There is no mood editor in the app, deliberately — eight rows revised twice a year did not justify a form on the most-used screen. Edit the table directly:
@@ -71,10 +83,12 @@ src/
     commands.ts        every named gesture
     routes.ts          GET a view model, POST a command
   client/
+    icons/             generated favicons, bundled from index.html
     api.ts             typed fetch, the client's only I/O
     dates.ts           the one date formatter
     ui.tsx             shared primitives: button, tick, day picker, notice
     views/             Day, Week, History, and the To do panel they host
+assets/                source art, not bundled
 tests/                 period logic and view builders
 e2e/                   Playwright, one server + one database per test
 drizzle/               generated migrations

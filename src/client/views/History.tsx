@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HistoryColumn, HistoryRow, ISODate } from '../../shared/types.ts'
 import { errorText, getHistory } from '../api.ts'
-import { shortDate, weekday } from '../dates.ts'
-import { NoticeBar, type Notice } from '../ui.tsx'
+import { longDate, shortDate, weekday } from '../dates.ts'
+import { NoticeBar, Sheet, type Notice } from '../ui.tsx'
 import './history.css'
 
 /**
@@ -23,6 +23,9 @@ export default function History() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
+  // The row whose log is open. Held by row, not by date, so the sheet renders
+  // from the model it was opened from and never re-derives it.
+  const [reading, setReading] = useState<HistoryRow | null>(null)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -97,6 +100,9 @@ export default function History() {
                 <th scope="col" className="hist-h hist-h--mood">
                   <span className="hist-h__rot">Mood</span>
                 </th>
+                <th scope="col" className="hist-h hist-h--log">
+                  <span className="hist-h__rot">Log</span>
+                </th>
                 {/* Rotated and clipped to fit, but the full name is the cell's
                     text, so it is the column's accessible name in every row. */}
                 {columns.map((col) => (
@@ -124,6 +130,22 @@ export default function History() {
                         </span>
                       )}
                     </td>
+                    {/* A journal entry is prose and will not fit a grid cell, so
+                        the column says only whether there is one and opens it on
+                        demand. A day with no entry gets nothing to click, not a
+                        disabled control. */}
+                    <td className="hist-log">
+                      {row.log !== null && (
+                        <button
+                          type="button"
+                          className="hist-log__open"
+                          aria-label={`Read the log for ${shortDate(row.date)}`}
+                          onClick={() => setReading(row)}
+                        >
+                          <span aria-hidden="true">✎</span>
+                        </button>
+                      )}
+                    </td>
                     {columns.map((col) => {
                       const done = row.completed.includes(col.task_id)
                       return (
@@ -141,6 +163,22 @@ export default function History() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {reading !== null && reading.log !== null && (
+        <Sheet title={longDate(reading.date)} onClose={() => setReading(null)}>
+          {reading.mood && (
+            <p className="hist-read__mood">
+              <span role="img" aria-label={reading.mood.label}>
+                {reading.mood.emoji}
+              </span>{' '}
+              {reading.mood.label}
+            </p>
+          )}
+          {/* Whitespace preserved: the entry was typed as prose and its line
+              breaks are the author's. Read-only — History never writes. */}
+          <p className="hist-read__log">{reading.log}</p>
+        </Sheet>
       )}
 
       <div className="hist-foot">

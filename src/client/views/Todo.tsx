@@ -1,4 +1,4 @@
-import { Fragment, useId, useState, type CSSProperties } from 'react'
+import { useId, useState, type CSSProperties } from 'react'
 import type { ISODate, TodoTask, TodoView } from '../../shared/types.ts'
 import { TODO_GROUPS } from '../../shared/types.ts'
 import { ApiError, command } from '../api.ts'
@@ -23,33 +23,6 @@ import './todo.css'
 type Run = (name: string, body?: Record<string, unknown>) => void
 
 // --- one task -------------------------------------------------------------
-
-/**
- * The category heading to draw before a row, or null for none.
- *
- * Reads a field off two adjacent rows; it does not group, sort or filter — the
- * server has already ordered the list so categories are contiguous.
- *
- * Baseline rows never get one: they sort above every category, so a heading over
- * them would claim they belong to one they are only incidentally first in.
- *
- * Uncategorised rows get a heading ONLY when the group actually uses categories.
- * With none set, the whole feature stays invisible — no headings at all over an
- * untouched list. But once there are categories, the uncategorised run has to be
- * labelled: it sorts last, so with no heading of its own it falls under the
- * previous category's and reads as belonging to it.
- */
-function categoryHeadingBefore(tasks: TodoTask[], i: number): string | null {
-  const task = tasks[i]
-  if (!task || task.is_baseline) return null
-
-  const prev = tasks[i - 1]
-  const startsRun = prev === undefined || prev.is_baseline || prev.category !== task.category
-  if (!startsRun) return null
-
-  if (task.category !== null) return task.category
-  return tasks.some((t) => !t.is_baseline && t.category !== null) ? 'Other' : null
-}
 
 function TodoRow({
   task,
@@ -321,27 +294,18 @@ export default function Todo({
                       <p className="todo-group__empty">Nothing here.</p>
                     ) : (
                       <ul className="todo-list">
-                        {tasks.map((task, i) => (
-                          <Fragment key={task.id}>
-                            {(() => {
-                              const heading = categoryHeadingBefore(tasks, i)
-                              return heading === null ? null : (
-                                <li className="todo-cat" aria-hidden="true">
-                                  {heading}
-                                </li>
-                              )
-                            })()}
-                            <TodoRow
-                              task={task}
-                              today={view.today}
+                        {tasks.map((task) => (
+                          <TodoRow
+                            key={task.id}
+                            task={task}
+                            today={view.today}
                             placeable={view.placeable_dates}
                             picking={picking === task.id}
                             onPicking={(o) => setPicking(o ? task.id : null)}
                             onEdit={() => setEditingId(task.id)}
-                              run={run}
-                              locked={locked}
-                            />
-                          </Fragment>
+                            run={run}
+                            locked={locked}
+                          />
                         ))}
                       </ul>
                     )}

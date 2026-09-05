@@ -830,3 +830,42 @@ describe('todo — categories', () => {
     expect(buildTodoView(db).categories).toHaveLength(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// History — columns in the same order as the To do panel, and the day's log.
+// ---------------------------------------------------------------------------
+
+describe('history — columns and log', () => {
+  test('columns order by baseline, then category, then name — as the panel does', () => {
+    // Alphabetically: Aardvark < Brush < Dishes < Zzz. By the real rule the
+    // baseline task leads despite its name, then Dog, then House, then none.
+    addTask({ name: 'Zzz vital', cadence: 'day', is_baseline: true, category: 'Zebra' })
+    addTask({ name: 'Aardvark chore', cadence: 'day', category: 'House' })
+    addTask({ name: 'Brush Ringo', cadence: 'day', category: 'Dog' })
+    addTask({ name: 'Dishes', cadence: 'day' })
+
+    const names = buildHistoryView(db, {}).columns.map((c) => c.name)
+    expect(names).toEqual(['Zzz vital', 'Brush Ringo', 'Aardvark chore', 'Dishes'])
+
+    // And the panel agrees — one comparator, so they cannot drift apart.
+    const panel = groupFor(buildTodoView(db), 'day').tasks.map((t) => t.name)
+    expect(panel).toEqual(names)
+  })
+
+  test('a row carries that day\'s log, and null when there is none', () => {
+    addTask({ name: 'MED', cadence: 'day' })
+    setDay(TODAY, { log: 'Long day.\nThe gate is fixed.' })
+
+    const rows = buildHistoryView(db, {}).rows
+    const todayRow = rows.find((r) => r.date === TODAY)!
+    expect(todayRow.log).toBe('Long day.\nThe gate is fixed.')
+    for (const r of rows.filter((r) => r.date !== TODAY)) expect(r.log).toBeNull()
+  })
+
+  test('an empty log reads as no log, not as an empty entry', () => {
+    addTask({ name: 'MED', cadence: 'day' })
+    setDay(TODAY, { log: '' })
+
+    expect(buildHistoryView(db, {}).rows.find((r) => r.date === TODAY)!.log).toBeNull()
+  })
+})
