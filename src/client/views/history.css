@@ -91,9 +91,15 @@
   border-right: 1px solid var(--border);
 }
 
-/* The corner cell is sticky on both axes, so it outranks everything. */
-.hist-h--date {
+/* The corner cells are sticky on both axes, so they outrank everything.
+   Log is the leftmost column, so it takes left: 0 and Date pins beside it. */
+.hist-h--log {
   left: 0;
+  z-index: 3;
+}
+
+.hist-h--date {
+  left: 34px;
   z-index: 3;
   width: 74px;
   min-width: 74px;
@@ -108,14 +114,24 @@
 
 .hist-row--weekend .hist-cell,
 .hist-row--weekend .hist-mood,
+.hist-row--weekend .hist-log,
 .hist-row--weekend .hist-date {
   background-color: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
 }
 
-/* Sticky date column: which row you are on stays readable while scrolled right. */
-.hist-date {
+/* Sticky left columns: which row you are on — and its log — stay reachable
+   while the grid is scrolled right. */
+.hist-log {
   position: sticky;
   left: 0;
+  z-index: 1;
+  background-color: var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.hist-date {
+  position: sticky;
+  left: 34px;
   z-index: 1;
   width: 74px;
   min-width: 74px;
@@ -152,9 +168,14 @@
 }
 
 /* An empty cell is a fact, not a prompt — it stays quiet and says nothing.
-   A filled one is a solid block: the pattern is the whole point. */
+   A filled one is a solid block: the pattern is the whole point.
+
+   It takes a baseline task's own colour where the column has one, so a
+   completion here matches the colour that task wears on every other screen;
+   the neutral --done otherwise. */
 .hist-cell--on {
-  background-image: linear-gradient(var(--done), var(--done));
+  --cell-colour: var(--task-colour, var(--done));
+  background-image: linear-gradient(var(--cell-colour), var(--cell-colour));
   background-clip: content-box;
   background-origin: content-box;
   background-repeat: no-repeat;
@@ -182,6 +203,7 @@
 .hist-h--log,
 .hist-log {
   width: 34px;
+  min-width: 34px;
   text-align: center;
 }
 

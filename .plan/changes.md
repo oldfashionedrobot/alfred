@@ -10,9 +10,9 @@ An iteration log. Newest first. Each entry records what changed, why, and what i
 
 ### Baseline tasks can be assigned a colour
 
-**What.** A nullable `color` on `tasks`, set in the task editor with a native colour picker or a pasted hex. Where it is set, it paints a left border on the task row and the task's name, on Day and in the To do panel.
+**What.** A nullable `color` on `tasks`, set in the task editor with a native colour picker or a pasted hex. Where it is set, it paints a left border on the task row and the task's name, on Day and in the Routine panel.
 
-**Why.** Day's list already distinguishes the baseline band with a tint and a rule at the band boundary, because `sort()` puts baseline first and the boundary is a real thing to see. The To do panel has no such boundary — baseline tasks sit in the *Today* group among every other daily task, and nothing marks them. A colour is a mark that works in both places without either screen needing to know about bands.
+**Why.** Day's list already distinguishes the baseline band with a tint and a rule at the band boundary, because `sort()` puts baseline first and the boundary is a real thing to see. The Routine panel has no such boundary — baseline tasks sit in the *Today* group among every other daily task, and nothing marks them. A colour is a mark that works in both places without either screen needing to know about bands.
 
 **Baseline only.** The input appears in the editor only when Baseline is ticked, and the colour is ignored on anything else. The stored value survives unticking Baseline rather than being cleared — re-ticking restores it, which is the least destructive behaviour and consistent with a model where nothing is ever deleted. The server enforces this: it ships `color` as null for a non-baseline task, so the client renders what it is given and the rule lives in one place.
 
@@ -30,7 +30,7 @@ An iteration log. Newest first. Each entry records what changed, why, and what i
 
 **Consequence: the `capture` command is deleted.** Its whole justification was one-field discipline, and `create_task` with a name and nothing else already produces exactly a backlog item — no cadence, no date, not baseline. Two commands that now do the same thing is one too many. The capture sheet posts `create_task`.
 
-### Baseline tasks sort to the top of their group in the To do panel
+### Baseline tasks sort to the top of their group in the Routine panel
 
 Ordering inside a panel group was `overdue → placed → unplaced → done`, then name. Baseline is now a key between the band and the name, so baseline tasks head their group.
 
@@ -54,12 +54,12 @@ Two fixes to the v4 rendering.
 
 **Alignment.** The stripe was a `border-left` plus `padding-left`, both of which change the row's box — so a coloured row sat ~11px right of its uncoloured neighbours and the list lost its left edge. It is now an inset `box-shadow`, which paints the same 3px stripe and occupies no space. The overdue mark had already solved this the same way; the colour rule simply did not follow it. A test now asserts that a coloured row and a plain one share an x-coordinate, and so do their ticks.
 
-**Weight.** Baseline tasks render at `font-weight: 600` wherever they appear — Day's list and the To do panel. The band tint on Day and the panel's ordering both say "these come first"; the weight says it without depending on position, which is what the panel needs.
+**Weight.** Baseline tasks render at `font-weight: 600` wherever they appear — Day's list and the Routine panel. The band tint on Day and the panel's ordering both say "these come first"; the weight says it without depending on position, which is what the panel needs.
 
 
 ### The left stripe carries the cadence
 
-Every task row now has a 3px left stripe, on Day and in the To do panel. Its **colour** says whose row it is; its **pattern** says how often the task recurs:
+Every task row now has a 3px left stripe, on Day and in the Routine panel. Its **colour** says whose row it is; its **pattern** says how often the task recurs:
 
 | Cadence | Stripe |
 |---|---|
@@ -103,9 +103,9 @@ Both earlier attempts made the suite report "the drag did nothing" — which rea
 
 ### A `category` field
 
-**What.** A nullable free-text `category` on `tasks`, set in the task editor. In the To do panel, tasks cluster under a category sub-heading inside their period group. The Day list is untouched — it keeps `sort()` exactly as it is.
+**What.** A nullable free-text `category` on `tasks`, set in the task editor. In the Routine panel, tasks cluster under a category sub-heading inside their period group. The Day list is untouched — it keeps `sort()` exactly as it is.
 
-**This reverses a rejection.** `data-model.md` had: *"Category (`category`) — Rejected. Name prefixes carry default grouping."* That argument was that `Dog: Feed Barney 1` groups alphabetically at zero cost in fields, and it is still true as far as it goes. What it missed is that a prefix groups only *within one list*: it does nothing across the six period groups of the To do panel, where a category is exactly the thing that spans them. Prefixes stay — they still order tasks inside a category — so the two mechanisms coexist rather than one replacing the other. No task is renamed.
+**This reverses a rejection.** `data-model.md` had: *"Category (`category`) — Rejected. Name prefixes carry default grouping."* That argument was that `Dog: Feed Barney 1` groups alphabetically at zero cost in fields, and it is still true as far as it goes. What it missed is that a prefix groups only *within one list*: it does nothing across the six period groups of the Routine panel, where a category is exactly the thing that spans them. Prefixes stay — they still order tasks inside a category — so the two mechanisms coexist rather than one replacing the other. No task is renamed.
 
 **Free text, with suggestions.** The editor offers a `datalist` of categories already in use, so the ordinary path is picking an existing one and typing is reserved for a genuinely new category. This is the cheap half of a categories table: it prevents most of the `Dog` / `dog` / `Dogs` drift that free text invites, without a fifth table for something described as a text field. Matching is by exact string, so drift remains possible — it is just no longer the path of least resistance.
 
@@ -119,15 +119,15 @@ Once a group does use categories, uncategorised rows are gathered under **Other*
 
 ### The Backlog panel
 
-One-offs move out of the To do panel into a panel of their own, titled **Backlog**. Both panels are hosted by Day and by Week, both collapse independently.
+One-offs move out of the Routine panel into a panel of their own, titled **Backlog**. Both panels are hosted by Day and by Week, both collapse independently.
 
 It is the same component rendered twice, differing only in which groups it draws — the five period groups, or the one-off group. Splitting was asked for because a single column holding six groups is hard to read; nothing about the model changed, and `GET /api/todo` still returns all six groups in one response.
 
-**Reset to backlog stays in the To do panel only**, keyed off the view's global `has_overdue`. It clears every overdue task including one-off ones. One bulk destructive action, one home — the same reasoning that took it off Day in v3.
+**Reset to backlog stays in the Routine panel only**, keyed off the view's global `has_overdue`. It clears every overdue task including one-off ones. One bulk destructive action, one home — the same reasoning that took it off Day in v3.
 
 ### Fixes found by splitting the panel
 
-**The reset bar counted the wrong half.** `reset_overdue` clears every overdue task in the database, and the control appears whenever the view's global `has_overdue` is set — but after the split, the number printed beside it was tallied over *the groups that panel draws*. Since one-offs are drawn in Backlog, two overdue one-offs made the To do panel offer "Reset to backlog" beneath "0 items are waiting for a day", ask "Clear the day from 0 overdue items?", and then clear both.
+**The reset bar counted the wrong half.** `reset_overdue` clears every overdue task in the database, and the control appears whenever the view's global `has_overdue` is set — but after the split, the number printed beside it was tallied over *the groups that panel draws*. Since one-offs are drawn in Backlog, two overdue one-offs made the Routine panel offer "Reset to backlog" beneath "0 items are waiting for a day", ask "Clear the day from 0 overdue items?", and then clear both.
 
 A bulk destructive action has to name its own reach. The overdue count is now taken over the whole view, exactly as `has_overdue` already was; the header's "not done" count stays panel-scoped, because that one really does label its own panel. The two counts have different scopes on purpose, and the code says why.
 
@@ -159,7 +159,7 @@ One thing worth recording for the next person who measures a colour in a test: `
 
 Rows keep a plain solid left stripe carrying only whose row it is — border grey, overdue, or a baseline task's colour. The dash-count pattern is gone, along with `--stripe-dashes`, `--stripe-gap`, `--stripe-void`, `--stripe-mark`, the six per-cadence rules and the `data-cadence` attribute.
 
-**Why it went.** A pattern has to be counted before it means anything. Four dashes versus five is a deliberate act of reading, on a list whose whole job is being scanned — and the To do panel's group headings already name the cadence in words, immediately above the rows they govern. The stripe was restating, in a form that took longer to read, something the screen already said plainly.
+**Why it went.** A pattern has to be counted before it means anything. Four dashes versus five is a deliberate act of reading, on a list whose whole job is being scanned — and the Routine panel's group headings already name the cadence in words, immediately above the rows they govern. The stripe was restating, in a form that took longer to read, something the screen already said plainly.
 
 The mechanism was sound and the colour work it forced is kept: the stripe is still drawn inside the row's box rather than as a `border`, which is what stops a striped row indenting away from an unstriped one.
 
@@ -182,9 +182,9 @@ Worth noting what this cost: the "Other" heading was itself a fix, added an hour
 
 ## v6 — History gains a log, and colour survives completion
 
-### History columns share the To do panel's order
+### History columns share the Routine panel's order
 
-Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the To do panel also uses for its tie-break.
+Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the Routine panel also uses for its tie-break.
 
 One implementation rather than two, because a column in the grid and a row in the panel are the same task seen twice. Two orderings that are each defensible alone still read as a bug when you notice the same tasks in different sequences on two screens. A unit test asserts the two agree, so they cannot drift.
 
@@ -206,9 +206,9 @@ The strike-through and the filled box already say "done" twice over. Dimming the
 
 ## v6 — History gains a log, and colour survives completion
 
-### History columns share the To do panel's order
+### History columns share the Routine panel's order
 
-Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the To do panel also uses for its tie-break.
+Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the Routine panel also uses for its tie-break.
 
 One implementation rather than two, because a column in the grid and a row in the panel are the same task seen twice. Two orderings that are each defensible alone still read as a bug when the same tasks appear in different sequences on two screens. A unit test asserts the two agree, so they cannot drift.
 
@@ -233,3 +233,11 @@ The strike-through and the filled box already say "done" twice over. Dimming the
 Two sizes rather than one, because scaling in either direction costs something on pixel art: a 32px tab icon downscaled from 180px loses the hard edges that make it legible at that size, and a 180px touch icon upscaled from 32px is worse.
 
 The source is kept out of `src/client/` on purpose. It is 348KB and nothing references it, and anything sitting in the client tree invites being imported by accident.
+
+### History cells wear the task's colour
+
+A filled cell now takes its column's colour where that column is a baseline task with one set, and the neutral done colour otherwise. `HistoryColumn` carries `color`, nulled for anything not baseline — the same rule the other views apply, so the decision stays on the server and in one place.
+
+This is where a colour earns most. The grid is the only screen showing every daily task at once, and a coloured column is findable in a wall of identical squares in a way a name rotated ninety degrees is not.
+
+It completes the set: a colour now follows a task through the Day row, the Routine panel, its tick once ticked, and the grid — so the same task looks like itself everywhere, which is the entire reason for assigning one.

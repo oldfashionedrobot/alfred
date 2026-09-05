@@ -11,7 +11,7 @@ import { test, expect, addDays, type App } from './fixtures.ts'
  * against the API the UI itself talks to.
  *
  * Two things Day used to own are asserted elsewhere now: reset-to-backlog lives
- * in the To do panel and is that suite's business, and the mood set is not
+ * in the Routine panel and is that suite's business, and the mood set is not
  * editable in the app at all.
  */
 
@@ -74,7 +74,7 @@ function plannedDate(app: App, id: number): string | null {
 // Class names are never used.
 //
 // The name itself is plain text here: since v3 nothing on a Day row opens a form,
-// and the task editor lives in the To do panel. See e2e/todo.spec.ts.
+// and the task editor lives in the Routine panel. See e2e/todo.spec.ts.
 
 function activeRegion(page: Page) {
   return page.getByRole('region', { name: 'Active tasks' })
@@ -213,15 +213,15 @@ const untick = (page: Page, name: string) => page.getByRole('checkbox', { name: 
 
 /**
  * The panels Day hosts. Since v5 there are two — one component rendered twice,
- * "To do" drawing the five period groups and "Backlog" the one-off group. Both
+ * "Routine" drawing the five period groups and "Backlog" the one-off group. Both
  * are collapsed here, so their rows are absent until opened, and each collapses
  * on its own. What is inside them is e2e/todo.spec.ts's business.
  */
-type PanelName = 'To do' | 'Backlog'
-const panel = (page: Page, name: PanelName = 'To do') =>
+type PanelName = 'Routine' | 'Backlog'
+const panel = (page: Page, name: PanelName = 'Routine') =>
   page.getByRole('region', { name, exact: true })
-/** Anchored at the start: the toggle's name carries a count ("To do 2 not done"). */
-const panelToggle = (page: Page, name: PanelName = 'To do') =>
+/** Anchored at the start: the toggle's name carries a count ("Routine 2 not done"). */
+const panelToggle = (page: Page, name: PanelName = 'Routine') =>
   panel(page, name).getByRole('button', { name: new RegExp(`^${name}`, 'i') })
 
 /** The reschedule picker on one overdue row. Its days come from view.placeable_dates. */
@@ -618,7 +618,7 @@ test('a daily task with a past planned_date is never overdue', async ({ page, ap
 })
 
 /**
- * Reset to backlog is NOT here. It lives in the To do panel and only there —
+ * Reset to backlog is NOT here. It lives in the Routine panel and only there —
  * one control, reachable from both hosts, instead of the two Day and Week each
  * grew. Its behaviour is asserted in the panel's own suite.
  */
@@ -767,7 +767,7 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
  * Since v3 nothing on a Day row opens a form. The list is for doing: every tap
  * on it is made mid-task while working through the day, and a definition sheet
  * arriving from a mis-tap is the opposite of cheap. Editing is a name-tap in the
- * To do panel — covered in e2e/todo.spec.ts.
+ * Routine panel — covered in e2e/todo.spec.ts.
  */
 test('no row in the Day list opens an editor', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })
@@ -928,7 +928,7 @@ test('the mood row and the panel are frozen while reordering', async ({ page, ap
 })
 
 // ---------------------------------------------------------------------------
-// The To do and Backlog panels, hosted here
+// The Routine and Backlog panels, hosted here
 // ---------------------------------------------------------------------------
 
 /**
@@ -954,7 +954,7 @@ test('both panels are hosted here, collapsed, holding what Day does not show', a
   expect(inventory(await todoView(app), 'Grocery run')!.effective_date).toBeNull()
   expect(inventory(await todoView(app), 'Call the vet')!.effective_date).toBeNull()
 
-  for (const name of ['To do', 'Backlog'] as const) {
+  for (const name of ['Routine', 'Backlog'] as const) {
     await expect(panel(page, name)).toHaveCount(1)
     await expect(panelToggle(page, name)).toHaveAttribute('aria-expanded', 'false')
   }
@@ -963,10 +963,10 @@ test('both panels are hosted here, collapsed, holding what Day does not show', a
 
   // Each opens on its own: the period groups are in one panel, the one-off
   // group in the other, and opening one does not open the other.
-  await panelToggle(page, 'To do').click()
-  await expect(panelToggle(page, 'To do')).toHaveAttribute('aria-expanded', 'true')
+  await panelToggle(page, 'Routine').click()
+  await expect(panelToggle(page, 'Routine')).toHaveAttribute('aria-expanded', 'true')
   await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'false')
-  await expect(panel(page, 'To do').getByText('Grocery run')).toBeVisible()
+  await expect(panel(page, 'Routine').getByText('Grocery run')).toBeVisible()
   await expect(page.getByText('Call the vet')).toHaveCount(0)
 
   await panelToggle(page, 'Backlog').click()

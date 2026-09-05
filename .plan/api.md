@@ -189,7 +189,11 @@ interface HistoryView {
   next_before: ISODate | null      // null when exhausted
 }
 
-interface HistoryColumn { task_id: number; name: string }
+interface HistoryColumn {
+  task_id: number
+  name: string
+  color: string | null             // '#rrggbb'. NULL unless the task is baseline
+}
 
 interface HistoryRow {
   date: ISODate
@@ -199,7 +203,7 @@ interface HistoryRow {
 }
 ```
 
-`columns` are ordered by baseline, then category, then name — the same comparator the To do panel uses for its tie-break, so the two screens cannot show the same tasks in different orders.
+`columns` are ordered by baseline, then category, then name — the same comparator the Routine panel uses for its tie-break, so the two screens cannot show the same tasks in different orders.
 
 `log` carries the entry itself rather than a flag, so the client can open it without a second request. `set_log` already stores `""` as `null`, so an empty entry is not a state this has to express.
 
@@ -209,7 +213,7 @@ Rows cover every date in the range, including days with nothing recorded — a g
 
 ### `GET /api/todo`
 
-The To do panel. Fetched by Day and by Week, which host the same panel and render this model identically.
+The Routine panel. Fetched by Day and by Week, which host the same panel and render this model identically.
 
 ```ts
 interface TodoView {
@@ -273,7 +277,7 @@ then       name, alphabetical
 
 This is *not* `sortTasks()`: there is no `days.task_order`, which belongs to Day's list.
 
-**One response, two panels.** The client renders this model twice — the five period groups as **To do**, the one-off group as **Backlog** — because six groups in one column is hard to read. The split is entirely a client concern: this endpoint still returns all six groups, in cadence order, and knows nothing about it.
+**One response, two panels.** The client renders this model twice — the five period groups as **Routine**, the one-off group as **Backlog** — because six groups in one column is hard to read. The split is entirely a client concern: this endpoint still returns all six groups, in cadence order, and knows nothing about it.
 
 `categories` exists for the task editor's suggestion list. Free text matched exactly means `Dog` and `dog` are two categories; suggesting the existing ones is what makes that unlikely rather than impossible.
 
@@ -384,7 +388,7 @@ isOverdue(task: Task, completions: Completion[], today: ISODate): boolean
 | `year` | `2026` | 1 Jan | 31 Dec |
 | `null` | `once` | `null` — unbounded | `null` — unbounded |
 
-`periodEnd` exists only to label the To do panel's groups. Pure and testable like the rest, and it keeps the client from ever needing to know that September has thirty days.
+`periodEnd` exists only to label the Routine panel's groups. Pure and testable like the rest, and it keeps the client from ever needing to know that September has thirty days.
 
 **Weeks run Sunday to Saturday**, and the week key is that Sunday's date, never an ISO week number.
 

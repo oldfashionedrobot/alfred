@@ -184,7 +184,7 @@ The defects are concentrated at the seams between agents, not inside any one age
 
 The findings above were mostly *repairs*. The redesign that followed removes more code than the repairs add, because it deletes surfaces rather than fixing them. Recorded here so the deletions are deliberate and reversible.
 
-### What the To do panel replaces
+### What the Routine panel replaces
 
 | Deleted | Why it goes |
 |---|---|
@@ -212,7 +212,7 @@ The stale `placeable_dates` cache in `Day.tsx` — the `useRef`, the `getWeek()`
 
 ### Net
 
-The redesign is not additive. The To do panel is one new view builder, one new endpoint and one new component; against it, three Week sections, a duplicated bulk action, a 227-line manager panel, four commands, an endpoint and a stale cache all go. The client's own review put ~1,250 of ~3,450 lines as removable *before* any of this; the redesign takes a further several hundred, and takes them from the places that were carrying real behaviour rather than duplicated CSS.
+The redesign is not additive. The Routine panel is one new view builder, one new endpoint and one new component; against it, three Week sections, a duplicated bulk action, a 227-line manager panel, four commands, an endpoint and a stale cache all go. The client's own review put ~1,250 of ~3,450 lines as removable *before* any of this; the redesign takes a further several hundred, and takes them from the places that were carrying real behaviour rather than duplicated CSS.
 
 ### Still to do from the findings above
 

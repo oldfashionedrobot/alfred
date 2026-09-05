@@ -412,3 +412,39 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
     'Dishes',
   ])
 })
+
+/**
+ * A filled cell takes the task's colour where the column has one, so a
+ * completion reads the same here as it does in the Day list and the panel.
+ */
+test('a filled cell wears the baseline task\'s colour, and a plain one does not', async ({
+  page,
+  app,
+}) => {
+  const post = (name: string, extra: Record<string, unknown>) =>
+    fetch(`${app.url}/api/commands/create_task`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, cadence: 'day', ...extra }),
+    })
+  await post('MED', { is_baseline: true, color: '#c2410c' })
+  await post('Zebra', {})
+
+  // Tick both from the Day list so the completions are real.
+  await page.goto(app.url)
+  for (const name of ['MED', 'Zebra']) {
+    await page.getByRole('checkbox', { name: `Complete ${name}` }).click()
+    await expect(page.getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
+  }
+
+  await page.getByRole('button', { name: /^history$/i }).click()
+  const cells = page.locator('.hist-cell--on')
+  await expect(cells).toHaveCount(2)
+
+  const painted = await cells.evaluateAll((els) =>
+    els.map((el) => getComputedStyle(el).backgroundImage),
+  )
+  // Column order puts the baseline task first.
+  expect(painted[0]).toContain('rgb(194, 65, 12)')
+  expect(painted[1]).not.toContain('rgb(194, 65, 12)')
+})

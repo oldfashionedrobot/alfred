@@ -869,3 +869,18 @@ describe('history — columns and log', () => {
     expect(buildHistoryView(db, {}).rows.find((r) => r.date === TODAY)!.log).toBeNull()
   })
 })
+
+describe('history — column colour', () => {
+  test('a baseline column carries its colour; a non-baseline one never does', () => {
+    addTask({ name: 'MED', cadence: 'day', is_baseline: true, color: '#c2410c' })
+    // Same colour stored, but not baseline — the view must not ship it.
+    addTask({ name: 'Zebra', cadence: 'day', is_baseline: false, color: '#c2410c' })
+    addTask({ name: 'Plain', cadence: 'day', is_baseline: true })
+
+    const cols = buildHistoryView(db, {}).columns
+    const by = (n: string) => cols.find((c) => c.name === n)!
+    expect(by('MED').color).toBe('#c2410c')
+    expect(by('Zebra').color).toBeNull()
+    expect(by('Plain').color).toBeNull()
+  })
+})

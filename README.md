@@ -6,7 +6,7 @@ The design is specified in [`.plan/`](.plan/) — read those before changing beh
 
 | Doc | What it settles |
 |---|---|
-| [`review-findings.md`](.plan/review-findings.md) | What the first build got wrong, and why the To do panel exists |
+| [`review-findings.md`](.plan/review-findings.md) | What the first build got wrong, and why the Routine panel exists |
 | [`changes.md`](.plan/changes.md) | The iteration log — every change since, and what it reversed |
 | [`data-model.md`](.plan/data-model.md) | The four tables, and how every state is derived rather than stored |
 | [`views.md`](.plan/views.md) | The three screens and every gesture on them |
@@ -79,7 +79,7 @@ src/
     period.ts          all period derivation
     sort.ts            the one ordering function
     today.ts           the only clock read in the codebase
-    views/             one builder per screen, plus the To do panel
+    views/             one builder per screen, plus the Routine panel
     commands.ts        every named gesture
     routes.ts          GET a view model, POST a command
   client/
@@ -87,7 +87,7 @@ src/
     api.ts             typed fetch, the client's only I/O
     dates.ts           the one date formatter
     ui.tsx             shared primitives: button, tick, day picker, notice
-    views/             Day, Week, History, and the To do panel they host
+    views/             Day, Week, History, and the Routine panel they host
 assets/                source art, not bundled
 tests/                 period logic and view builders
 e2e/                   Playwright, one server + one database per test
@@ -98,7 +98,7 @@ drizzle/               generated migrations
 
 **Two endpoint kinds, no CRUD.** `GET /api/{day,week,todo,history}` returns a view model. `POST /api/commands/<name>` returns `{ ok: true }` and the client refetches. There is no `GET /api/tasks`.
 
-**The To do and Backlog panels are one view, hosted by two screens.** Day and Week each fetch their own model plus `/api/todo`. Together they are the complete inventory — every active task, grouped by cadence, each group labelled with its current period. **To do** draws the five recurring groups and **Backlog** the one-offs; it is one component rendered twice, and the endpoint knows nothing about the split. It exists because a period task you never placed used to appear on no screen you look at daily.
+**The Routine and Backlog panels are one view, hosted by two screens.** Day and Week each fetch their own model plus `/api/todo`. Together they are the complete inventory — every active task, grouped by cadence, each group labelled with its current period. **Routine** draws the five recurring groups and **Backlog** the one-offs; it is one component rendered twice, and the endpoint knows nothing about the split. It exists because a period task you never placed used to appear on no screen you look at daily.
 
 **A row's left stripe says two things.** Its pattern is the cadence — solid for daily, two dashes weekly, three monthly, four quarterly, five yearly, one short mark for a one-off. Its colour is the task's own, if it is baseline and has one; overdue recolours the same stripe rather than adding a second mark.
 
@@ -114,9 +114,9 @@ Each of these is deliberate and argued in `.plan/`. Read before "fixing".
 - **A weekly task completed Tuesday stays in Day's completed section all week.** "Done" means the period is satisfied, not that it happened today.
 - **Overdue means "needs a new day", not "late".** Nothing in this system is late.
 - **Nothing is ever deleted.** Removal is `active = false`, on tasks and on moods alike. The one row that is deleted is a completion, when something is unticked.
-- **A completed task leaves the Day screen the next day**, but stays struck through in the To do panel for the rest of its period. Day answers "what now?"; the panel answers "is this month's deep clean done?"
+- **A completed task leaves the Day screen the next day**, but stays struck through in the Routine panel for the rest of its period. Day answers "what now?"; the panel answers "is this month's deep clean done?"
 - **The moods are not editable in the app.** That is a decision, not an omission — see above.
-- **A baseline task never appears under its own category** in the To do panel. Baseline outranks category on purpose, so baselines stay an unheaded block at the top of their group — which means a category heading does not list everything in that category.
+- **A baseline task never appears under its own category** in the Routine panel. Baseline outranks category on purpose, so baselines stay an unheaded block at the top of their group — which means a category heading does not list everything in that category.
 - **`Dog` and `dog` are two categories.** Category is free text matched exactly; the editor suggests existing ones so picking beats retyping, but nothing normalises them.
 - **`planned_date` can never be set beyond this Saturday.** Forward is bounded; backward is not.
 

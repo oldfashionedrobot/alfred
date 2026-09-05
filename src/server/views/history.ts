@@ -44,6 +44,9 @@ export function buildHistoryView(
   const columns: HistoryColumn[] = [...daily].sort(byBaselineCategoryName).map((t) => ({
     task_id: t.id,
     name: t.name,
+    // Baseline only, the same rule the other views apply — so the grid's filled
+    // cells match the colour that task wears everywhere else.
+    color: t.is_baseline ? t.color : null,
   }))
 
   // Paging stops at the earliest recorded anything; there is no history before it.

@@ -176,15 +176,6 @@ export default function Day() {
         <h1 className="day-date">{longDate(view.date)}</h1>
       </header>
 
-      <MoodAndLog
-        view={view}
-        // Frozen during a reorder: a mood tap refetches, and the id list would
-        // then be reconciled against a new model by dropping rows (D7).
-        disabled={busy || reordering}
-        onSetMood={(slug) => run('set_mood', { slug })}
-        onSetLog={(text) => run('set_log', { text })}
-      />
-
       <section className="day-section" aria-label="Active tasks">
         <div className="day-section-bar">
           <h2 className="day-h2">Today</h2>
@@ -284,6 +275,15 @@ export default function Day() {
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
         defaultOpen={false}
         busy={busy || reordering}
+      />
+
+      <MoodAndLog
+        view={view}
+        // Frozen during a reorder: a mood tap refetches, and the id list would
+        // then be reconciled against a new model by dropping rows (D7).
+        disabled={busy || reordering}
+        onSetMood={(slug) => run('set_mood', { slug })}
+        onSetLog={(text) => run('set_log', { text })}
       />
 
       <button

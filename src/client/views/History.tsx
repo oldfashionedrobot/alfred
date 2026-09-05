@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { HistoryColumn, HistoryRow, ISODate } from '../../shared/types.ts'
 import { errorText, getHistory } from '../api.ts'
 import { longDate, shortDate, weekday } from '../dates.ts'
@@ -94,14 +94,14 @@ export default function History() {
           <table className="hist-grid">
             <thead>
               <tr>
+                <th scope="col" className="hist-h hist-h--log">
+                  <span className="hist-h__rot">Log</span>
+                </th>
                 <th scope="col" className="hist-h hist-h--date">
                   Date
                 </th>
                 <th scope="col" className="hist-h hist-h--mood">
                   <span className="hist-h__rot">Mood</span>
-                </th>
-                <th scope="col" className="hist-h hist-h--log">
-                  <span className="hist-h__rot">Log</span>
                 </th>
                 {/* Rotated and clipped to fit, but the full name is the cell's
                     text, so it is the column's accessible name in every row. */}
@@ -120,16 +120,6 @@ export default function History() {
                     key={row.date}
                     className={dow === 0 || dow === 6 ? 'hist-row hist-row--weekend' : 'hist-row'}
                   >
-                    <th scope="row" className="hist-date">
-                      {shortDate(row.date)}
-                    </th>
-                    <td className="hist-mood">
-                      {row.mood && (
-                        <span aria-label={row.mood.label} role="img">
-                          {row.mood.emoji}
-                        </span>
-                      )}
-                    </td>
                     {/* A journal entry is prose and will not fit a grid cell, so
                         the column says only whether there is one and opens it on
                         demand. A day with no entry gets nothing to click, not a
@@ -146,12 +136,27 @@ export default function History() {
                         </button>
                       )}
                     </td>
+                    <th scope="row" className="hist-date">
+                      {shortDate(row.date)}
+                    </th>
+                    <td className="hist-mood">
+                      {row.mood && (
+                        <span aria-label={row.mood.label} role="img">
+                          {row.mood.emoji}
+                        </span>
+                      )}
+                    </td>
                     {columns.map((col) => {
                       const done = row.completed.includes(col.task_id)
                       return (
                         <td
                           key={col.task_id}
                           className={done ? 'hist-cell hist-cell--on' : 'hist-cell'}
+                          style={
+                            done && col.color
+                              ? ({ '--task-colour': col.color } as CSSProperties)
+                              : undefined
+                          }
                         >
                           {done && <span className="sr">done</span>}
                         </td>

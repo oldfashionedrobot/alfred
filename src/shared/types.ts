@@ -173,6 +173,8 @@ export const TODO_GROUPS: ReadonlyArray<{ cadence: Cadence | null; title: string
 export interface HistoryColumn {
   task_id: number
   name: string
+  /** '#rrggbb'. Null unless the task is baseline — the server decides. */
+  color: string | null
 }
 
 export interface HistoryRow {

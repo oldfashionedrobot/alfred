@@ -31,20 +31,20 @@ v2 folds in the pre-build clarification round: `mood` becomes a categorical set 
 | `cadence` | enum, nullable | `day` \| `week` \| `month` \| `quarter` \| `year`. **Null means one-off.** |
 | `planned_date` | date, nullable | soft intention — the day this is meant to land on |
 | `color` | text, nullable | `#rrggbb`. Baseline tasks only — see below |
-| `category` | text, nullable | free text. Groups tasks inside the To do panel |
+| `category` | text, nullable | free text. Groups tasks inside the Routine panel |
 | `active` | bool | false = archived, retired from all current views, history preserved |
 
 Eight fields. One nullable enum carries all recurrence — there is no second cadence field and no branch in the due calculation.
 
 **`color` is the one purely presentational field.** Every other field here is an observation or an intention; this one exists only to be looked at. It earns its place by the same rule as the rest — it appears on a screen — but it is the first where appearing is the whole job, so it is worth naming rather than letting it pass unnoticed.
 
-It applies to **baseline tasks only**. Day's list already separates the baseline band with a rule at the boundary; the To do panel has no bands, so baseline tasks sit unmarked among every other daily task there. A colour marks them in both places without either screen needing to understand bands.
+It applies to **baseline tasks only**. Day's list already separates the baseline band with a rule at the boundary; the Routine panel has no bands, so baseline tasks sit unmarked among every other daily task there. A colour marks them in both places without either screen needing to understand bands.
 
 The value survives a task ceasing to be baseline rather than being cleared, so re-ticking the flag restores it. Views ship `color` as null for anything not baseline, which keeps the rule on the server and leaves the client rendering what it is given.
 
 **`category` is free text, matched exactly.** No table, no enum, no normalisation — the editor suggests categories already in use so that picking an existing one is easier than retyping it, which is the cheap half of a categories table. `Dog` and `dog` are two categories; that is a known cost, accepted rather than solved.
 
-Like `color`, it is presentational in effect but not in kind: it changes how the To do panel groups, which is a real organising fact about a task rather than a mark on it.
+Like `color`, it is presentational in effect but not in kind: it changes how the Routine panel groups, which is a real organising fact about a task rather than a mark on it.
 
 **Backlog items are tasks with `cadence = null`.** No separate table.
 
@@ -248,7 +248,7 @@ These distinctions carry weight in the model and shouldn't be used loosely.
 | **Baseline** | Flag on a daily task. The bare minimum to function. |
 | **Cadence** | How often a task recurs. Null means one-off. |
 | **Backlog** | One-offs with no `planned_date`. **Only one-offs are ever in the backlog.** |
-| **Unplaced** | No effective date — either never placed, or placed in a period now past. Still due; just has no day. A model term, not a screen: the To do panel shows such a task as simply having no day against it. |
+| **Unplaced** | No effective date — either never placed, or placed in a period now past. Still due; just has no day. A model term, not a screen: the Routine panel shows such a task as simply having no day against it. |
 | **Planned** | Has an effective date. Non-binding. |
 | **Overdue** | Effective date in the past, not done. Means *needs a new day*, not *late*. |
 | **Placing** | Assigning a day to something. The only scheduling gesture in the system. |
@@ -272,8 +272,8 @@ All closed by rejection.
 | Completion timestamp (`created_at`) | Rejected. Speculative metadata. |
 | Completion surrogate key (`id`) | Rejected. `(task_id, completed_on)` is the natural key and gives idempotency. |
 | Task creation date (`created_at`) | Rejected. Backlog age is not a signal — a task is either still relevant or gets archived. |
-| Category (`category`) | ~~Rejected. Name prefixes carry default grouping.~~ **Reversed in v5.** A prefix groups within one list; it does nothing across the To do panel's six period groups, which is exactly where a category is wanted. Prefixes stay and still order tasks inside a category. |
-| `color` on every task | Rejected. Baseline only — the problem it solves is that baseline tasks are unmarked in the To do panel. A palette across the whole list is a different feature nobody asked for. |
+| Category (`category`) | ~~Rejected. Name prefixes carry default grouping.~~ **Reversed in v5.** A prefix groups within one list; it does nothing across the Routine panel's six period groups, which is exactly where a category is wanted. Prefixes stay and still order tasks inside a category. |
+| `color` on every task | Rejected. Baseline only — the problem it solves is that baseline tasks are unmarked in the Routine panel. A palette across the whole list is a different feature nobody asked for. |
 | Clearing `color` when Baseline is unticked | Rejected. Keeping it makes unticking non-destructive and re-ticking free. Nothing renders it in the meantime. |
 | Contrast-adjusting the chosen colour | Rejected. The swatch should not lie about what will render. An unreadable pick is visible instantly and fixed by picking again. |
 | `sort_order` on tasks | Rejected. Per-day `days.task_order` covers the real need. |

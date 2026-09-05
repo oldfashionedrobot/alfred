@@ -41,6 +41,9 @@
 
 /* --- mood and log ------------------------------------------------------- */
 
+/* Sits at the FOOT of the day now, under the panels, so the tasks are the
+   first thing on screen. It no longer has to be tiny to stay out of the way —
+   but it stays compact anyway, because a day's mood is one tap and a line. */
 .day-mood {
   background: var(--surface);
   border: 1px solid var(--border);

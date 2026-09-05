@@ -5,7 +5,7 @@ Companion to `data-model.md`.
 
 v2 pinned down the gestures the v1 draft left implicit, and narrowed Day and Week to the present: Day is today, Week is this week, and nothing writes to a past date.
 
-v3 adds the **To do panel** and removes two things. The panel is a complete inventory of every active task, hosted by both Day and Week, and it exists because the first build made a real problem visible: a period task you never placed appeared on no screen you look at daily, so skipping one planning session made a weekly task vanish for a week. The panel absorbs Week's Overdue, Unplaced and Backlog sections, which are now three views of a list it already holds. The mood manager is removed entirely.
+v3 adds the **Routine panel** and removes two things. The panel is a complete inventory of every active task, hosted by both Day and Week, and it exists because the first build made a real problem visible: a period task you never placed appeared on no screen you look at daily, so skipping one planning session made a weekly task vanish for a week. The panel absorbs Week's Overdue, Unplaced and Backlog sections, which are now three views of a list it already holds. The mood manager is removed entirely.
 
 ---
 
@@ -21,10 +21,10 @@ Plus one panel, hosted by two of them:
 
 | Panel | Purpose | Where |
 |---|---|---|
-| **To do** | Everything that recurs | Inside Day and inside Week |
+| **Routine** | Everything that recurs | Inside Day and inside Week |
 | **Backlog** | Everything that does not | Inside Day and inside Week |
 
-Things that are deliberately *not* views: the To do panel is a panel, not a fourth destination. Task editing opens from the To do panel — tap a name there. Capture is a button, not a destination. The mood set is not editable in the app at all.
+Things that are deliberately *not* views: the Routine panel is a panel, not a fourth destination. Task editing opens from the Routine panel — tap a name there. Capture is a button, not a destination. The mood set is not editable in the app at all.
 
 **All three views are anchored to now.** Day is today, Week is the current week, History is a read-only record. Nothing navigates to another day or another week, and nothing writes to a past date. Falling behind is handled by overdue items surfacing on today's list, not by going back to fix yesterday.
 
@@ -57,13 +57,9 @@ The doing surface, and 95% of usage.
 
 **1. Date header.**
 
-**2. Mood and log — compact.** A single row of mood glyphs — one tap each, one selectable at a time — and a collapsed one-line log field that expands on tap. Tapping the selected mood clears it. Never prompted, never required, editable at any point in the day. It sits above the tasks, so it must stay small; a block you scroll past every time would be friction on the most-used screen.
+**2. Active tasks.** One flat list, `sort()` applied. Baseline first. **Nothing on a row opens a form** — the tick completes it, and the name is text. Editing is a tap in the Routine panel below.
 
-The row renders every `active` mood in `sort_order`. There is no way to edit the mood set from the app — see *Moods are data, not a feature* below.
-
-**3. Active tasks.** One flat list, `sort()` applied. Baseline first. **Nothing on a row opens a form** — the tick completes it, and the name is text. Editing is a tap in the To do panel below.
-
-Every row carries a left stripe whose pattern is its cadence, and a baseline task with a colour set paints that stripe and its own name in that colour. See *Colour* under **To do**.
+Every row carries a left stripe whose pattern is its cadence, and a baseline task with a colour set paints that stripe and its own name in that colour. See *Colour* under **Routine**.
 
 A **reorder toggle** puts the list into an edit state where rows are **dragged** into place. The whole row is the handle: in this state nothing else on a row is interactive — no tick, no name — so there is nothing for a drag to be confused with, and no small grip to aim at on a phone. The reordering happens locally while the edit state is open; this is the one moment the client rearranges a list rather than rendering the order it was given. Leaving the edit state writes `days.task_order` for today.
 
@@ -73,13 +69,19 @@ Reordering is keyboard-operable: focus a row, space to lift, arrows to move, spa
 
 An earlier version of this document rejected drag-and-drop as "a large amount of fragile code for a small gain", with ↑/↓ buttons instead. That was written before the gesture existed and turned out to be wrong in both halves: a library carries the fragile parts, and moving a task more than one position with buttons is worse than it sounds on a seventeen-item list.
 
-**4. Completed.** A section at the bottom. Struck through, `sort()` applied within the section. Tapping a completed item unticks it and returns it to the active list.
+**3. Completed.** A section at the bottom. Struck through, `sort()` applied within the section. Tapping a completed item unticks it and returns it to the active list.
 
-**A completed task stays here for the day you ticked it, and no longer.** A weekly task ticked Wednesday is gone from Day by Thursday; a yearly task ticked in January is gone by the next day. It has not disappeared — the To do panel shows it struck through for the rest of its period, which is where the question "is this week's vacuuming done?" is now answered. Keeping it in Day's completed section for a whole period was considered and rejected: it is correct for a weekly task and absurd for a yearly one, and no cadence-dependent cap is worth a branch in the one calculation `data-model.md` keeps branch-free.
+**A completed task stays here for the day you ticked it, and no longer.** A weekly task ticked Wednesday is gone from Day by Thursday; a yearly task ticked in January is gone by the next day. It has not disappeared — the Routine panel shows it struck through for the rest of its period, which is where the question "is this week's vacuuming done?" is now answered. Keeping it in Day's completed section for a whole period was considered and rejected: it is correct for a weekly task and absurd for a yearly one, and no cadence-dependent cap is worth a branch in the one calculation `data-model.md` keeps branch-free.
 
 Unticking is why this matters structurally rather than cosmetically. A task that is not on the screen cannot be corrected, and Week cannot correct it either — the day it was placed on is in the past, and past days are read-only. That is the whole reason *anything ticked today* is a membership rule below.
 
-**5. To do and Backlog panels.** Both collapsed by default — see *To do*. On Day they are deliberately secondary: the list above them is arranged for doing, and they are there for the moment you ask "what else is there?"
+**4. Routine and Backlog panels.** Both collapsed by default — see *Routine*. On Day they are deliberately secondary: the list above them is arranged for doing, and they are there for the moment you ask "what else is there?"
+
+**5. Mood and log — compact.** A single row of mood glyphs — one tap each, one selectable at a time — and a collapsed one-line log field that expands on tap. Tapping the selected mood clears it. Never prompted, never required, editable at any point in the day.
+
+It sits at the foot of the day, under the panels. It began at the top, above the tasks, on the reasoning that it had to be small enough not to be scrolled past on the most-used screen — which was solving the wrong problem. The tasks are what the screen is for, so they go first, and the mood belongs where the day is being closed out rather than where it is being worked. It stays compact regardless: a mood is one tap and a log is one line.
+
+The row renders every `active` mood in `sort_order`. There is no way to edit the mood set from the app — see *Moods are data, not a feature* below.
 
 **6. Capture.** A `+` that creates a backlog item — no cadence, no date — from anywhere in the view. This is the replacement for the Keep lists, and it has to be one tap or things will pile up somewhere else instead.
 
@@ -96,11 +98,11 @@ The fourth rule is small and load-bearing. Without it, ticking an overdue task r
 
 A date in the future is not a member: tomorrow's plan is not today's business.
 
-Note what is *not* here: a period task with no day. "Grocery run" with no date appears on no day's list, by design — but it is always in the To do panel, which is what stops it going a week unseen.
+Note what is *not* here: a period task with no day. "Grocery run" with no date appears on no day's list, by design — but it is always in the Routine panel, which is what stops it going a week unseen.
 
 Overdue items fold into the same flat list — not hidden, not moved to a separate screen — but visually marked, asking for a decision. Three resolutions, each one action: complete it, reschedule it, or unplan it.
 
-**Reset to backlog** lives in the To do panel, and only there — one control, reachable from both hosts. It clears `planned_date` on every overdue item at once, and never touches days still ahead. It was briefly on both Day and Week as two separate controls, which is one more than a bulk destructive action should have.
+**Reset to backlog** lives in the Routine panel, and only there — one control, reachable from both hosts. It clears `planned_date` on every overdue item at once, and never touches days still ahead. It was briefly on both Day and Week as two separate controls, which is one more than a bulk destructive action should have.
 
 ---
 
@@ -117,7 +119,7 @@ The planning surface. Seven day sections plus the backlog.
 Two things, and nothing else:
 
 - **The seven days** — whatever has been placed on each.
-- **The To do panel** — everything there is. Expanded by default here, because on this screen it *is* the planning surface.
+- **The Routine panel** — everything there is. Expanded by default here, because on this screen it *is* the planning surface.
 
 **Daily tasks never appear in the seven days.** They are implicit on every day and would be pure noise in a plan. They do appear in the panel, which is how you can still tick one off without leaving this screen.
 
@@ -137,7 +139,7 @@ Two constraints the interface must enforce, because the model does not derive th
 
 ---
 
-## To do
+## Routine
 
 The complete inventory. One panel, hosted by both Day and Week, identical in both — same contents, same actions, same order. Collapsed by default on Day, expanded on Week, side by side with its host on wide screens.
 
@@ -149,7 +151,7 @@ The panel is rendered twice from one `GET /api/todo`:
 
 | Panel | Groups |
 |---|---|
-| **To do** | Today, This week, This month, This quarter, This year |
+| **Routine** | Today, This week, This month, This quarter, This year |
 | **Backlog** | One-off |
 
 Same component, same rows, same actions, same ordering — they differ only in which groups they draw, and they collapse independently. The split exists because six groups in one column is hard to read; nothing about the model changed.
@@ -187,7 +189,7 @@ The stripe must not move the row. It is drawn inside the row's own box, so a col
 
 **Every row has a plain solid stripe on its left edge**, carrying only whose row it is: the border grey by default, the overdue colour when a task needs a new day, and a baseline task's own colour when it has one.
 
-The stripe briefly encoded the cadence too, as a dash count — solid for daily, two dashes for weekly, up to five for yearly. That is removed. A pattern has to be *counted* before it means anything, which is the wrong demand to make of a list you scan, and the To do panel's group headings already say the cadence in words directly above the rows.
+The stripe briefly encoded the cadence too, as a dash count — solid for daily, two dashes for weekly, up to five for yearly. That is removed. A pattern has to be *counted* before it means anything, which is the wrong demand to make of a list you scan, and the Routine panel's group headings already say the cadence in words directly above the rows.
 
 **Baseline tasks are also set in a heavier weight**, colour or no colour. Day marks the band by position and a tint; the panel has no bands, so weight is what carries "the bare minimum to function" there.
 
@@ -244,7 +246,7 @@ Every task action in the system lives here, and every one is available from both
 - **Complete / untick** — always writes today, from either screen. Ticking a daily off the panel while looking at Week is legitimate and works.
 - **Place** — assign a day, from the picker the server supplies.
 - **Unplan** — clear the date.
-- **Reset to backlog** — clear `planned_date` on every overdue item at once, including one-off ones. Overdue only; never days still ahead. It lives in the **To do** panel and nowhere else, even though it reaches tasks drawn in Backlog: one bulk destructive action, one home.
+- **Reset to backlog** — clear `planned_date` on every overdue item at once, including one-off ones. Overdue only; never days still ahead. It lives in the **Routine** panel and nowhere else, even though it reaches tasks drawn in Backlog: one bulk destructive action, one home.
 - **Edit** — tap a name to open the task editor. **This is the only place a task is edited.** Name, cadence, baseline flag, and Archive.
 
   Editing lives here rather than on Day's list because the two lists answer different questions. Day's list is for *doing*: every tap on it is made mid-task, one-handed, while working through the day, and the whole surface is tuned so a tap is cheap. Opening a definition form from a mis-tap on that surface is the opposite of cheap — it is a modal sheet in the way of the thing you were doing. The panel is where you go to think about what the tasks *are*, so the editor belongs to it. It also comes free on Week, since the panel is hosted there too.
@@ -257,13 +259,15 @@ The grid the current spreadsheet does well, and the main thing every off-the-she
 
 **v1 is deliberately minimal:**
 
-- Dates down, most recent first; every `active` daily task across; filled cells for completions
+- Dates down, most recent first; every `active` daily task across; filled cells for completions, in the task's own colour where it has one
 - A mood column showing that day's emoji, blank where none was recorded
 - A log column: a control on days that have a journal entry, opening it; nothing on days that do not
 - Read-only — nothing in the system writes to a past date, so there is nothing here to edit
 - Scrolls back through whatever exists; no filters, no range picker, no streak counts
 
-**Columns are ordered exactly as the To do panel orders its rows** — baseline, then category, then name — from one shared comparator. A column in the grid and a row in the panel are the same task seen twice, and finding them in different orders reads as a bug even when each order is defensible alone.
+**Columns are ordered exactly as the Routine panel orders its rows** — baseline, then category, then name — from one shared comparator. A column in the grid and a row in the panel are the same task seen twice, and finding them in different orders reads as a bug even when each order is defensible alone.
+
+**A filled cell wears the task's colour**, where that column is a baseline task with one set, and the neutral done colour otherwise. The grid is where a colour earns most: it is the one screen showing every daily task at once, and a coloured column is findable in a wall of identical squares in a way a name rotated ninety degrees is not.
 
 **The log opens rather than inlining.** A journal entry is prose and will not fit a grid cell, so the column carries only whether there is one. A day without an entry gets nothing to click rather than a disabled control — the absence is the information. The entry's own line breaks survive when it opens; they belong to whoever wrote it.
 
@@ -285,7 +289,7 @@ Beneath the name is a collapsed **More** section carrying the same fields as the
 
 This reverses the original rule that the two paths must not share a screen, and the reversal is deliberate. The worry was that a deliberate form on the fast path is a form you stop bothering with; a section that is closed until you open it is not on the fast path. And the case it answers is real: when you already know the thing is weekly, retyping it in the editor later is worse than a disclosure triangle you can ignore.
 
-**Task definition** is slow and deliberate, done once. Name, cadence, baseline flag, and **Archive** — the only removal. Archiving retires a task from every current view and keeps its completions. There is no delete, so the action means the same thing on every row and never needs a confirmation that explains which of two things is about to happen. Reached by tapping a name **in the To do panel** rather than by a separate creation flow — which is also how a captured one-off graduates into a routine once you notice you keep re-adding it.
+**Task definition** is slow and deliberate, done once. Name, cadence, baseline flag, and **Archive** — the only removal. Archiving retires a task from every current view and keeps its completions. There is no delete, so the action means the same thing on every row and never needs a confirmation that explains which of two things is about to happen. Reached by tapping a name **in the Routine panel** rather than by a separate creation flow — which is also how a captured one-off graduates into a routine once you notice you keep re-adding it.
 
 The two input paths therefore live on two different surfaces: capture is a `+` on Day, definition is a name-tap in the panel. That separation is the same one this section opens with — a deliberate form on the fast path is a form you stop bothering with, and a fast path on the deliberate surface is a definition you change by accident.
 
@@ -303,7 +307,7 @@ No bulk import. Initial setup is roughly thirty tasks entered by hand, which is 
 
 ### Editing is unversioned
 
-Tap a name in the To do panel to edit it. Completions point at the task row, so edits are retroactive: renaming `Vacuum` to `Vacuum downstairs` silently makes every past completion downstairs, and changing a cadence re-slices every past period so the grid changes shape.
+Tap a name in the Routine panel to edit it. Completions point at the task row, so edits are retroactive: renaming `Vacuum` to `Vacuum downstairs` silently makes every past completion downstairs, and changing a cadence re-slices every past period so the grid changes shape.
 
 This is accepted rather than solved. History is interpreted through current definitions. The alternative is task versioning — a whole extra table for a correctness problem that does not arise in practice here.
 
@@ -317,6 +321,6 @@ This assumes local SQLite. It would not hold in an environment where storage sit
 
 ## Not in v1
 
-Task colours on anything but baseline. A palette or theme editor. Priorities. Time estimates. Subtasks. Tags. Notifications. Streak counts. Time tracking. Search. Gamification. Multi-user. Date navigation on Day. Week navigation. Backfilling a past date. Drag-and-drop reordering. Multiple moods per day. An archive browser. Deleting anything. Editing moods in the app. A fourth destination in the nav. Reordering the completed list, or the To do panel.
+Task colours on anything but baseline. A palette or theme editor. Priorities. Time estimates. Subtasks. Tags. Notifications. Streak counts. Time tracking. Search. Gamification. Multi-user. Date navigation on Day. Week navigation. Backfilling a past date. Drag-and-drop reordering. Multiple moods per day. An archive browser. Deleting anything. Editing moods in the app. A fourth destination in the nav. Reordering the completed list, or the Routine panel.
 
 Each is a thing that made the surveyed apps too heavy. Each can be added in week three if it turns out to be missed — and most will not be.

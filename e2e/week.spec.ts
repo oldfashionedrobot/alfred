@@ -7,7 +7,7 @@ import type { Locator, Page } from '@playwright/test'
  *
  * Overdue, Unplaced and Backlog were sections here and are gone; each was a
  * filter over a list the panels now hold in full. Since v5 that list is drawn
- * by two of them — "To do" for the five period groups, "Backlog" for the
+ * by two of them — "Routine" for the five period groups, "Backlog" for the
  * one-off group — so "Backlog" on this screen is a panel, still not a section.
  * Everything the panels do is asserted in e2e/todo.spec.ts. This file asserts
  * the seven days, and that both panels are present and expanded — nothing else
@@ -179,16 +179,16 @@ const daySection = (page: Page, iso: string, today: string): Locator =>
   page.getByRole('region', { name: dayLabel(iso, today), exact: true })
 
 /**
- * The panels Week hosts. Since v5 the one panel is rendered twice — "To do"
+ * The panels Week hosts. Since v5 the one panel is rendered twice — "Routine"
  * drawing the five period groups and "Backlog" the one-off group — and both are
  * expanded here, because on this screen they ARE the planning surface.
  */
-type PanelName = 'To do' | 'Backlog'
-const PANELS = ['To do', 'Backlog'] as const
-const panel = (page: Page, name: PanelName = 'To do'): Locator =>
+type PanelName = 'Routine' | 'Backlog'
+const PANELS = ['Routine', 'Backlog'] as const
+const panel = (page: Page, name: PanelName = 'Routine'): Locator =>
   page.getByRole('region', { name, exact: true })
-/** Anchored at the start: the toggle's name carries a count ("To do 2 not done"). */
-const panelToggle = (page: Page, name: PanelName = 'To do'): Locator =>
+/** Anchored at the start: the toggle's name carries a count ("Routine 2 not done"). */
+const panelToggle = (page: Page, name: PanelName = 'Routine'): Locator =>
   panel(page, name).getByRole('button', { name: new RegExp(`^${name}`, 'i') })
 
 // ===========================================================================
@@ -279,12 +279,12 @@ test('hosts both panels, expanded', async ({ page, app }) => {
     await expect(panelToggle(page, name)).toHaveAttribute('aria-expanded', 'true')
   }
   // The period groups are in one, the one-off group in the other.
-  await expect(panel(page, 'To do').getByText('Grocery run')).toBeVisible()
+  await expect(panel(page, 'Routine').getByText('Grocery run')).toBeVisible()
   await expect(panel(page, 'Backlog').getByText('Call the vet')).toBeVisible()
 
   // And they collapse independently: closing one leaves the other open.
-  await panelToggle(page, 'To do').click()
-  await expect(panelToggle(page, 'To do')).toHaveAttribute('aria-expanded', 'false')
+  await panelToggle(page, 'Routine').click()
+  await expect(panelToggle(page, 'Routine')).toHaveAttribute('aria-expanded', 'false')
   await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'true')
   await expect(panel(page, 'Backlog').getByText('Call the vet')).toBeVisible()
   await expect(page.getByText('Grocery run')).toHaveCount(0)
