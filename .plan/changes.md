@@ -216,3 +216,13 @@ A filled cell now takes its column's colour where that column is a baseline task
 This is where a colour earns most. The grid is the only screen showing every daily task at once, and a coloured column is findable in a wall of identical squares in a way a name rotated ninety degrees is not.
 
 It completes the set: a colour now follows a task through the Day row, the Routine panel, its tick once ticked, and the grid — so the same task looks like itself everywhere, which is the entire reason for assigning one.
+
+### CSS imports were never typechecked
+
+`bun-types` declares `*.txt`, `*.toml`, `*.yaml`, `*.json5`, `*.html` and more — but not `*.css`. So every `import './day.css'` was a module TypeScript could not resolve, in all five view files.
+
+Nothing said so, because those are **side-effect imports** and TypeScript does not check them unless `noUncheckedSideEffectImports` is set. `bunx tsc --noEmit` was clean the whole time; an editor with the flag on reported `ts(2882)` on every view. The compiler and the editor disagreed, and the editor was right.
+
+Fixed with `src/client/css.d.ts` declaring `*.css` with an empty body — Bun bundles the file and links it into the page, so there is no value to import, and an empty module makes `import styles from './day.css'` an error rather than silently `any`. The flag is now on in `tsconfig.json` so the CLI and the editor agree.
+
+Worth being precise about what that buys, because it is less than it sounds: the wildcard matches *any* `.css` path, so a mistyped filename still typechecks. Only an extension nothing declares is caught. A missing stylesheet surfaces as an unstyled screen, which the browser suite notices and the compiler cannot.
