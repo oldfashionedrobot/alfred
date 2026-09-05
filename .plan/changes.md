@@ -136,3 +136,31 @@ A bulk destructive action has to name its own reach. The overdue count is now ta
 **A dnd-kit race in the test helper, not the app.** `KeyboardSensor.attach()` registers its keydown listener inside a `setTimeout`, while `aria-pressed="true"` commits in the same task as the Space press. So waiting on `aria-pressed` was not enough: the arrow key could land before the listener existed and be dropped in complete silence — no transform, no announcement, no error. The helper now waits for the listener count on `document` to rise before pressing the arrow.
 
 This matters beyond the flake: in the `expectMove: false` case an unreceived arrow would have "proved" the band boundary held when nothing had been tested at all. A test that passes because its input was silently discarded is worse than one that fails.
+
+### The stripe's gaps are painted
+
+The space between dashes was `transparent`, so it showed the row's own background and the stripe read as a broken line rather than as alternating bands — which is what makes the dash count easy to see at a glance.
+
+The two tones ended up as: **dash** = `color-mix(in srgb, var(--text) 40%, var(--surface))`, **gap** = `var(--border)`. So the stripe is a continuous line with alternating weight rather than a line with holes in it.
+
+It took three passes, and the discards are the useful part:
+
+1. *Gap mixed to sit between the dash and the surface.* Needed no second value, but sitting between two close greys is barely an alternation.
+2. *Gap fixed brighter than the border — `#ccc`-ish.* Reads well on dark, where it clears the `#2e343a` border by 8.2:1. Nearly invisible on light, where the border is already `#dededa` and the same grey gives 1.2:1 — so it needed a different hardcoded value per theme, which is two things to keep in step.
+3. *Derive the mark from `--text` and let the border be the gap.* Both ends of the mix flip with the theme, so one definition lands on a mid grey on either ground: dash-to-gap is 2.5:1 on dark and 1.9:1 on light, with nothing hardcoded and nothing per-theme.
+
+`--stripe-colour` remains the dash, so overdue and a baseline task's own colour still override it and inherit the same alternation for free.
+
+The test asserts a contrast ratio between the two tones, not a hex — and deliberately does **not** assert the gap against the row surface. The gap is the border colour, and a border being quiet against a surface is what a border is for.
+
+One thing worth recording for the next person who measures a colour in a test: `color-mix()` resolves to `color(srgb 0-1)`, not `rgb(0-255)`. A parser that assumes the latter silently reports a luminance of zero, which looks exactly like a styling bug and is not one. It cost a wrong conclusion here before the parser was fixed.
+
+### The cadence stripe is removed
+
+Rows keep a plain solid left stripe carrying only whose row it is — border grey, overdue, or a baseline task's colour. The dash-count pattern is gone, along with `--stripe-dashes`, `--stripe-gap`, `--stripe-void`, `--stripe-mark`, the six per-cadence rules and the `data-cadence` attribute.
+
+**Why it went.** A pattern has to be counted before it means anything. Four dashes versus five is a deliberate act of reading, on a list whose whole job is being scanned — and the To do panel's group headings already name the cadence in words, immediately above the rows they govern. The stripe was restating, in a form that took longer to read, something the screen already said plainly.
+
+The mechanism was sound and the colour work it forced is kept: the stripe is still drawn inside the row's box rather than as a `border`, which is what stops a striped row indenting away from an unstriped one.
+
+Recorded because the path here was three rounds of colour tuning — mix-to-between, fixed-and-brighter, derived-from-text — and none of that was wasted on the wrong question so much as on the wrong feature. The tuning kept improving how legible the dashes were; nobody asked whether counting dashes was worth doing at all.

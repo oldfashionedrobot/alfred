@@ -81,7 +81,6 @@ function TodoRow({
       className="todo-row"
       data-done={task.is_done || undefined}
       data-overdue={task.is_overdue || undefined}
-      data-cadence={task.cadence ?? 'once'}
       data-baseline={task.is_baseline ? '' : undefined}
       data-colour={task.color ? '' : undefined}
       style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}

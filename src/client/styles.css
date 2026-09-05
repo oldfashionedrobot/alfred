@@ -436,59 +436,27 @@ select {
    already nulled it for anything that is not baseline, so these rules only ever
    see a colour that should render. */
 
-/* --- the cadence stripe --------------------------------------------------
-   Every task row carries a 3px stripe on its left edge. Its COLOUR says whose
-   row it is; its PATTERN says how often the task recurs:
+/* --- the row stripe ------------------------------------------------------
+   Every task row carries a 3px stripe on its left edge. It says whose row it
+   is: the border grey by default, the overdue colour when a task needs a new
+   day, a baseline task's own colour when it has one.
 
-     day / baseline  solid        week 2 dashes      month 3 dashes
-     quarter 4       year 5       one-off 1 short mark
+   Drawn inside the row's own box rather than as a `border`, because a border
+   changes the box — a striped row would sit indented from an unstriped one and
+   the list would lose its left edge.
 
-   Drawn as a repeating background gradient, not a border and not
-   `border-style: dashed`. A border changes the row's box, so a striped row
-   would sit indented from an unstriped one and the list would lose its left
-   edge. And `dashed` gives no control over how many dashes there are — the
-   count is what carries the meaning here, so the stripe is a gradient tile
-   sized to `100% / n`, which yields exactly n dashes at any row height. */
+   It used to encode the cadence as a dash count as well. That is gone: the
+   pattern had to be counted to be read, which is not something a list you scan
+   should ask of you, and the group headings in the To do panel already say the
+   cadence in words. */
 
-[data-cadence] {
+.day-row,
+.todo-row {
   --stripe-colour: var(--border);
-  --stripe-dashes: 1;
-  --stripe-gap: 0%;
-  background-image: linear-gradient(
-    transparent 0 calc(var(--stripe-gap) / 2),
-    var(--stripe-colour) calc(var(--stripe-gap) / 2) calc(100% - var(--stripe-gap) / 2),
-    transparent calc(100% - var(--stripe-gap) / 2) 100%
-  );
-  background-size: 3px calc(100% / var(--stripe-dashes));
-  background-repeat: repeat-y;
+  background-image: linear-gradient(var(--stripe-colour), var(--stripe-colour));
+  background-size: 3px 100%;
+  background-repeat: no-repeat;
   background-position: left top;
-}
-
-[data-cadence='day'] {
-  --stripe-dashes: 1;
-  --stripe-gap: 0%;
-}
-[data-cadence='week'] {
-  --stripe-dashes: 2;
-  --stripe-gap: 42%;
-}
-[data-cadence='month'] {
-  --stripe-dashes: 3;
-  --stripe-gap: 42%;
-}
-[data-cadence='quarter'] {
-  --stripe-dashes: 4;
-  --stripe-gap: 42%;
-}
-[data-cadence='year'] {
-  --stripe-dashes: 5;
-  --stripe-gap: 42%;
-}
-/* A one-off has no period, so it is off the "more dashes = longer period"
-   axis entirely: one short mark, meaning once. */
-[data-cadence='once'] {
-  --stripe-dashes: 1;
-  --stripe-gap: 64%;
 }
 
 /* Overdue recolours the stripe rather than adding a second mark beside it. */

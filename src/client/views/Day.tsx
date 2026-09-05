@@ -252,7 +252,6 @@ export default function Day() {
               <li
                 key={task.id}
                 className="day-row day-row--done"
-                data-cadence={task.cadence ?? 'once'}
                 data-colour={task.color ? '' : undefined}
                 style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}
               >
@@ -458,7 +457,6 @@ function TaskRow({
   return (
     <li
       className={cls}
-      data-cadence={task.cadence ?? 'once'}
       data-overdue={overdue ? '' : undefined}
       data-colour={colour ? '' : undefined}
       style={colour ? ({ '--task-colour': colour } as CSSProperties) : undefined}
@@ -607,7 +605,6 @@ function DragRow({ task }: { task: DayTask }) {
     <li
       ref={setNodeRef}
       className="day-row day-row--reordering"
-      data-cadence={task.cadence ?? 'once'}
       data-dragging={isDragging || undefined}
       data-colour={task.color ? '' : undefined}
       style={{

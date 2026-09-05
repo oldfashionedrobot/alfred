@@ -183,7 +183,9 @@ A baseline task may carry a colour, set in the task editor. Where it is set it p
 
 The stripe must not move the row. It is drawn inside the row's own box, so a coloured row and a plain one share the same left edge and the list still reads as a column — a stripe that indents the rows it marks is worse than no stripe.
 
-**Every row has a stripe, and its pattern is the cadence**: solid for a daily task, two dashes for weekly, three monthly, four quarterly, five yearly, and a single short mark for a one-off, which has no period to count. So the stripe says two things at once — what a row recurs as, in its pattern, and whose it is, in its colour. An overdue row recolours the same stripe rather than adding a second mark beside it.
+**Every row has a plain solid stripe on its left edge**, carrying only whose row it is: the border grey by default, the overdue colour when a task needs a new day, and a baseline task's own colour when it has one.
+
+The stripe briefly encoded the cadence too, as a dash count — solid for daily, two dashes for weekly, up to five for yearly. That is removed. A pattern has to be *counted* before it means anything, which is the wrong demand to make of a list you scan, and the To do panel's group headings already say the cadence in words directly above the rows.
 
 **Baseline tasks are also set in a heavier weight**, colour or no colour. Day marks the band by position and a tint; the panel has no bands, so weight is what carries "the bare minimum to function" there.
 

@@ -1201,36 +1201,53 @@ test('a colour stripe does not indent the row, and baseline reads heavier', asyn
   expect(Number(await weight('EAT'))).toBeGreaterThan(Number(await weight('Zebra chore')))
 })
 
-test('the left stripe carries the cadence as a dash count', async ({ page, app }) => {
-  app.seed.task({ name: 'Daily thing', cadence: 'day' })
-  app.seed.task({ name: 'Weekly thing', cadence: 'week' })
-  app.seed.task({ name: 'Yearly thing', cadence: 'year' })
-  app.seed.task({ name: 'Once thing', cadence: null })
+
+
+/**
+ * Every row has a plain solid stripe on its left edge. It carries only WHOSE
+ * row it is — border grey by default, the overdue colour when a task needs a
+ * new day, a baseline task's colour when it has one.
+ *
+ * It no longer encodes the cadence as a dash count. Asserted here so that the
+ * removal is deliberate: a pattern you have to count is not something a list
+ * you scan should ask of you, and the group headings already say the cadence
+ * in words.
+ */
+test('the row stripe is plain, and carries no cadence pattern', async ({ page, app }) => {
+  await createTask(app.url, { name: 'Weekly thing', cadence: 'week' })
+  await createTask(app.url, { name: 'Daily thing', cadence: 'day' })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'To do')
-  const backlog = await openPanel(page, 'Backlog')
-  // A one-off is drawn in Backlog now; every other cadence in To do.
-  const row = (name: string, panel: Locator) =>
-    panel.locator('li').filter({ hasText: name }).first()
+  const panel = await openPanel(page, 'To do')
 
-  // The count is the meaning, so it is asserted rather than the look.
-  for (const [name, cadence, dashes, panel] of [
-    ['Daily thing', 'day', '1', periodic],
-    ['Weekly thing', 'week', '2', periodic],
-    ['Yearly thing', 'year', '5', periodic],
-    ['Once thing', 'once', '1', backlog],
-  ] as const) {
-    const el = row(name, panel)
-    await expect(el).toHaveAttribute('data-cadence', cadence)
-    const n = await el.evaluate((e) => getComputedStyle(e).getPropertyValue('--stripe-dashes').trim())
-    expect(n).toBe(dashes)
-  }
+  const read = (name: string) =>
+    panel
+      .locator('li')
+      .filter({ hasText: name })
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return {
+          image: cs.backgroundImage,
+          size: cs.backgroundSize,
+          repeat: cs.backgroundRepeat,
+          stripe: cs.getPropertyValue('--stripe-colour').trim(),
+          cadenceAttr: el.getAttribute('data-cadence'),
+        }
+      })
 
-  // Solid vs dashed is the gap, and a one-off is off the count axis entirely.
-  const gap = (name: string, panel: Locator) =>
-    row(name, panel).evaluate((e) => getComputedStyle(e).getPropertyValue('--stripe-gap').trim())
-  expect(await gap('Daily thing', periodic)).toBe('0%')
-  expect(await gap('Weekly thing', periodic)).not.toBe('0%')
-  expect(await gap('Once thing', backlog)).not.toBe(await gap('Weekly thing', periodic))
+  const weekly = await read('Weekly thing')
+  const daily = await read('Daily thing')
+
+  // The hook the pattern keyed off is gone entirely, not merely unstyled.
+  expect(weekly.cadenceAttr).toBeNull()
+  expect(daily.cadenceAttr).toBeNull()
+
+  // A single 3px band, not a repeating tile.
+  expect(weekly.size).toBe('3px 100%')
+  expect(weekly.repeat).toBe('no-repeat')
+
+  // Cadence changes nothing about it.
+  expect(weekly.image).toBe(daily.image)
+  expect(weekly.stripe).toBe(daily.stripe)
 })
