@@ -1,0 +1,6 @@
+# Bun's test runner discovers *.test.ts AND *.spec.ts, which would sweep up the
+# Playwright specs in e2e/ — those throw "test() was called outside a test file"
+# under any runner but Playwright's. Scoping the root keeps a bare `bun test`
+# honest instead of relying on everyone remembering `bun test tests/`.
+[test]
+root = "tests"

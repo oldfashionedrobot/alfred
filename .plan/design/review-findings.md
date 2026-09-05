@@ -1,6 +1,12 @@
 # Household Tracker — Build Review Findings
 
-Status: v1 — findings recorded, remedies in progress
+
+> **Frozen.** This describes the design as built, and is no longer maintained.
+> It was checked against the code and corrected on 2026-09-05, so it is accurate
+> as of that date — but anything decided since lives in
+> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+
+Status: v1 — findings recorded, remedies in progress · frozen after v6
 Date: 2026-09-05
 Companion to `data-model.md`, `views.md`, `tech-stack.md` and `api.md`.
 
@@ -20,9 +26,9 @@ Three review passes fed this: a server review, a client review, and a Playwright
 
 Two questions in the findings could not be answered from the documents, because the documents disagreed with themselves. Both are now settled and the relevant docs are updated.
 
-**1. How long a completed non-daily task stays on the Day screen.** Settled: **the whole period**, per `api.md` read literally. A weekly task completed Wednesday sits in Day's completed section through Saturday. The cost is accepted knowingly: a monthly task lingers for the rest of the month and a yearly one for the rest of the year. The alternative — dropping it the day after it was ticked — was rejected because it reintroduces same-day reasoning into a model whose whole premise is periods, and because a cadence-dependent cap would put a branch in exactly the calculation `data-model.md` keeps branch-free.
+**1. How long a completed non-daily task stays on the Day screen.** Settled at the time as **the whole period**. **Reversed later in the same session** — see `../changes.md`. Once the Routine panel existed it answered "is this week's vacuuming done?" better than Day's completed section could, and the whole-period rule was absurd at the long cadences: a yearly task ticked in January sat on the daily screen until December. A completed task now stays on Day for the day it was ticked and no longer.
 
-**2. A completed *unplaced* period task in Week.** Settled: **stays visible, struck through, untickable.** It does not vanish. This is what `WeekTask.is_done` exists for — before this fix that field could only ever be `true` inside the seven day sections, which made it dead weight in three of the four places it is carried.
+**2. A completed *unplaced* period task in Week.** Settled at the time as **stays visible, struck through**. **Void rather than wrong:** Week has no Unplaced section any more — it was absorbed into the Routine panel — so there is no longer a place for this case to arise. See the *Remedies* section below.
 
 ---
 
@@ -48,7 +54,7 @@ This also made the `uncomplete` command unreachable for the exact case `api.md` 
 
 **This is the seam.** The client author read `api.md` ("`completed` holds everything in that membership set where `is_done` is true") and built a completed section that renders period-satisfied tasks. The view-builder author read `views.md`'s three-bullet "What appears" list and used `isOverdue` as a membership test. Each was locally reasonable. Neither could see the other. The Playwright agent, writing from the documents rather than either implementation, wrote the test that fails.
 
-**Remedy:** separate membership from state labelling. Membership is `cadence === 'day' || effective_date <= today`. State is then labelled independently. `views.md` and `api.md` are updated to state the rule in one unambiguous sentence rather than two compatible-sounding lists.
+**Remedy as shipped:** separate membership from state labelling. Membership is a **union of four rules** — `cadence === 'day'`, `effective_date === today`, overdue, or *a completion dated today*. This document originally proposed `cadence === 'day' || effective_date <= today`, which is not what was built: that version both admits a past-placed task that is done and drops a task ticked today that was never placed. The fourth rule is what keeps a mis-tap undoable. State is labelled independently, after the set is decided. `views.md` and `api.md` are updated to state the rule in one unambiguous sentence rather than two compatible-sounding lists.
 
 ### D2 — Completing an unplaced period task removes it from every view
 **Severity: medium. Confirmed.**
@@ -216,7 +222,9 @@ The redesign is not additive. The Routine panel is one new view builder, one new
 
 ### Still to do from the findings above
 
-The duplication and overengineering items — three button systems, two day pickers, three notice bars, three date-helper blocks, `onlyFields` on sixteen commands, five error classes for four codes, the two error classes `routes.ts` added locally — are unaffected by the redesign and remain to be applied. Two of them get easier: the second day picker and the second reset confirm die with Week's old sections rather than needing to be merged.
+**All applied.** There is now one `.btn` system, one `DayPicker`, one `NoticeBar`, one `Tick` and one `Confirm` in `ui.tsx`; one date formatter in `dates.ts`, imported by every view; and `errors.ts` holds `ApiFailure` plus three subclasses, with `routes.ts` defining none of its own and answering a wrong method with a `404` rather than the `405` that was never in the taxonomy.
+
+`onlyFields` is the one item deliberately kept — it is five lines plus one call per command, and it makes `capture`'s one-field discipline and `reset_overdue`'s no-arguments rule enforceable rather than aspirational.
 
 ### Not doing
 

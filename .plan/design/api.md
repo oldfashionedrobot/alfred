@@ -1,6 +1,12 @@
 # Household Tracker — API & Shared Contracts
 
-Status: v5 — category and the Backlog panel
+
+> **Frozen.** This describes the design as built, and is no longer maintained.
+> It was checked against the code and corrected on 2026-09-05, so it is accurate
+> as of that date — but anything decided since lives in
+> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+
+Status: v5 — category and the Backlog panel · frozen after v6
 Companion to `data-model.md`, `views.md` and `tech-stack.md`.
 
 This document is the seam between pieces of the implementation written separately. Everything here is a contract more than one file depends on.
@@ -80,6 +86,7 @@ Four codes, three error classes. A wrong method on a real path is a `404` like a
 | placing beyond this Saturday | `planned_date` never leaves the current week |
 | placing before today | the picker offers remaining days only |
 | completing an already-archived task | archived tasks are not in any current view |
+| placing an already-archived task | same |
 
 Every one of these is unreachable through the interface. They exist so that the interface being wrong is a visible error rather than a silent bad write.
 
@@ -132,7 +139,9 @@ Note the asymmetry with `is_done`: doneness decides which array a member lands i
 
 `placeable_dates` is carried here as well as on Week because the reschedule picker opens from an overdue row on this screen. Day must never fetch the Week model to get it: that is one view reaching for another's data, and any cache of it goes stale against the server's own clock — the precise disagreement this field exists to prevent.
 
-`completed` holds everything in that membership set where `is_done` is true. **`is_done` is period-satisfaction, not same-day.** A weekly task completed Tuesday sits in `completed` all week, because the question the Day view answers is whether this week's vacuuming is done, not what was ticked in the last twenty-four hours.
+`completed` holds everything in that membership set where `is_done` is true. **`is_done` is period-satisfaction, not same-day** — a task placed today but already satisfied earlier this period lands there rather than in `active`.
+
+Membership still decides what is on screen at all, so a task placed *and* completed on an earlier day is not here: it matched none of the four rules. A completed task stays for the day it was ticked, and the Routine panel answers for the rest of its period.
 
 Both arrays are sorted by the server. The client renders them in the order given and never reorders.
 
@@ -178,9 +187,11 @@ Daily tasks never appear anywhere in this model — they are never placed and ne
 ### `GET /api/history`
 
 ```
-?limit=<n>     default 60
-?before=<date> exclusive; omit for most recent
+?limit=<n>     default 60, maximum 365
+?before=<date> exclusive; must not be in the future; omit for most recent
 ```
+
+Both bounds are enforced in `routes.ts` beside the rest of the query-string validation, and both return `400`. The ceiling lives there rather than in the builder so that limit validation has exactly one home.
 
 ```ts
 interface HistoryView {
@@ -273,7 +284,7 @@ then       name, alphabetical
 
 **Baseline outranks category**, so baseline rows form an unheaded block at the top of a group. The cost is stated in `views.md`: a baseline task never appears under its own category.
 
-**Uncategorised sorts last.** The client heads that run "Other", but only in a group that uses categories at all — a group with none renders no headings, which keeps categories invisible until one is set. Both are rendering rules; this endpoint ships the order and the `category` field, nothing else.
+**Uncategorised sorts last.** The client renders no heading, chip or label for a category at all — clustering the rows *is* the whole of what a category does on screen. This endpoint ships the order and the `category` field; nothing downstream draws it.
 
 This is *not* `sortTasks()`: there is no `days.task_order`, which belongs to Day's list.
 
@@ -358,7 +369,7 @@ type ISODate = string            // 'YYYY-MM-DD'
 
 `Cadence | null` — null meaning one-off — is the load-bearing type in the system. Everything downstream branches on that null, and it is why `tech-stack.md` chose Drizzle: the compiler enforces the nullability rather than requiring it to be remembered.
 
-The table row types (`Task`, `Completion`, `Day`) are **server-internal**. They are Drizzle's inferred types and no client file imports them — the client's vocabulary is `DayView`, `DayTask`, `WeekView` and the rest. Where a view type looks like a row type it is a coincidence of this version, not a contract, and the two are free to diverge.
+The table row types (`TaskRow`, `CompletionRow`, `DayRow`, `MoodRow`) are **server-internal**. They are Drizzle's inferred types and no client file imports them — the client's vocabulary is `DayView`, `DayTask`, `WeekView` and the rest. Where a view type looks like a row type it is a coincidence of this version, not a contract, and the two are free to diverge.
 
 ---
 
@@ -366,17 +377,24 @@ The table row types (`Task`, `Completion`, `Day`) are **server-internal**. They 
 
 ### Period logic
 
-Pure, I/O-free, server-side, and the only tested code in the project. The single implementation of *Computing state* in `data-model.md`.
+Pure, I/O-free, server-side. The single implementation of *Computing state* in `data-model.md`, and the first thing covered by `tests/` — which also covers `sort.ts` and the view builders.
 
 ```ts
 periodKey(date: ISODate, cadence: Cadence | null): string
 periodStart(today: ISODate, cadence: Cadence | null): ISODate | null   // null = unbounded
 periodEnd(today: ISODate, cadence: Cadence | null): ISODate | null     // null = unbounded
 
-effectiveDate(task: Task, today: ISODate): ISODate | null
-isDone(task: Task, completions: Completion[], today: ISODate): boolean
-isUnplaced(task: Task, today: ISODate): boolean
-isOverdue(task: Task, completions: Completion[], today: ISODate): boolean
+effectiveDate(task: TaskRow, today: ISODate): ISODate | null
+isDone(task: TaskRow, completions: CompletionRow[], today: ISODate): boolean
+isUnplaced(task: TaskRow, today: ISODate): boolean
+isOverdue(task: TaskRow, completions: CompletionRow[], today: ISODate): boolean
+
+// The completion satisfying today's period — the row `uncomplete` deletes,
+// which is not necessarily today's. Most recent when several qualify.
+completionForPeriod(task: TaskRow, completions: CompletionRow[], today: ISODate): CompletionRow | null
+
+// Plain calendar stepping. Lives here so parsing a date stays in one module.
+addDays(date: ISODate, n: number): ISODate
 ```
 
 | Cadence | `periodKey` | `periodStart` | `periodEnd` |
@@ -399,7 +417,16 @@ These take `today` as an argument rather than reading the clock, which is what m
 `views.md`'s `sort()`, now server-side, applied wherever a view model emits a task array.
 
 ```ts
-sortTasks(tasks: Task[], taskOrder: number[] | null): Task[]
+sortTasks<T extends Pick<TaskRow, 'id' | 'name' | 'is_baseline'>>(
+  tasks: T[],
+  taskOrder: number[] | null,
+): T[]
+
+// Baseline, then category (uncategorised last), then name. The tie-break the
+// Routine panel and History's columns share, so the two cannot order the same
+// tasks differently. NOT sortTasks: no days.task_order, and baseline outranks
+// category deliberately.
+byBaselineCategoryName(a, b): number
 ```
 
 Band 1 is `is_baseline`, band 2 is everything else. Within a band: `taskOrder` position if listed, otherwise name, alphabetical. Anything unlisted falls below everything listed. Bands never mix — the reorder gesture moves a task within its band only, which is what the baseline flag means.

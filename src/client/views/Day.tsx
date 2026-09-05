@@ -313,9 +313,10 @@ export default function Day() {
 }
 
 // --- mood and log -----------------------------------------------------------
-// Compact by design: it sits above the tasks on the most-used screen, so a block
-// you scroll past every time would be friction. The mood set is not editable
-// here or anywhere in the app — it is a table, edited in the database.
+// Sits at the foot of the day, under the panels: the tasks are what the screen
+// is for, and a mood belongs where the day is closed out rather than where it is
+// worked. Compact anyway — a mood is one tap and a log is one line. The mood set
+// is not editable here or anywhere in the app; it is a table, edited in the DB.
 
 function MoodAndLog({
   view,

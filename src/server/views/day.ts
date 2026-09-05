@@ -28,8 +28,11 @@ import { today } from '../today.ts'
  *
  * State is labelled independently of membership, once the task is in.
  *
- * `completed` holds members where isDone is true. is_done is PERIOD-SATISFACTION,
- * not same-day: a weekly task completed Tuesday sits in `completed` all week.
+ * `completed` holds members where isDone is true. is_done is PERIOD-SATISFACTION
+ * rather than same-day — a task placed today but satisfied earlier this period
+ * lands there — but membership is the four rules above, so a task placed AND
+ * completed on an earlier day is not here at all. It stays for the day it was
+ * ticked; the Routine panel answers for the rest of the period.
  *
  * Both arrays sorted with sortTasks(), using today's days.task_order.
  */

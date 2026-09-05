@@ -1,6 +1,12 @@
 # Household Tracker — Data Model
 
-Status: v5 — category added
+
+> **Frozen.** This describes the design as built, and is no longer maintained.
+> It was checked against the code and corrected on 2026-09-05, so it is accurate
+> as of that date — but anything decided since lives in
+> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+
+Status: v5 — category added · frozen after v6
 Scope: data model only. Views documented separately.
 
 v2 folds in the pre-build clarification round: `mood` becomes a categorical set with its own table, and same-day-only recording is stated explicitly.
@@ -38,7 +44,7 @@ Eight fields. One nullable enum carries all recurrence — there is no second ca
 
 **`color` is the one purely presentational field.** Every other field here is an observation or an intention; this one exists only to be looked at. It earns its place by the same rule as the rest — it appears on a screen — but it is the first where appearing is the whole job, so it is worth naming rather than letting it pass unnoticed.
 
-It applies to **baseline tasks only**. Day's list already separates the baseline band with a rule at the boundary; the Routine panel has no bands, so baseline tasks sit unmarked among every other daily task there. A colour marks them in both places without either screen needing to understand bands.
+It applies to **baseline tasks only**. Both screens already mark baseline — Day rules a line under the band, the panel bolds it and sorts it above every category — so a colour is not what makes baseline visible. It is what tells two baseline tasks apart at a glance, in the row, the tick and the History grid alike.
 
 The value survives a task ceasing to be baseline rather than being cleared, so re-ticking the flag restores it. Views ship `color` as null for anything not baseline, which keeps the rule on the server and leaves the client rendering what it is given.
 
@@ -48,7 +54,7 @@ Like `color`, it is presentational in effect but not in kind: it changes how the
 
 **Backlog items are tasks with `cadence = null`.** No separate table.
 
-**A backlog item is finished** when it has at least one completion row. It then drops out of the backlog automatically — no `done` field needed.
+**A backlog item is finished** when it has at least one completion row. It then drops out automatically — no `done` field needed — though the Backlog panel keeps showing it struck through until the week it was completed in has passed, so a tick is undoable for as long as the week lasts.
 
 **Repeated instances stay separate tasks.** Feed Barney 1, 2 and 3 are three rows, not one row with a counter. The instances are not interchangeable — they are morning, noon and night, and Ringo med 1 and 2 are likely different drugs. A 1/3 counter could tell you a feed was missed but not *which*, which is the exact question the tracker exists to answer. The resulting daily list is long, around seventeen items. Prefixes like `Dog: Feed Barney 1` group the block alphabetically at zero cost in fields; `days.task_order` overrides that per day.
 
@@ -247,7 +253,7 @@ These distinctions carry weight in the model and shouldn't be used loosely.
 | **Task** | Anything doable, recurring or one-off. One table for both. |
 | **Baseline** | Flag on a daily task. The bare minimum to function. |
 | **Cadence** | How often a task recurs. Null means one-off. |
-| **Backlog** | One-offs with no `planned_date`. **Only one-offs are ever in the backlog.** |
+| **Backlog** | One-offs with no `planned_date`. **Only one-offs are ever in the backlog.** Also the name of the panel that draws the one-off group — which shows every one-off, placed or not, so the panel is a superset of the model term. |
 | **Unplaced** | No effective date — either never placed, or placed in a period now past. Still due; just has no day. A model term, not a screen: the Routine panel shows such a task as simply having no day against it. |
 | **Planned** | Has an effective date. Non-binding. |
 | **Overdue** | Effective date in the past, not done. Means *needs a new day*, not *late*. |
@@ -272,7 +278,7 @@ All closed by rejection.
 | Completion timestamp (`created_at`) | Rejected. Speculative metadata. |
 | Completion surrogate key (`id`) | Rejected. `(task_id, completed_on)` is the natural key and gives idempotency. |
 | Task creation date (`created_at`) | Rejected. Backlog age is not a signal — a task is either still relevant or gets archived. |
-| Category (`category`) | ~~Rejected. Name prefixes carry default grouping.~~ **Reversed in v5.** A prefix groups within one list; it does nothing across the Routine panel's six period groups, which is exactly where a category is wanted. Prefixes stay and still order tasks inside a category. |
+| Category (`category`) | ~~Rejected. Name prefixes carry default grouping.~~ **Reversed in v5.** A prefix groups within one list; it does nothing across the six cadence groups, which is exactly where a category is wanted. Prefixes stay and still order tasks inside a category. |
 | `color` on every task | Rejected. Baseline only — the problem it solves is that baseline tasks are unmarked in the Routine panel. A palette across the whole list is a different feature nobody asked for. |
 | Clearing `color` when Baseline is unticked | Rejected. Keeping it makes unticking non-destructive and re-ticking free. Nothing renders it in the meantime. |
 | Contrast-adjusting the chosen colour | Rejected. The swatch should not lie about what will render. An unreadable pick is visible instantly and fixed by picking again. |
@@ -292,6 +298,6 @@ All closed by rejection.
 
 None.
 
-`mood` is resolved as a categorical slug against a `moods` table — eight starting states, one per day, editable in the app. This supersedes the earlier 1–5 single axis, which mis-modelled the states as ordered. Energy as a second axis stays rejected: not requested, and it doubles logging friction.
+`mood` is resolved as a categorical slug against a `moods` table — eight starting states, one per day, edited in the database rather than in the app. This supersedes the earlier 1–5 single axis, which mis-modelled the states as ordered. Energy as a second axis stays rejected: not requested, and it doubles logging friction.
 
 Deployment and the question of where the SQLite file lives are open, but they are `tech-stack.md`'s to answer and touch nothing here.

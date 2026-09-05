@@ -2,16 +2,19 @@
 
 A household task tracker. Replaces a spreadsheet that lost its history every week, and a set of Google Keep lists.
 
-The design is specified in [`.plan/`](.plan/) — read those before changing behaviour:
+Two kinds of document live in [`.plan/`](.plan/).
 
-| Doc | What it settles |
+**[`changes.md`](.plan/changes.md) is the running log and the authoritative one.** Every change since the first build is recorded there in order, including the decisions that were reversed and why.
+
+**[`.plan/design/`](.plan/design/) holds the original design, frozen.** It was checked against the code and corrected before being frozen, so it is an accurate snapshot rather than a stale one — but it is no longer maintained, and `changes.md` wins where they differ. Its value is the reasoning: why the model is period-based, why nothing writes to a past date, what was rejected and on what grounds.
+
+| Frozen doc | What it settles |
 |---|---|
-| [`review-findings.md`](.plan/review-findings.md) | What the first build got wrong, and why the Routine panel exists |
-| [`changes.md`](.plan/changes.md) | The iteration log — every change since, and what it reversed |
-| [`data-model.md`](.plan/data-model.md) | The four tables, and how every state is derived rather than stored |
-| [`views.md`](.plan/views.md) | The three screens and every gesture on them |
-| [`tech-stack.md`](.plan/tech-stack.md) | Stack choices, and what was rejected |
-| [`api.md`](.plan/api.md) | The server/client contract |
+| [`data-model.md`](.plan/design/data-model.md) | The four tables, and how every state is derived rather than stored |
+| [`views.md`](.plan/design/views.md) | The screens and every gesture on them |
+| [`tech-stack.md`](.plan/design/tech-stack.md) | Stack choices, and what was rejected |
+| [`api.md`](.plan/design/api.md) | The server/client contract |
+| [`review-findings.md`](.plan/design/review-findings.md) | What the first build got wrong, and why the Routine panel exists |
 
 ---
 
@@ -116,7 +119,7 @@ Each of these is deliberate and argued in `.plan/`. Read before "fixing".
 - **Nothing is ever deleted.** Removal is `active = false`, on tasks and on moods alike. The one row that is deleted is a completion, when something is unticked.
 - **A completed task leaves the Day screen the next day**, but stays struck through in the Routine panel for the rest of its period. Day answers "what now?"; the panel answers "is this month's deep clean done?"
 - **The moods are not editable in the app.** That is a decision, not an omission — see above.
-- **A baseline task never appears under its own category** in the Routine panel. Baseline outranks category on purpose, so baselines stay an unheaded block at the top of their group — which means a category heading does not list everything in that category.
+- **A category renders nothing.** It is a sort key: it clusters same-category tasks inside a group and shows no heading, chip or label. Baseline outranks it, so baseline tasks sort above their own category rather than with it.
 - **`Dog` and `dog` are two categories.** Category is free text matched exactly; the editor suggests existing ones so picking beats retyping, but nothing normalises them.
 - **`planned_date` can never be set beyond this Saturday.** Forward is bounded; backward is not.
 

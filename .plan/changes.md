@@ -1,8 +1,10 @@
 # Household Tracker — Changes
 
-An iteration log. Newest first. Each entry records what changed, why, and what it cost — including decisions it reverses, so a later reader can tell a deliberate reversal from a drift.
+An iteration log, oldest first — it reads as the project's history in order.
 
-`data-model.md`, `views.md`, `tech-stack.md` and `api.md` are always current; this file is how they got that way. `review-findings.md` is separate — it records defects found in the first build rather than intentional changes.
+**This is the maintained document.** [`design/`](design/) holds the original plan, frozen and no longer updated; where the two disagree, this one is right. From here on a change is recorded here and nowhere else. Each entry records what changed, why, and what it cost — including decisions it reverses, so a later reader can tell a deliberate reversal from a drift.
+
+`design/data-model.md`, `design/views.md`, `design/tech-stack.md` and `design/api.md` are always current; this file is how they got that way. `design/review-findings.md` is separate — it records defects found in the first build rather than intentional changes.
 
 ---
 
@@ -18,7 +20,7 @@ An iteration log. Newest first. Each entry records what changed, why, and what i
 
 **The colour is used exactly as picked**, for both the border and the text. No contrast adjustment. A dark navy on the dark theme or a pale yellow on the light one will be hard to read — that is visible immediately and fixed by picking another colour, and the alternative is a contrast-nudging helper whose output nobody asked for and which makes the swatch a lie.
 
-**Cost.** One nullable column, one field in one form, and a rendering rule. It is the first field in the model that is purely presentational — `data-model.md`'s standard is that every field earns its place by appearing on a screen, which this does, but it is worth noticing that it is the first one whose *only* job is to appear.
+**Cost.** One nullable column, one field in one form, and a rendering rule. It is the first field in the model that is purely presentational — `design/data-model.md`'s standard is that every field earns its place by appearing on a screen, which this does, but it is worth noticing that it is the first one whose *only* job is to appear.
 
 ### Capture gains the full set of fields
 
@@ -26,7 +28,7 @@ An iteration log. Newest first. Each entry records what changed, why, and what i
 
 **Why.** Sometimes you already know the thing you are capturing is weekly. Retyping it later in the editor is worse than a disclosure triangle you can ignore.
 
-**This reverses a decision, deliberately.** `views.md` held that the two input paths "must not share a screen — a deliberate form on the fast path is a form you stop bothering with", and `api.md` kept `capture` as a separate command specifically so that the fast path could not grow fields. The collapsed section is the answer to the original worry: the fast path is unchanged in tap count, and the deliberate fields cost nothing until opened.
+**This reverses a decision, deliberately.** `design/views.md` held that the two input paths "must not share a screen — a deliberate form on the fast path is a form you stop bothering with", and `design/api.md` kept `capture` as a separate command specifically so that the fast path could not grow fields. The collapsed section is the answer to the original worry: the fast path is unchanged in tap count, and the deliberate fields cost nothing until opened.
 
 **Consequence: the `capture` command is deleted.** Its whole justification was one-field discipline, and `create_task` with a name and nothing else already produces exactly a backlog item — no cadence, no date, not baseline. Two commands that now do the same thing is one too many. The capture sheet posts `create_task`.
 
@@ -40,7 +42,7 @@ Ordering inside a panel group was `overdue → placed → unplaced → done`, th
 
 The reorder edit state now drags instead of stepping with ↑/↓. `@dnd-kit` supplies the sensors; the whole row is the handle, because in that state nothing else on a row is interactive.
 
-**This reverses a rejection.** `tech-stack.md` had drag-and-drop down as "fragile touch-event code on a seventeen-item list, for a gesture used occasionally", and that was wrong in both halves: the fragile parts are the library's problem, not ours, and moving a task several positions one tap at a time is worse than it sounded when the alternative was hypothetical.
+**This reverses a rejection.** `design/tech-stack.md` had drag-and-drop down as "fragile touch-event code on a seventeen-item list, for a gesture used occasionally", and that was wrong in both halves: the fragile parts are the library's problem, not ours, and moving a task several positions one tap at a time is worse than it sounded when the alternative was hypothetical.
 
 **Bands are enforced structurally rather than by a guard.** Each band is its own `DndContext`, so a baseline task and a non-baseline one are never in the same drag context — crossing the boundary is not a move that gets rejected, it is a move that cannot be expressed. The old `canMove`/`move` pair, which checked the band on every step, is deleted.
 
@@ -105,7 +107,7 @@ Both earlier attempts made the suite report "the drag did nothing" — which rea
 
 **What.** A nullable free-text `category` on `tasks`, set in the task editor. In the Routine panel, tasks cluster under a category sub-heading inside their period group. The Day list is untouched — it keeps `sort()` exactly as it is.
 
-**This reverses a rejection.** `data-model.md` had: *"Category (`category`) — Rejected. Name prefixes carry default grouping."* That argument was that `Dog: Feed Barney 1` groups alphabetically at zero cost in fields, and it is still true as far as it goes. What it missed is that a prefix groups only *within one list*: it does nothing across the six period groups of the Routine panel, where a category is exactly the thing that spans them. Prefixes stay — they still order tasks inside a category — so the two mechanisms coexist rather than one replacing the other. No task is renamed.
+**This reverses a rejection.** `design/data-model.md` had: *"Category (`category`) — Rejected. Name prefixes carry default grouping."* That argument was that `Dog: Feed Barney 1` groups alphabetically at zero cost in fields, and it is still true as far as it goes. What it missed is that a prefix groups only *within one list*: it does nothing across the six period groups of the Routine panel, where a category is exactly the thing that spans them. Prefixes stay — they still order tasks inside a category — so the two mechanisms coexist rather than one replacing the other. No task is renamed.
 
 **Free text, with suggestions.** The editor offers a `datalist` of categories already in use, so the ordinary path is picking an existing one and typing is reserved for a genuinely new category. This is the cheap half of a categories table: it prevents most of the `Dog` / `dog` / `Dogs` drift that free text invites, without a fifth table for something described as a text field. Matching is by exact string, so drift remains possible — it is just no longer the path of least resistance.
 
@@ -177,33 +179,6 @@ The headings failed on two counts, both visible only once there was real data in
 The "Other" heading went with them, and so did the rule it existed for — with nothing rendered, an uncategorised row can no longer be misread as belonging to the category above it.
 
 Worth noting what this cost: the "Other" heading was itself a fix, added an hour earlier because uncategorised rows were falling under the previous category's heading. Both the problem and the fix disappeared when the feature they belonged to did. The clustering — the thing actually wanted — needed no rendering at all.
-
----
-
-## v6 — History gains a log, and colour survives completion
-
-### History columns share the Routine panel's order
-
-Columns were `baseline → name`; they are now `baseline → category → name`, from one comparator (`byBaselineCategoryName` in `sort.ts`) that the Routine panel also uses for its tie-break.
-
-One implementation rather than two, because a column in the grid and a row in the panel are the same task seen twice. Two orderings that are each defensible alone still read as a bug when you notice the same tasks in different sequences on two screens. A unit test asserts the two agree, so they cannot drift.
-
-### A log column, opening into a sheet
-
-`HistoryRow` gains `log`. The column shows a control on days that have an entry and **nothing** on days that do not — the absence is the information, and a disabled control would say less while taking the same space.
-
-The entry opens in a sheet rather than inlining: it is prose and will not fit a grid cell. Line breaks are preserved, because they belong to whoever wrote them. History stays read-only; the sheet reads and closes.
-
-Empty strings are already stored as `null` by `set_log`, so an "empty entry" is not a state the column has to render.
-
-### A completed task keeps its colour
-
-Both the tick and the name now stay in a baseline task's colour once ticked, instead of dropping to the dim text colour.
-
-The strike-through and the filled box already say "done" twice over. Dimming the name as well removed the colour at exactly the point the completed section is longest and the grouping cue is most useful — the colour was doing its most work precisely where it was being taken away.
-
----
-
 ## v6 — History gains a log, and colour survives completion
 
 ### History columns share the Routine panel's order

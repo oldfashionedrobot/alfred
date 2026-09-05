@@ -1,6 +1,12 @@
 # Household Tracker — Views
 
-Status: draft v5 — category and the Backlog panel
+
+> **Frozen.** This describes the design as built, and is no longer maintained.
+> It was checked against the code and corrected on 2026-09-05, so it is accurate
+> as of that date — but anything decided since lives in
+> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+
+Status: draft v5 — category and the Backlog panel · frozen after v6
 Companion to `data-model.md`.
 
 v2 pinned down the gestures the v1 draft left implicit, and narrowed Day and Week to the present: Day is today, Week is this week, and nothing writes to a past date.
@@ -59,7 +65,7 @@ The doing surface, and 95% of usage.
 
 **2. Active tasks.** One flat list, `sort()` applied. Baseline first. **Nothing on a row opens a form** — the tick completes it, and the name is text. Editing is a tap in the Routine panel below.
 
-Every row carries a left stripe whose pattern is its cadence, and a baseline task with a colour set paints that stripe and its own name in that colour. See *Colour* under **Routine**.
+Every row carries a plain left stripe, and a baseline task with a colour set paints that stripe, its own name and its tick in that colour. See *Colour* under **Routine**.
 
 A **reorder toggle** puts the list into an edit state where rows are **dragged** into place. The whole row is the handle: in this state nothing else on a row is interactive — no tick, no name — so there is nothing for a drag to be confused with, and no small grip to aim at on a phone. The reordering happens locally while the edit state is open; this is the one moment the client rearranges a list rather than rendering the order it was given. Leaving the edit state writes `days.task_order` for today.
 
@@ -69,7 +75,7 @@ Reordering is keyboard-operable: focus a row, space to lift, arrows to move, spa
 
 An earlier version of this document rejected drag-and-drop as "a large amount of fragile code for a small gain", with ↑/↓ buttons instead. That was written before the gesture existed and turned out to be wrong in both halves: a library carries the fragile parts, and moving a task more than one position with buttons is worse than it sounds on a seventeen-item list.
 
-**3. Completed.** A section at the bottom. Struck through, `sort()` applied within the section. Tapping a completed item unticks it and returns it to the active list.
+**3. Completed.** A section below the active list — the panels and the mood block follow it. Struck through, `sort()` applied within the section. Tapping a completed item unticks it and returns it to the active list.
 
 **A completed task stays here for the day you ticked it, and no longer.** A weekly task ticked Wednesday is gone from Day by Thursday; a yearly task ticked in January is gone by the next day. It has not disappeared — the Routine panel shows it struck through for the rest of its period, which is where the question "is this week's vacuuming done?" is now answered. Keeping it in Day's completed section for a whole period was considered and rejected: it is correct for a weekly task and absurd for a yearly one, and no cadence-dependent cap is worth a branch in the one calculation `data-model.md` keeps branch-free.
 
@@ -108,7 +114,7 @@ Overdue items fold into the same flat list — not hidden, not moved to a separa
 
 ## Week
 
-The planning surface. Seven day sections plus the backlog.
+The planning surface. Seven day sections plus the two panels.
 
 **The current week only.** Sunday to Saturday of the week containing today, with no navigation to other weeks. Nothing can be placed outside the current week, so there is nothing to see in the next one; and nothing writes to a past date, so there is nothing to do in the last one.
 
@@ -116,10 +122,10 @@ The planning surface. Seven day sections plus the backlog.
 
 ### Contents
 
-Two things, and nothing else:
+Three things, and nothing else:
 
 - **The seven days** — whatever has been placed on each.
-- **The Routine panel** — everything there is. Expanded by default here, because on this screen it *is* the planning surface.
+- **The Routine panel** and **the Backlog panel** — everything there is, both expanded by default here, because on this screen they *are* the planning surface.
 
 **Daily tasks never appear in the seven days.** They are implicit on every day and would be pure noise in a plan. They do appear in the panel, which is how you can still tick one off without leaving this screen.
 
@@ -141,7 +147,7 @@ Two constraints the interface must enforce, because the model does not derive th
 
 ## Routine
 
-The complete inventory. One panel, hosted by both Day and Week, identical in both — same contents, same actions, same order. Collapsed by default on Day, expanded on Week, side by side with its host on wide screens.
+The complete inventory. One panel, hosted by both Day and Week, identical in both — same contents, same actions, same order. Collapsed by default on Day, expanded on Week. Full width beneath its host at every size — the seven days become columns on a wide screen, but the panels do not sit beside them.
 
 It exists because of a hole the first build made obvious. Day shows what is on today; Week shows what is placed on a day. A weekly task you never placed was therefore on neither, and skipping one planning session made it disappear for a week. The panel is the answer to "what else is there?", and it is the only screen in the system where nothing is hidden.
 
@@ -193,7 +199,7 @@ The stripe briefly encoded the cadence too, as a dash count — solid for daily,
 
 **Baseline tasks are also set in a heavier weight**, colour or no colour. Day marks the band by position and a tint; the panel has no bands, so weight is what carries "the bare minimum to function" there.
 
-It exists because these two screens mark the baseline band differently — Day sorts it to the top and rules a line under it, the panel does not band at all — so a task that is "the bare minimum to function" is invisible as such in the panel. A colour is one mark that reads the same in both.
+It exists because the two screens mark baseline differently: Day sorts it to the top and rules a line under it, while the panel marks it by weight and by sorting it above every category. A colour is one mark that reads the same in both, and the only one that tells two baseline tasks apart rather than telling baseline from the rest.
 
 The colour renders exactly as chosen. A colour that is hard to read against one theme is a colour to change; the app does not second-guess the picker, because a swatch that renders as something else is worse than a bad swatch.
 
@@ -235,7 +241,7 @@ within a band  →  baseline first
 
 Things wanting a decision rise; finished things sink.
 
-**Baseline outranks category**, so baseline tasks form an unheaded block at the top of a group and category headings begin below them. This is a real trade, not an oversight: a baseline task never appears under its own category, so a category heading does not show everything in that category. Sorting by category first scattered the baseline tasks and lost the block that "the bare minimum to function" depends on, which was the worse loss.
+**Baseline outranks category**, so baseline tasks lead a group as a block and the categories follow. This is a real trade, not an oversight: a baseline task does not sit with the rest of its category. Sorting by category first scattered the baseline tasks and lost the block that "the bare minimum to function" depends on, which was the worse loss.
 
 This is *not* `sort()`. There is no `days.task_order` here — that belongs to Day's list — and the baseline band means something different in each: Day rules a line under it, the panel just leads with it.
 
@@ -247,7 +253,7 @@ Every task action in the system lives here, and every one is available from both
 - **Place** — assign a day, from the picker the server supplies.
 - **Unplan** — clear the date.
 - **Reset to backlog** — clear `planned_date` on every overdue item at once, including one-off ones. Overdue only; never days still ahead. It lives in the **Routine** panel and nowhere else, even though it reaches tasks drawn in Backlog: one bulk destructive action, one home.
-- **Edit** — tap a name to open the task editor. **This is the only place a task is edited.** Name, cadence, baseline flag, and Archive.
+- **Edit** — tap a name to open the task editor. **This is the only place a task is edited.** Name, cadence, category, baseline flag, a colour when baseline, and Archive.
 
   Editing lives here rather than on Day's list because the two lists answer different questions. Day's list is for *doing*: every tap on it is made mid-task, one-handed, while working through the day, and the whole surface is tuned so a tap is cheap. Opening a definition form from a mis-tap on that surface is the opposite of cheap — it is a modal sheet in the way of the thing you were doing. The panel is where you go to think about what the tasks *are*, so the editor belongs to it. It also comes free on Week, since the panel is hosted there too.
 
@@ -285,11 +291,11 @@ Two paths with opposite requirements. They must not share a screen — a deliber
 
 **Capture** is fast and thoughtless, done mid-day. The `+` takes a name, and a name alone still creates a backlog item with no cadence and no date. One tap in, one tap out.
 
-Beneath the name is a collapsed **More** section carrying the same fields as the editor — cadence, baseline, colour. Closed by default and costing nothing when ignored.
+Beneath the name is a collapsed **More** section carrying the same fields as the editor — cadence, category, baseline, colour. Closed by default and costing nothing when ignored.
 
 This reverses the original rule that the two paths must not share a screen, and the reversal is deliberate. The worry was that a deliberate form on the fast path is a form you stop bothering with; a section that is closed until you open it is not on the fast path. And the case it answers is real: when you already know the thing is weekly, retyping it in the editor later is worse than a disclosure triangle you can ignore.
 
-**Task definition** is slow and deliberate, done once. Name, cadence, baseline flag, and **Archive** — the only removal. Archiving retires a task from every current view and keeps its completions. There is no delete, so the action means the same thing on every row and never needs a confirmation that explains which of two things is about to happen. Reached by tapping a name **in the Routine panel** rather than by a separate creation flow — which is also how a captured one-off graduates into a routine once you notice you keep re-adding it.
+**Task definition** is slow and deliberate, done once. Name, cadence, category, baseline flag, a colour when baseline, and **Archive** — the only removal. Archiving retires a task from every current view and keeps its completions. There is no delete, so the action means the same thing on every row and never needs a confirmation that explains which of two things is about to happen. Reached by tapping a name **in the Routine panel** rather than by a separate creation flow — which is also how a captured one-off graduates into a routine once you notice you keep re-adding it.
 
 The two input paths therefore live on two different surfaces: capture is a `+` on Day, definition is a name-tap in the panel. That separation is the same one this section opens with — a deliberate form on the fast path is a form you stop bothering with, and a fast path on the deliberate surface is a definition you change by accident.
 
@@ -321,6 +327,6 @@ This assumes local SQLite. It would not hold in an environment where storage sit
 
 ## Not in v1
 
-Task colours on anything but baseline. A palette or theme editor. Priorities. Time estimates. Subtasks. Tags. Notifications. Streak counts. Time tracking. Search. Gamification. Multi-user. Date navigation on Day. Week navigation. Backfilling a past date. Drag-and-drop reordering. Multiple moods per day. An archive browser. Deleting anything. Editing moods in the app. A fourth destination in the nav. Reordering the completed list, or the Routine panel.
+Task colours on anything but baseline. A palette or theme editor. Priorities. Time estimates. Subtasks. Tags. Notifications. Streak counts. Time tracking. Search. Gamification. Multi-user. Date navigation on Day. Week navigation. Backfilling a past date. Multiple moods per day. An archive browser. Deleting anything. Editing moods in the app. A fourth destination in the nav. Reordering the completed list, or the Routine panel. Category headings, chips or labels of any kind.
 
 Each is a thing that made the surveyed apps too heavy. Each can be added in week three if it turns out to be missed — and most will not be.
