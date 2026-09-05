@@ -8,3 +8,6 @@ data/
 # playwright
 e2e-report/
 test-results/
+
+# typescript incremental build cache
+*.tsbuildinfo
