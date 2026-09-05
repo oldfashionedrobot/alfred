@@ -1,0 +1,582 @@
+/* Design tokens and base. View-specific rules live in views/{day,week,history}.css */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0f0ed;
+  --border: #dededa;
+  --text: #16181a;
+  --text-dim: #6b7075;
+  --text-faint: #9aa0a6;
+
+  --accent: #3d6ee0;
+  --accent-soft: #e6edfd;
+  --on-accent: #ffffff;
+  --overdue: #c2410c;
+  --overdue-soft: #fdeee5;
+  --done: #4d9c62;
+
+  --scrim: rgb(0 0 0 / 0.4);
+  --radius: 10px;
+  --radius-sm: 7px;
+  --tap: 44px; /* minimum touch target */
+
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111417;
+    --surface: #1a1e22;
+    --surface-2: #23282d;
+    --border: #2e343a;
+    --text: #e8eaec;
+    --text-dim: #9aa2aa;
+    --text-faint: #6b7278;
+
+    --accent: #6b93f0;
+    --accent-soft: #1e2a44;
+    --on-accent: #0d1117;
+    --overdue: #f0864f;
+    --overdue-soft: #3a2318;
+    --done: #6cbd82;
+
+    --scrim: rgb(0 0 0 / 0.6);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* --- app shell ---------------------------------------------------------- */
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 var(--gap-4) calc(var(--tap) + env(safe-area-inset-bottom) + var(--gap-5));
+}
+
+.nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  gap: var(--gap-1);
+  padding: var(--gap-2) var(--gap-2) calc(var(--gap-2) + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border);
+}
+
+.nav button {
+  flex: 1;
+  min-height: var(--tap);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.nav button[aria-current="page"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.state {
+  padding: var(--gap-5) 0;
+  color: var(--text-dim);
+}
+
+.state--error {
+  color: var(--overdue);
+}
+
+
+/* --- shared primitives ---------------------------------------------------
+   One button system, one checkbox, one notice, one day picker. The first build
+   grew two or three of each; these exist so that cannot happen again. */
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-2);
+  min-height: var(--tap);
+  padding: 0 var(--gap-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9375rem;
+  line-height: 1.2;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn--small {
+  /* Denser than .btn in padding and type, but NOT in tap target: 44px is the
+     floor everywhere in this app, and a phone is where it is tapped. */
+  min-height: var(--tap);
+  padding: 0 var(--gap-2);
+  font-size: 0.875rem;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+.btn--danger {
+  background: var(--overdue-soft);
+  border-color: var(--overdue);
+  color: var(--overdue);
+  font-weight: 600;
+}
+
+/* checkbox */
+.tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.tick__box {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.tick__box[data-done] {
+  border-color: var(--done);
+  background: var(--done);
+  background-image: linear-gradient(transparent, transparent);
+  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 22px var(--done);
+}
+
+.tick--static .tick__box {
+  opacity: 0.55;
+}
+
+/* notice */
+.notice {
+  position: fixed;
+  left: var(--gap-4);
+  right: var(--gap-4);
+  bottom: calc(var(--tap) + env(safe-area-inset-bottom) + var(--gap-3));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  max-width: 688px;
+  margin: 0 auto;
+  padding: var(--gap-2) var(--gap-2) var(--gap-2) var(--gap-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.notice span {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice--error {
+  border-color: var(--overdue);
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+
+.notice__x {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  border: none;
+  background: transparent;
+  color: inherit;
+}
+
+/* day picker */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-1);
+  padding: var(--gap-2) 0;
+}
+
+.picker__day[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.picker__empty {
+  margin: var(--gap-2) 0;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+/* inline confirm */
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+}
+
+.confirm__q {
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+
+/* --- sheet ---------------------------------------------------------------
+   A bottom sheet. Shared because both the capture form (Day) and the task
+   editor (To do panel) open in one. */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.sheet-scrim-hit {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: var(--scrim);
+}
+
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  /* dvh, never vh: iOS reports vh as the LARGE viewport, so a vh-capped sheet
+     extends under the browser chrome and hides its own submit button. */
+  max-height: 88dvh;
+}
+
+.sheet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.sheet-bar h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sheet-body {
+  overflow-y: auto;
+  /* Scrolling past the end of the sheet must not scroll the page behind it. */
+  overscroll-behavior: contain;
+  padding: var(--gap-4) var(--gap-3) calc(var(--gap-5) + env(safe-area-inset-bottom));
+}
+
+/* --- forms --------------------------------------------------------------- */
+
+.form {
+  display: flex;
+  gap: var(--gap-2);
+  align-items: center;
+}
+
+.form--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-1);
+}
+
+.field-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 var(--gap-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-2);
+  min-height: var(--tap);
+  padding: var(--gap-2) 0;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.hint {
+  margin: var(--gap-2) 0 0;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+.check .hint {
+  display: block;
+  margin: 0;
+}
+
+/* --- task colour ---------------------------------------------------------
+   Baseline tasks may carry a colour, set in the task editor. It paints the
+   row's left edge and the task's own name, and nothing else — no fill, no
+   badge. Used exactly as picked: `views.md` is explicit that the app does not
+   second-guess the swatch, because a swatch that renders as something else is
+   worse than a bad one.
+
+   The value arrives as an inline --task-colour on the row; the server has
+   already nulled it for anything that is not baseline, so these rules only ever
+   see a colour that should render. */
+
+/* --- the cadence stripe --------------------------------------------------
+   Every task row carries a 3px stripe on its left edge. Its COLOUR says whose
+   row it is; its PATTERN says how often the task recurs:
+
+     day / baseline  solid        week 2 dashes      month 3 dashes
+     quarter 4       year 5       one-off 1 short mark
+
+   Drawn as a repeating background gradient, not a border and not
+   `border-style: dashed`. A border changes the row's box, so a striped row
+   would sit indented from an unstriped one and the list would lose its left
+   edge. And `dashed` gives no control over how many dashes there are — the
+   count is what carries the meaning here, so the stripe is a gradient tile
+   sized to `100% / n`, which yields exactly n dashes at any row height. */
+
+[data-cadence] {
+  --stripe-colour: var(--border);
+  --stripe-dashes: 1;
+  --stripe-gap: 0%;
+  background-image: linear-gradient(
+    transparent 0 calc(var(--stripe-gap) / 2),
+    var(--stripe-colour) calc(var(--stripe-gap) / 2) calc(100% - var(--stripe-gap) / 2),
+    transparent calc(100% - var(--stripe-gap) / 2) 100%
+  );
+  background-size: 3px calc(100% / var(--stripe-dashes));
+  background-repeat: repeat-y;
+  background-position: left top;
+}
+
+[data-cadence='day'] {
+  --stripe-dashes: 1;
+  --stripe-gap: 0%;
+}
+[data-cadence='week'] {
+  --stripe-dashes: 2;
+  --stripe-gap: 42%;
+}
+[data-cadence='month'] {
+  --stripe-dashes: 3;
+  --stripe-gap: 42%;
+}
+[data-cadence='quarter'] {
+  --stripe-dashes: 4;
+  --stripe-gap: 42%;
+}
+[data-cadence='year'] {
+  --stripe-dashes: 5;
+  --stripe-gap: 42%;
+}
+/* A one-off has no period, so it is off the "more dashes = longer period"
+   axis entirely: one short mark, meaning once. */
+[data-cadence='once'] {
+  --stripe-dashes: 1;
+  --stripe-gap: 64%;
+}
+
+/* Overdue recolours the stripe rather than adding a second mark beside it. */
+[data-overdue] {
+  --stripe-colour: var(--overdue);
+}
+
+/* A baseline colour wins: it is the most specific thing the row can say. */
+[data-colour] {
+  --stripe-colour: var(--task-colour);
+}
+
+[data-colour] .day-name-text,
+[data-colour] .todo-row__name {
+  color: var(--task-colour);
+}
+
+/* Baseline is the bare minimum to function: it reads heavier than the rest,
+   in both places a task appears. */
+.day-row--baseline .day-name-text,
+[data-baseline] .todo-row__name {
+  font-weight: 600;
+}
+
+/* Struck through wins: a completed task reads as completed first. */
+[data-colour][data-done] .todo-row__name,
+.day-row--done[data-colour] .day-name-text {
+  color: var(--text-dim);
+}
+
+/* --- colour input --------------------------------------------------------- */
+
+.colour {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.colour__swatch {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.colour__hex {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* --- disclosure ----------------------------------------------------------- */
+
+.more {
+  border-top: 1px solid var(--border);
+  padding-top: var(--gap-2);
+}
+
+.more__toggle {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.more__toggle::-webkit-details-marker {
+  display: none;
+}
+
+.more__toggle::before {
+  content: '›';
+  display: inline-block;
+  width: 1em;
+  transition: transform 0.12s ease;
+}
+
+.more[open] .more__toggle::before {
+  transform: rotate(90deg);
+}
+
+.more__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  padding-bottom: var(--gap-2);
+}

@@ -1,0 +1,224 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "1aeefb00-7d91-4581-a71e-f1d082dffaf8",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "completions": {
+      "name": "completions",
+      "columns": {
+        "task_id": {
+          "name": "task_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_on": {
+          "name": "completed_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "completions_completed_on_idx": {
+          "name": "completions_completed_on_idx",
+          "columns": [
+            "completed_on"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "completions_task_id_tasks_id_fk": {
+          "name": "completions_task_id_tasks_id_fk",
+          "tableFrom": "completions",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "completions_task_id_completed_on_pk": {
+          "columns": [
+            "task_id",
+            "completed_on"
+          ],
+          "name": "completions_task_id_completed_on_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "days": {
+      "name": "days",
+      "columns": {
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mood": {
+          "name": "mood",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "log": {
+          "name": "log",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "task_order": {
+          "name": "task_order",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "days_mood_moods_slug_fk": {
+          "name": "days_mood_moods_slug_fk",
+          "tableFrom": "days",
+          "tableTo": "moods",
+          "columnsFrom": [
+            "mood"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "moods": {
+      "name": "moods",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "emoji": {
+          "name": "emoji",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "active": {
+          "name": "active",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "tasks": {
+      "name": "tasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_baseline": {
+          "name": "is_baseline",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "cadence": {
+          "name": "cadence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "planned_date": {
+          "name": "planned_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "active": {
+          "name": "active",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

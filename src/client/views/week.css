@@ -1,0 +1,188 @@
+/* Week — the planning surface: seven day sections, then the To do panel.
+   Mobile first: one vertical stack. Wide screens: the seven days become
+   columns. One component, one DOM, CSS does the rearranging.
+
+   The buttons, the tick, the day picker and the notice are the shared
+   primitives in styles.css; nothing here restates one. Every colour is a token
+   or a color-mix() over one, so light and dark both follow. */
+
+.week {
+  padding-top: var(--gap-4);
+}
+
+/* Seven columns need more than the 720px shell, so the view breaks out of it
+   symmetrically — never wider than the viewport, so the body still cannot
+   scroll sideways. */
+@media (min-width: 900px) {
+  .week {
+    --week-w: min(1180px, calc(100vw - 2 * var(--gap-4)));
+    width: var(--week-w);
+    margin-inline: calc((100% - var(--week-w)) / 2);
+  }
+}
+
+/* --- header ------------------------------------------------------------- */
+
+.week-head {
+  margin-bottom: var(--gap-4);
+}
+
+.week-head__title {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.week-head__range {
+  margin: var(--gap-1) 0 0;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the seven days ----------------------------------------------------- */
+
+.week-days {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap-3);
+}
+
+@media (min-width: 900px) {
+  .week-days {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: var(--gap-2);
+    align-items: start;
+  }
+}
+
+.week-day {
+  padding: var(--gap-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.week-day--today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow);
+}
+
+/* Past days are context — what the week was meant to look like — not a surface
+   to tick from. Dimmed and dashed, and the server has already withheld
+   can_complete on everything inside them. */
+.week-day--past {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  box-shadow: none;
+  color: var(--text-faint);
+}
+
+.week-day__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-2);
+  margin-bottom: var(--gap-1);
+  padding-bottom: var(--gap-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.week-day__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.week-day__flag {
+  flex: none;
+  padding: 0 0.45em;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.week-day__flag--past {
+  background: var(--surface-2);
+  color: var(--text-faint);
+}
+
+.week-empty {
+  margin: var(--gap-1) 0 0;
+  color: var(--text-faint);
+  font-size: 0.88rem;
+}
+
+/* --- rows --------------------------------------------------------------- */
+
+.week-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week-task + .week-task {
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.week-task__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-2);
+  min-height: var(--tap);
+}
+
+/* A captured name can be one long unbroken token — a URL, a product code. It
+   breaks rather than widening the row and scrolling the body sideways. */
+.week-task__name {
+  flex: 1 1 40%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.week-task--done .week-task__name {
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--done) 70%, transparent);
+}
+
+.week-task__actions {
+  flex: none;
+  display: flex;
+  gap: var(--gap-1);
+  margin-left: auto;
+}
+
+/* Move, while its picker is open. */
+.week-task__actions .btn[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A seventh of the screen is not much room: let the actions take their own line
+   and shrink the type to match. */
+@media (min-width: 900px) {
+  .week-day {
+    padding: var(--gap-2);
+  }
+
+  .week-task__row {
+    gap: var(--gap-1);
+  }
+
+  .week-task__name {
+    font-size: 0.86rem;
+  }
+
+  .week-task__actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}

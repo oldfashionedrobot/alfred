@@ -1,0 +1,236 @@
+/* To do panel — the complete inventory, hosted by Day and by Week.
+
+   Layout only. The buttons, the tick, the day picker and the confirm are the
+   shared primitives from styles.css and ui.tsx; nothing here restates them.
+   Every colour is a token or a color-mix() over one, so light and dark both
+   work, and every tap target is at least var(--tap). */
+
+.todo {
+  margin: var(--gap-4) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.todo[data-busy] {
+  opacity: 0.65;
+}
+
+/* --- the collapsible container ------------------------------------------ */
+
+.todo__head {
+  margin: 0;
+  font: inherit;
+}
+
+.todo__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--gap-2) var(--gap-3);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+}
+
+.todo__chevron {
+  flex: none;
+  color: var(--text-faint);
+  transition: transform 120ms ease;
+}
+
+.todo__toggle[aria-expanded='true'] .todo__chevron {
+  transform: rotate(90deg);
+}
+
+.todo__title {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.todo__count {
+  flex: none;
+  min-width: 1.8em;
+  padding: 1px var(--gap-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.todo__body {
+  padding: 0 var(--gap-3) var(--gap-3);
+  border-top: 1px solid var(--border);
+}
+
+/* Reset to backlog — its only home in the app, so it sits above everything. */
+.todo__bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+  padding: var(--gap-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.todo__bar-text {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+/* --- groups ------------------------------------------------------------- */
+
+.todo-group {
+  padding-top: var(--gap-3);
+}
+
+.todo-group__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--gap-2);
+  margin: 0 0 var(--gap-1);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The period is the point of the heading, not decoration: it is the only place
+   the app says where this month or this quarter currently starts and ends. */
+.todo-group__period {
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+/* An empty group keeps its heading and says so quietly — never hidden. */
+.todo__quiet,
+.todo-group__empty {
+  margin: 0;
+  padding: var(--gap-1) 0 var(--gap-2);
+  color: var(--text-faint);
+  font-size: 0.875rem;
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* --- rows --------------------------------------------------------------- */
+
+.todo-row + .todo-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+
+.todo-row__main {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-1);
+  min-height: var(--tap);
+}
+
+/* A button since v3: tapping the name opens the task editor, and this panel is
+   the only place a task is edited. */
+.todo-row__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--gap-2);
+  flex: 1 1 auto;
+  min-width: 0; /* long names wrap; the page never scrolls sideways */
+  min-height: var(--tap);
+  padding: var(--gap-1) 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.todo-row[data-done] .todo-row__name {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.todo-row__marks,
+.todo-row__actions {
+  display: flex;
+  gap: var(--gap-1);
+}
+
+.todo-row__marks {
+  flex-wrap: wrap;
+}
+
+.todo-row__actions {
+  flex: none;
+}
+
+.todo-row__pick {
+  padding: 0 0 var(--gap-1) var(--tap);
+}
+
+/* --- marks -------------------------------------------------------------- */
+
+.todo-mark {
+  padding: 1px var(--gap-1);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* the day it is placed on — the "assigned to a day" highlight */
+.todo-mark--day {
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+}
+
+/* "needs a day" — warm and quiet, and it says what to do, not what went wrong */
+.todo-mark--needs {
+  background: var(--overdue-soft);
+  color: var(--overdue);
+}
+
+/* a date already gone past is not a highlight any more */
+.todo-row[data-overdue] .todo-mark--day {
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.todo-archive {
+  margin-top: var(--gap-5);
+  padding-top: var(--gap-3);
+  border-top: 1px solid var(--border);
+}
+
+/* A category heading inside a period group. Not a list item in the semantic
+   sense — it is a label over the rows that follow, and the rows themselves
+   carry the meaning — so it is aria-hidden and the row keeps its own name. */
+.todo-cat {
+  list-style: none;
+  padding: var(--gap-3) 0 var(--gap-1);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.todo-cat:first-child {
+  padding-top: var(--gap-1);
+}

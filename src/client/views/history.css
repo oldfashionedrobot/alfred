@@ -1,0 +1,178 @@
+/* History — the grid. Dates down, daily tasks across, filled cells for
+   completions, one mood column. Read-only: nothing here is clickable.
+   Gaps are permanent and are drawn as plain empty cells — the grid's job is
+   that the pattern reads from across the room. */
+
+.hist {
+  padding-top: var(--gap-4);
+}
+
+.hist-head {
+  margin-bottom: var(--gap-3);
+}
+
+.hist-head__title {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.hist-head__sub {
+  margin: var(--gap-1) 0 0;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+/* --- the scroll box ----------------------------------------------------- */
+
+/* ~17 daily task columns is wider than any phone. The grid scrolls inside
+   its own box, in both axes, so the page body never scrolls sideways and the
+   sticky header has a scroll container to stick to. */
+.hist-scroll {
+  max-height: max(260px, calc(100dvh - 210px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  -webkit-overflow-scrolling: touch;
+}
+
+.hist-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.hist-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- header row --------------------------------------------------------- */
+
+.hist-h {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 132px;
+  padding: var(--gap-1);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  vertical-align: bottom;
+}
+
+/* Rotated headers: 17 full task names side by side would be metres wide. */
+.hist-h__rot {
+  display: block;
+  width: 1.1em;
+  max-height: 118px;
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 auto;
+}
+
+.hist-h--task {
+  width: 30px;
+  min-width: 30px;
+}
+
+.hist-h--mood {
+  width: 34px;
+  min-width: 34px;
+  border-right: 1px solid var(--border);
+}
+
+/* The corner cell is sticky on both axes, so it outranks everything. */
+.hist-h--date {
+  left: 0;
+  z-index: 3;
+  width: 74px;
+  min-width: 74px;
+  text-align: left;
+  vertical-align: bottom;
+  border-right: 1px solid var(--border);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* --- rows --------------------------------------------------------------- */
+
+.hist-row--weekend .hist-cell,
+.hist-row--weekend .hist-mood,
+.hist-row--weekend .hist-date {
+  background-color: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+
+/* Sticky date column: which row you are on stays readable while scrolled right. */
+.hist-date {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 74px;
+  min-width: 74px;
+  padding: 0 var(--gap-2);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background-color: var(--surface);
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hist-mood,
+.hist-cell {
+  height: 26px;
+  padding: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background-color: var(--surface);
+  text-align: center;
+}
+
+.hist-mood {
+  width: 34px;
+  min-width: 34px;
+  border-right: 1px solid var(--border);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.hist-cell {
+  width: 30px;
+  min-width: 30px;
+}
+
+/* An empty cell is a fact, not a prompt — it stays quiet and says nothing.
+   A filled one is a solid block: the pattern is the whole point. */
+.hist-cell--on {
+  background-image: linear-gradient(var(--done), var(--done));
+  background-clip: content-box;
+  background-origin: content-box;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* --- footer ------------------------------------------------------------- */
+
+.hist-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  margin-top: var(--gap-3);
+}
+
+.hist-end {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}

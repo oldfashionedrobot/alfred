@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788628436657,
+      "tag": "0000_ambitious_ezekiel",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788634644191,
+      "tag": "0001_wandering_power_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788637293023,
+      "tag": "0002_youthful_master_mold",
+      "breakpoints": true
+    }
+  ]
+}
