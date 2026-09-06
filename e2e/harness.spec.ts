@@ -32,7 +32,7 @@ test('a past-dated placement seeds an overdue task', async ({ page, app }) => {
   // has fallen out the back of the period, so it is unplaced rather than overdue,
   // and this test would fail for a correct reason one day in seven.
   app.seed.task({ name: 'SEEDED OVERDUE', cadence: null, planned_date: addDays(app.today, -2) })
-  const day = await (await fetch(`${app.url}/api/day`)).json()
+  const day = await (await app.fetch('/api/day')).json()
   expect(day.active.find((t: any) => t.name === 'SEEDED OVERDUE').state).toBe('overdue')
   await page.goto(app.url)
   await expect(page.getByText('SEEDED OVERDUE')).toBeVisible()

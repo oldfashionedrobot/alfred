@@ -45,7 +45,7 @@ function shortDate(iso: string): string {
 // ---------------------------------------------------------------------------
 
 async function getHistory(app: App, query = 'limit=365'): Promise<HistoryLite> {
-  const res = await fetch(`${app.url}/api/history?${query}`)
+  const res = await app.fetch(`/api/history?${query}`)
   expect(res.ok).toBe(true)
   return (await res.json()) as HistoryLite
 }
@@ -217,7 +217,7 @@ test('a retired mood still renders in History', async ({ page, app }) => {
   // Retired really means retired: the Day view's picker row is what it has
   // dropped out of. (There is no /api/moods — the mood set is not editable
   // through the API at all.)
-  const day = (await (await fetch(`${app.url}/api/day`)).json()) as { moods: MoodLite[] }
+  const day = (await (await app.fetch('/api/day')).json()) as { moods: MoodLite[] }
   expect(day.moods.map((m) => m.slug)).not.toContain('happy')
 
   await openHistory(page, app)
@@ -385,7 +385,7 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   app.seed.completion(id, app.today)
   app.seed.day(app.today, { log: 'noted' })
 
-  const before = await (await fetch(`${app.url}/api/history`)).json()
+  const before = await (await app.fetch('/api/history')).json()
 
   await page.goto(app.url)
   await page.getByRole('button', { name: /^history$/i }).click()
@@ -393,13 +393,13 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: /^close$/i }).click()
 
-  const after = await (await fetch(`${app.url}/api/history`)).json()
+  const after = await (await app.fetch('/api/history')).json()
   expect(after).toEqual(before)
 })
 
 test('columns are ordered by baseline, then category, then name', async ({ page, app }) => {
   const post = (name: string, extra: Record<string, unknown>) =>
-    fetch(`${app.url}/api/commands/create_task`, {
+    app.fetch('/api/commands/create_task', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name, cadence: 'day', ...extra }),
@@ -432,7 +432,7 @@ test('a filled cell wears the baseline task\'s colour, and a plain one does not'
   app,
 }) => {
   const post = (name: string, extra: Record<string, unknown>) =>
-    fetch(`${app.url}/api/commands/create_task`, {
+    app.fetch('/api/commands/create_task', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name, cadence: 'day', ...extra }),

@@ -20,14 +20,14 @@ import { test, expect, addDays, type App } from './fixtures.ts'
 // --- reading the server -----------------------------------------------------
 
 async function dayView(app: App): Promise<DayView> {
-  const r = await fetch(`${app.url}/api/day`)
+  const r = await app.fetch('/api/day')
   expect(r.ok).toBe(true)
   return (await r.json()) as DayView
 }
 
 /** The panel Day hosts. Used to assert where a task LANDED, not how it renders. */
 async function todoView(app: App): Promise<TodoView> {
-  const r = await fetch(`${app.url}/api/todo`)
+  const r = await app.fetch('/api/todo')
   expect(r.ok).toBe(true)
   return (await r.json()) as TodoView
 }
@@ -37,7 +37,7 @@ function inventory(v: TodoView, name: string): TodoTask | undefined {
 }
 
 async function historyView(app: App): Promise<HistoryView> {
-  const r = await fetch(`${app.url}/api/history`)
+  const r = await app.fetch('/api/history')
   expect(r.ok).toBe(true)
   return (await r.json()) as HistoryView
 }
@@ -685,8 +685,8 @@ test('the mood row offers no way to edit the mood set', async ({ page, app }) =>
   await expect(page.getByRole('dialog', { name: 'Moods' })).toHaveCount(0)
 
   // And the endpoints behind it are gone.
-  expect((await fetch(`${app.url}/api/moods`)).status).toBe(404)
-  const create = await fetch(`${app.url}/api/commands/create_mood`, {
+  expect((await app.fetch('/api/moods')).status).toBe(404)
+  const create = await app.fetch('/api/commands/create_mood', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ slug: 'restless', emoji: '😖', label: 'restless' }),
@@ -1437,7 +1437,7 @@ test('Many will not submit nothing', async ({ page, app }) => {
   await expect(sheet.getByRole('button', { name: /^add$/i })).toBeDisabled()
 
   // And the server refuses it too, so the button is a courtesy rather than the rule.
-  const res = await fetch(`${app.url}/api/commands/create_tasks`, {
+  const res = await app.fetch('/api/commands/create_tasks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ names: ['  ', ''] }),
@@ -1565,7 +1565,7 @@ test('a picker opened from a future pane is usable, not clipped by the track', a
 
 test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }) => {
   const post = (names: string[]) =>
-    fetch(`${app.url}/api/commands/create_tasks`, {
+    app.fetch('/api/commands/create_tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ names }),
@@ -1580,7 +1580,7 @@ test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }
   // Shape, not just size: the only field is a list of strings.
   expect(await post(['fine', 7 as unknown as string])).toBe(400)
   expect(
-    await fetch(`${app.url}/api/commands/create_tasks`, {
+    await app.fetch('/api/commands/create_tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
@@ -1618,7 +1618,7 @@ test('the week track is frozen while reordering', async ({ page, app }) => {
 test('the week endpoint is gone, and the two that replaced it answer', async ({ app }) => {
   // v8 folded Week into Day. Asserted rather than assumed: a router that quietly
   // kept serving it would leave a model nothing reads and nobody maintains.
-  expect((await fetch(`${app.url}/api/week`)).status).toBe(404)
-  expect((await fetch(`${app.url}/api/day`)).status).toBe(200)
-  expect((await fetch(`${app.url}/api/todo`)).status).toBe(200)
+  expect((await app.fetch('/api/week')).status).toBe(404)
+  expect((await app.fetch('/api/day')).status).toBe(200)
+  expect((await app.fetch('/api/todo')).status).toBe(200)
 })

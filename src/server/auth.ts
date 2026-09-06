@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { asc, eq } from 'drizzle-orm'
+import { eq, ne } from 'drizzle-orm'
 import type { DB } from './db.ts'
 import { users, type UserRow } from './schema.ts'
 
@@ -7,33 +7,34 @@ import { users, type UserRow } from './schema.ts'
  * Accounts, sessions and the login page.
  *
  * WHO A REQUEST IS. Every view builder and every command takes a user id, and
- * this is the only place one comes from. Two modes, the same shape as `db.ts`:
+ * this is the only place one comes from: the session cookie, always.
  *
- *   AUTH_REQUIRED unset →  every request is the lowest-id user.
- *                          Development and the whole test suite run this way,
- *                          so no login step is threaded through 392 tests.
+ * THERE IS NO WAY TO TURN THIS OFF. An earlier draft had an `AUTH_REQUIRED`
+ * flag — unset in development and in the test suite, with the server refusing to
+ * start in production without it. That is one more thing that has to be right,
+ * guarding a state that should not exist, and a guard is only as good as
+ * remembering to write it. With no flag there is no misconfigured deploy to
+ * catch, so the check went with the switch.
  *
- *   AUTH_REQUIRED=1   →  the session cookie names the user, and there is no
- *                          request without one.
- *
- * The server REFUSES TO START in production without it. A misconfigured deploy
- * should fail loudly rather than quietly serve a household journal to anyone.
+ * The cost lands on the browser suite, which now signs in. `e2e/fixtures.ts`
+ * does that once per test rather than every spec doing it by hand.
  */
 
 const COOKIE = 'alfred_session'
 const MAX_AGE_DAYS = 90
 const MAX_AGE_SECONDS = MAX_AGE_DAYS * 24 * 60 * 60
 
-export const authRequired = process.env.AUTH_REQUIRED === '1'
 const production = process.env.NODE_ENV === 'production'
 
-/** Called before the server listens. Throwing here is the point. */
-export function assertAuthConfigured(): void {
-  if (production && !authRequired) {
-    throw new Error(
-      'NODE_ENV=production without AUTH_REQUIRED=1 would serve every account to anyone. ' +
-        'Set AUTH_REQUIRED=1, and create a user with `bun run user:add <name>`.',
-    )
+/**
+ * Not a guard — there is nothing left to misconfigure. A database where nobody
+ * has a password is simply locked, which is the safe direction to fail in; this
+ * says so rather than leaving somebody at a login page that cannot work.
+ */
+export async function warnIfNobodyCanSignIn(db: DB): Promise<void> {
+  const anyone = await db.select().from(users).where(ne(users.password_hash, '')).limit(1).get()
+  if (anyone === undefined) {
+    console.warn('alfred: no user has a password yet — run `bun run user:add <name>`')
   }
 }
 
@@ -118,13 +119,8 @@ async function userFromCookie(db: DB, req: Request): Promise<UserRow | null> {
   return user
 }
 
-/** The lowest-id user. Who the app is when AUTH_REQUIRED is unset. */
-async function defaultUser(db: DB): Promise<UserRow | null> {
-  return (await db.select().from(users).orderBy(asc(users.id)).limit(1).get()) ?? null
-}
-
 export async function currentUser(db: DB, req: Request): Promise<UserRow | null> {
-  return authRequired ? await userFromCookie(db, req) : await defaultUser(db)
+  return await userFromCookie(db, req)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { isISODate, type ISODate } from '../shared/types.ts'
-import { authRequired, currentUser } from './auth.ts'
+import { currentUser } from './auth.ts'
 import { runCommand } from './commands.ts'
 import { db } from './db.ts'
 import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
@@ -52,16 +52,11 @@ export async function handleApi(req: Request): Promise<Response> {
       return json({ ok: true, date: today(), sha: process.env.BUILD_SHA ?? 'dev' })
     }
 
-    // Resolved once, here, and threaded through everything below. With
-    // AUTH_REQUIRED unset this is the lowest-id user and never null unless the
-    // database has no users at all — which only a hand-emptied one does, since
-    // the migration creates one.
+    // Resolved once, here, and threaded through everything below. There is no
+    // request without a user: no cookie is a 401, and the client turns that into
+    // a trip to /login.
     const user = await currentUser(db, req)
-    if (user === null) {
-      throw new Unauthorized(
-        authRequired ? 'sign in at /login' : 'no users exist; run `bun run user:add <name>`',
-      )
-    }
+    if (user === null) throw new Unauthorized('sign in at /login')
 
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)

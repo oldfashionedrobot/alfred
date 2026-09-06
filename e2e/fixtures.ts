@@ -79,6 +79,9 @@ export class Seed {
   }
 }
 
+/** The password the fixture gives `owner`. Only ever used by the suite. */
+export const TEST_PASSWORD = 'e2e-fixture-password'
+
 /** One server process, one SQLite file, one test. */
 export type App = {
   /** Base URL of this test's own server. */
@@ -87,17 +90,30 @@ export type App = {
   seed: Seed
   /** The server's notion of today, 'YYYY-MM-DD'. Never hardcode a date. */
   today: string
+  /**
+   * fetch against this test's server, carrying its session.
+   *
+   * Every endpoint but `/api/status` needs one, so a bare `fetch` here would
+   * get a 401 and the test would fail somewhere unrelated to what it is about.
+   */
+  fetch: (path: string, init?: RequestInit) => Promise<Response>
+  /** `name=value`, for the rare test that builds a request by hand. */
+  cookie: string
 }
 
-export const test = base.extend<{ app: App; authRequired: boolean }>({
+export const test = base.extend<{ app: App; signedIn: boolean }>({
   /**
-   * Off by default, which is how 236 browser tests run without a login step
-   * threaded through every one of them. A spec that exercises signing in turns
-   * it on with `test.use({ authRequired: true })`.
+   * Every test arrives signed in, because the app has no other mode: auth is
+   * unconditional and there is no flag to turn it off. The fixture signs in as
+   * the migration's `owner` once, and both the browser and `app.fetch` carry
+   * the cookie — so no spec has to think about it.
+   *
+   * `e2e/auth.spec.ts` sets `test.use({ signedIn: false })`, because arriving
+   * without a session is exactly what it is testing.
    */
-  authRequired: [false, { option: true }],
+  signedIn: [true, { option: true }],
 
-  app: async ({ authRequired }, use) => {
+  app: async ({ context, signedIn }, use) => {
     const dir = mkdtempSync(join(tmpdir(), 'alfred-e2e-'))
     const dbPath = join(dir, 'test.db')
 
@@ -115,16 +131,7 @@ export const test = base.extend<{ app: App; authRequired: boolean }>({
      */
     const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
       cwd: ROOT,
-      // AUTH_REQUIRED is set explicitly either way, never inherited. Bun
-      // auto-loads `.env` for the spawned server, so a developer's local value
-      // would switch auth on for the whole browser suite and fail every test on
-      // a 401 — for a reason nowhere near the failure.
-      env: {
-        ...process.env,
-        DB_PATH: dbPath,
-        PORT: '0',
-        AUTH_REQUIRED: authRequired ? '1' : '',
-      },
+      env: { ...process.env, DB_PATH: dbPath, PORT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -171,7 +178,41 @@ export const test = base.extend<{ app: App; authRequired: boolean }>({
       await sleep(50)
     }
 
-    await use({ url, seed: new Seed(dbPath), today })
+    const seed = new Seed(dbPath)
+
+    /*
+     * Sign in once, over HTTP, exactly the way a browser does — rather than
+     * minting a cookie here. A fixture that knew how to sign one would be a
+     * second implementation of the thing the app is supposed to be tested on.
+     */
+    let cookie = ''
+    if (signedIn) {
+      seed.password('owner', TEST_PASSWORD)
+      const res = await fetch(`${url}/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username: 'owner', password: TEST_PASSWORD }),
+        redirect: 'manual',
+      })
+      const header = res.headers.get('set-cookie')
+      if (res.status !== 303 || header === null) {
+        proc.kill('SIGKILL')
+        throw new Error(`fixture could not sign in: ${res.status}`)
+      }
+      cookie = header.split(';')[0]!
+      const eq = cookie.indexOf('=')
+      await context.addCookies([
+        { name: cookie.slice(0, eq), value: cookie.slice(eq + 1), url },
+      ])
+    }
+
+    const api = (path: string, init: RequestInit = {}): Promise<Response> =>
+      fetch(`${url}${path}`, {
+        ...init,
+        headers: { ...(init.headers ?? {}), ...(cookie === '' ? {} : { cookie }) },
+      })
+
+    await use({ url, seed, today, fetch: api, cookie })
 
     proc.kill('SIGKILL')
     rmSync(dir, { recursive: true, force: true })

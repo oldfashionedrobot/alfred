@@ -42,7 +42,9 @@ echo 'a-long-enough-password' | bun run user:add sanjeev
 
 The same command sets an existing user's password — which also invalidates their existing sessions, because a session cookie is signed with the user's password hash.
 
-**With `AUTH_REQUIRED` unset there is no login at all**, and every request is the lowest-id user: the `owner` the migration creates, which also owns everything written before accounts existed. That is how development and the whole test suite run. Set `AUTH_REQUIRED=1` to require signing in; the server refuses to start with `NODE_ENV=production` and it unset.
+`owner` is user 1, created by the migration, and owns everything written before accounts existed — so setting its password is how you claim your own data.
+
+**Signing in is always required**, in development as much as anywhere else. There is no flag, which means there is no way to run this with the door open and no guard needed to make sure nobody did. The browser suite signs in from its fixture rather than skipping the step.
 
 ### Regenerating the icons
 

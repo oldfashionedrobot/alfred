@@ -1,4 +1,4 @@
-import { test, expect, addDays } from './fixtures.ts'
+import { test, expect, addDays, type App } from './fixtures.ts'
 import type { Locator, Page } from '@playwright/test'
 import type { TodoTask, TodoGroup, TodoView } from '../src/shared/types.ts'
 
@@ -109,8 +109,8 @@ function chip(date: string, today: string): string {
 // Reading the server
 // ---------------------------------------------------------------------------
 
-async function fetchTodo(url: string): Promise<TodoLite> {
-  const res = await fetch(`${url}/api/todo`)
+async function fetchTodo(app: App): Promise<TodoLite> {
+  const res = await app.fetch('/api/todo')
   expect(res.status, 'GET /api/todo').toBe(200)
   return (await res.json()) as TodoLite
 }
@@ -120,8 +120,8 @@ async function fetchTodo(url: string): Promise<TodoLite> {
  * category is set the way the app sets it: through the command API the editor
  * posts to. Nothing here reaches past the contract.
  */
-async function command(url: string, name: string, body: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${url}/api/commands/${name}`, {
+async function command(app: App, name: string, body: Record<string, unknown>): Promise<void> {
+  const res = await app.fetch(`/api/commands/${name}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -130,7 +130,7 @@ async function command(url: string, name: string, body: Record<string, unknown>)
 }
 
 function createTask(
-  url: string,
+  app: App,
   t: {
     name: string
     cadence?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
@@ -141,7 +141,7 @@ function createTask(
     color?: string | null
   },
 ): Promise<void> {
-  return command(url, 'create_task', { ...t })
+  return command(app, 'create_task', { ...t })
 }
 
 function groupOf(todo: TodoLite, cadence: string | null): TodoGroupLite {
@@ -243,7 +243,7 @@ test('renders all six groups in cadence order — five in Routine, one in Backlo
   page,
   app,
 }) => {
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   // One response, still all six groups in cadence order. The split is a
   // rendering decision; the model did not change.
   expect(todo.groups.map((g) => g.cadence)).toEqual([...CADENCE_ORDER])
@@ -263,7 +263,7 @@ test('renders all six groups in cadence order — five in Routine, one in Backlo
 })
 
 test('the week is a date range, never a week number', async ({ page, app }) => {
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   const week = groupOf(todo, 'week')
   expect(week.period_start).not.toBeNull()
 
@@ -345,7 +345,7 @@ test('both panels are hosted by Day, collapsed', async ({ page, app }) => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   }
 
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   await expect(panelOf(page, 'Routine').getByRole('heading', { level: 3 })).toHaveText(
     headings(todo, 'Routine'),
   )
@@ -420,11 +420,11 @@ test('a daily task lands in Today and is tickable from the panel', async ({ page
     'line-through',
   )
 
-  expect(taskOf(await fetchTodo(app.url), 'Feed Barney 1').is_done).toBe(true)
+  expect(taskOf(await fetchTodo(app), 'Feed Barney 1').is_done).toBe(true)
 })
 
 test('a one-off completed this week is still listed, struck through', async ({ page, app }) => {
-  const weekStart = groupOf(await fetchTodo(app.url), 'week').period_start!
+  const weekStart = groupOf(await fetchTodo(app), 'week').period_start!
   const id = app.seed.task({ name: 'Fix the gate', cadence: null })
   // A back-dated completion the command API refuses to write.
   app.seed.completion(id, weekStart)
@@ -442,11 +442,11 @@ test('a one-off completed this week is still listed, struck through', async ({ p
 })
 
 test('a one-off completed before this week is gone', async ({ page, app }) => {
-  const weekStart = groupOf(await fetchTodo(app.url), 'week').period_start!
+  const weekStart = groupOf(await fetchTodo(app), 'week').period_start!
   const id = app.seed.task({ name: 'Renew the passport', cadence: null })
   app.seed.completion(id, addDays(weekStart, -1))
 
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(groupOf(todo, null).tasks.map((t) => t.name)).not.toContain('Renew the passport')
 
   await page.goto(app.url)
@@ -465,7 +465,7 @@ test('a one-off completed before this week is gone', async ({ page, app }) => {
 // ---------------------------------------------------------------------------
 
 test('rows band by state, not alphabetically', async ({ page, app }) => {
-  const weekStart = groupOf(await fetchTodo(app.url), 'week').period_start!
+  const weekStart = groupOf(await fetchTodo(app), 'week').period_start!
 
   // Alphabetically Wombat < Xerus < Yak < Zebra — the exact reverse of the
   // banding, so a list that merely looks sorted cannot pass this.
@@ -473,10 +473,10 @@ test('rows band by state, not alphabetically', async ({ page, app }) => {
   app.seed.task({ name: 'Xerus unplaced', cadence: null })
   app.seed.task({ name: 'Yak placed', cadence: null, planned_date: app.today })
   app.seed.task({ name: 'Zebra overdue', cadence: null, planned_date: addDays(app.today, -3) })
-  app.seed.completion(taskOf(await fetchTodo(app.url), 'Wombat done').id, weekStart)
+  app.seed.completion(taskOf(await fetchTodo(app), 'Wombat done').id, weekStart)
 
   // The server owns the order; the client renders what it is given.
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(groupOf(todo, null).tasks.map((t) => t.name)).toEqual([
     'Zebra overdue',
     'Yak placed',
@@ -524,11 +524,11 @@ test('an overdue row asks for a day and shows the date it fell behind on', async
  * said. A category is data for sorting, not a label.
  */
 test('a category renders no heading, chip or label anywhere', async ({ page, app }) => {
-  await createTask(app.url, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
-  await createTask(app.url, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
-  await createTask(app.url, { name: 'Air the room', cadence: 'week' })
+  await createTask(app, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
+  await createTask(app, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
+  await createTask(app, { name: 'Air the room', cadence: 'week' })
 
-  expect((await fetchTodo(app.url)).categories).toEqual(['Dog', 'House'])
+  expect((await fetchTodo(app)).categories).toEqual(['Dog', 'House'])
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -547,11 +547,11 @@ test('rows order by category, and category outranks name', async ({ page, app })
   // Alphabetically by name: Aardvark admin < Air the room < Brush Ringo.
   // By category: Dog < House < uncategorised. The two orders disagree on every
   // pair, so a list merely sorted by name cannot pass this.
-  await createTask(app.url, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
-  await createTask(app.url, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
-  await createTask(app.url, { name: 'Air the room', cadence: 'week' })
+  await createTask(app, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
+  await createTask(app, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
+  await createTask(app, { name: 'Air the room', cadence: 'week' })
 
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(groupOf(todo, 'week').tasks.map((t) => t.name)).toEqual([
     'Brush Ringo',
     'Aardvark admin',
@@ -568,8 +568,8 @@ test('rows order by category, and category outranks name', async ({ page, app })
 })
 
 test('uncategorised rows sort last, whatever their name', async ({ page, app }) => {
-  await createTask(app.url, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
-  await createTask(app.url, { name: 'Dishes', cadence: 'week' })
+  await createTask(app, { name: 'Aardvark admin', cadence: 'week', category: 'House' })
+  await createTask(app, { name: 'Dishes', cadence: 'week' })
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -582,7 +582,7 @@ test('uncategorised rows sort last, whatever their name', async ({ page, app }) 
 
   // And it really has no category — it is last by the rule, not by an empty
   // string that happens to sort late.
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(groupOf(todo, 'week').tasks.find((t) => t.name === 'Dishes')!.category).toBeNull()
   expect(todo.categories).toEqual(['House'])
 })
@@ -591,14 +591,14 @@ test('uncategorised rows sort last, whatever their name', async ({ page, app }) 
 test('a baseline task sorts above every category', async ({ page, app }) => {
   // The baseline task carries a category that would sort LAST and a name that
   // would sort last too, so only the flag can lift it.
-  await createTask(app.url, {
+  await createTask(app, {
     name: 'Zzz vital',
     cadence: 'day',
     is_baseline: true,
     category: 'Zebra',
   })
-  await createTask(app.url, { name: 'Aardvark admin', cadence: 'day', category: 'Admin' })
-  await createTask(app.url, { name: 'Dishes', cadence: 'day' })
+  await createTask(app, { name: 'Aardvark admin', cadence: 'day', category: 'Admin' })
+  await createTask(app, { name: 'Dishes', cadence: 'day' })
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -609,11 +609,11 @@ test('a baseline task sorts above every category', async ({ page, app }) => {
 })
 
 test('the editor suggests the categories already in use', async ({ page, app }) => {
-  await createTask(app.url, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
-  await createTask(app.url, { name: 'Descale the kettle', cadence: 'week', category: 'Kitchen' })
-  await createTask(app.url, { name: 'Air the room', cadence: 'week' })
+  await createTask(app, { name: 'Brush Ringo', cadence: 'week', category: 'Dog' })
+  await createTask(app, { name: 'Descale the kettle', cadence: 'week', category: 'Kitchen' })
+  await createTask(app, { name: 'Air the room', cadence: 'week' })
 
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   // Distinct and sorted — the suggestion list, not a list of tasks.
   expect(todo.categories).toEqual(['Dog', 'Kitchen'])
 
@@ -638,8 +638,8 @@ test('the editor suggests the categories already in use', async ({ page, app }) 
 })
 
 test('setting a category in the editor persists and reorders the row', async ({ page, app }) => {
-  await createTask(app.url, { name: 'Zebra chore', cadence: 'week', category: 'Admin' })
-  await createTask(app.url, { name: 'Aardvark admin', cadence: 'week' })
+  await createTask(app, { name: 'Zebra chore', cadence: 'week', category: 'Admin' })
+  await createTask(app, { name: 'Aardvark admin', cadence: 'week' })
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -657,7 +657,7 @@ test('setting a category in the editor persists and reorders the row', async ({ 
 
   // Now both are in Admin, so the alphabet decides and the row moves up.
   await expect.poll(() => listing(week)).toEqual(['Aardvark admin', 'Zebra chore'])
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(groupOf(todo, 'week').tasks.find((t) => t.name === 'Aardvark admin')!.category).toBe('Admin')
 })
 
@@ -667,7 +667,7 @@ test('setting a category in the editor persists and reorders the row', async ({ 
 
 test('placing from the panel offers exactly placeable_dates, and persists', async ({ page, app }) => {
   app.seed.task({ name: 'Grocery run', cadence: null })
-  const before = await fetchTodo(app.url)
+  const before = await fetchTodo(app)
   const dates = before.placeable_dates
   expect(dates.length).toBeGreaterThan(0)
 
@@ -684,7 +684,7 @@ test('placing from the panel offers exactly placeable_dates, and persists', asyn
   await picker.getByRole('button', { name: chip(target, app.today), exact: true }).click()
 
   await expect(group(backlog, 'One-off').getByText(shortDate(target))).toBeVisible()
-  expect(taskOf(await fetchTodo(app.url), 'Grocery run').effective_date).toBe(target)
+  expect(taskOf(await fetchTodo(app), 'Grocery run').effective_date).toBe(target)
 })
 
 test('unplan clears the day', async ({ page, app }) => {
@@ -699,7 +699,7 @@ test('unplan clears the day', async ({ page, app }) => {
 
   await expect(oneOff.getByText(shortDate(app.today))).toHaveCount(0)
   await expect(backlog.getByRole('button', { name: 'Unplan Grocery run' })).toHaveCount(0)
-  expect(taskOf(await fetchTodo(app.url), 'Grocery run').effective_date).toBeNull()
+  expect(taskOf(await fetchTodo(app), 'Grocery run').effective_date).toBeNull()
 })
 
 test('ticking and unticking a weekly task round-trips', async ({ page, app }) => {
@@ -711,11 +711,11 @@ test('ticking and unticking a weekly task round-trips', async ({ page, app }) =>
 
   await week.getByRole('checkbox', { name: 'Complete Vacuum downstairs' }).click()
   await expect(week.getByRole('checkbox', { name: 'Untick Vacuum downstairs' })).toBeChecked()
-  expect(taskOf(await fetchTodo(app.url), 'Vacuum downstairs').is_done).toBe(true)
+  expect(taskOf(await fetchTodo(app), 'Vacuum downstairs').is_done).toBe(true)
 
   await week.getByRole('checkbox', { name: 'Untick Vacuum downstairs' }).click()
   await expect(week.getByRole('checkbox', { name: 'Complete Vacuum downstairs' })).not.toBeChecked()
-  expect(taskOf(await fetchTodo(app.url), 'Vacuum downstairs').is_done).toBe(false)
+  expect(taskOf(await fetchTodo(app), 'Vacuum downstairs').is_done).toBe(false)
 })
 
 // ---------------------------------------------------------------------------
@@ -736,7 +736,7 @@ test('reset to backlog clears every overdue day and leaves a future one alone', 
   app.seed.task({ name: 'Overdue two', cadence: null, planned_date: addDays(app.today, -5) })
   app.seed.task({ name: 'Still ahead', cadence: null, planned_date: ahead })
 
-  expect((await fetchTodo(app.url)).has_overdue).toBe(true)
+  expect((await fetchTodo(app)).has_overdue).toBe(true)
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -748,7 +748,7 @@ test('reset to backlog clears every overdue day and leaves a future one alone', 
 
   await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(0)
 
-  const after = await fetchTodo(app.url)
+  const after = await fetchTodo(app)
   expect(after.has_overdue).toBe(false)
   expect(taskOf(after, 'Overdue one').effective_date).toBeNull()
   expect(taskOf(after, 'Overdue two').effective_date).toBeNull()
@@ -766,7 +766,7 @@ test('the reset control is in Routine, not in Backlog, even when every overdue r
 }) => {
   app.seed.task({ name: 'Overdue one', cadence: null, planned_date: addDays(app.today, -2) })
   app.seed.task({ name: 'Overdue two', cadence: null, planned_date: addDays(app.today, -5) })
-  expect((await fetchTodo(app.url)).has_overdue).toBe(true)
+  expect((await fetchTodo(app)).has_overdue).toBe(true)
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -786,7 +786,7 @@ test('the reset control is in Routine, not in Backlog, even when every overdue r
 
   // It reaches across the split: the rows it took are the ones next door.
   await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(0)
-  const after = await fetchTodo(app.url)
+  const after = await fetchTodo(app)
   expect(after.has_overdue).toBe(false)
   expect(taskOf(after, 'Overdue one').effective_date).toBeNull()
   expect(taskOf(after, 'Overdue two').effective_date).toBeNull()
@@ -819,7 +819,7 @@ test('the reset bar counts the overdue items it will actually clear', async ({ p
 test('there is no reset control when nothing is overdue', async ({ page, app }) => {
   app.seed.task({ name: 'Feed Barney 1', cadence: 'day' })
   app.seed.task({ name: 'Grocery run', cadence: null, planned_date: app.today })
-  expect((await fetchTodo(app.url)).has_overdue).toBe(false)
+  expect((await fetchTodo(app)).has_overdue).toBe(false)
 
   await page.goto(app.url)
   const periodic = await openPanel(page, 'Routine')
@@ -873,7 +873,7 @@ test('a command fired from Backlog refreshes both panels', async ({ page, app })
   await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(0)
   // Nothing is overdue any more, so the OTHER panel's control has to go.
   await expect(periodic.getByRole('button', { name: 'Reset to backlog' })).toHaveCount(0)
-  expect((await fetchTodo(app.url)).has_overdue).toBe(false)
+  expect((await fetchTodo(app)).has_overdue).toBe(false)
 })
 
 // ---------------------------------------------------------------------------
@@ -916,7 +916,7 @@ test('no console errors opening both panels and working them', async ({ page, ap
   await backlog.getByRole('button', { name: 'Move Grocery run' }).click()
   await expect(backlog.getByRole('group', { name: 'Pick a day' })).toBeVisible()
 
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   await expect(panelOf(page, 'Routine').getByRole('heading', { level: 3 })).toHaveCount(
     headings(todo, 'Routine').length,
   )
@@ -950,7 +950,7 @@ test('tapping a name in the panel opens the editor, and a rename persists', asyn
 
   await expect(editor).toHaveCount(0)
   await expect(panel.getByRole('button', { name: 'Edit Vacuum downstairs' })).toBeVisible()
-  expect(taskOf(await fetchTodo(app.url), 'Vacuum downstairs').id).toBe(id)
+  expect(taskOf(await fetchTodo(app), 'Vacuum downstairs').id).toBe(id)
 })
 
 test('the editor opens from Backlog too, and a rename persists', async ({ page, app }) => {
@@ -967,7 +967,7 @@ test('the editor opens from Backlog too, and a rename persists', async ({ page, 
 
   await expect(editor).toHaveCount(0)
   await expect(backlog.getByRole('button', { name: 'Edit Call the vet back' })).toBeVisible()
-  expect(taskOf(await fetchTodo(app.url), 'Call the vet back').id).toBe(id)
+  expect(taskOf(await fetchTodo(app), 'Call the vet back').id).toBe(id)
 })
 
 test('the editor changes cadence, which moves the task to another group', async ({ page, app }) => {
@@ -986,7 +986,7 @@ test('the editor changes cadence, which moves the task to another group', async 
   // The group a task sits in is its cadence — so the row moves.
   await expect(group(panel, 'This month').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
   await expect(group(panel, 'This week').getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
-  expect(taskOf(await fetchTodo(app.url), 'Descale the kettle').cadence).toBe('month')
+  expect(taskOf(await fetchTodo(app), 'Descale the kettle').cadence).toBe('month')
 })
 
 test('clearing the cadence moves the task from Routine into Backlog', async ({ page, app }) => {
@@ -1006,7 +1006,7 @@ test('clearing the cadence moves the task from Routine into Backlog', async ({ p
 
   await expect(group(backlog, 'One-off').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
   await expect(periodic.getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
-  expect(taskOf(await fetchTodo(app.url), 'Descale the kettle').cadence).toBeNull()
+  expect(taskOf(await fetchTodo(app), 'Descale the kettle').cadence).toBeNull()
 })
 
 test('archiving from the editor removes the task but keeps its completions', async ({ page, app }) => {
@@ -1018,7 +1018,7 @@ test('archiving from the editor removes the task but keeps its completions', asy
   await page.goto(app.url)
 
   // Before: the completion is in the grid.
-  const before = await (await fetch(`${app.url}/api/history`)).json()
+  const before = await (await app.fetch('/api/history')).json()
   expect(before.rows.find((r: { date: string }) => r.date === yesterday).completed).toContain(id)
 
   const panel = await openPanel(page)
@@ -1033,7 +1033,7 @@ test('archiving from the editor removes the task but keeps its completions', asy
 
   // Archive is not delete: the completion row survives, even though the column
   // has left the grid with the task.
-  const rows = await (await fetch(`${app.url}/api/todo`)).json()
+  const rows = await (await app.fetch('/api/todo')).json()
   expect(JSON.stringify(rows)).not.toContain('Old habit')
 })
 
@@ -1083,8 +1083,8 @@ test('a colour stripe does not indent the row, and baseline reads heavier', asyn
  * in words.
  */
 test('the row stripe is plain, and carries no cadence pattern', async ({ page, app }) => {
-  await createTask(app.url, { name: 'Weekly thing', cadence: 'week' })
-  await createTask(app.url, { name: 'Daily thing', cadence: 'day' })
+  await createTask(app, { name: 'Weekly thing', cadence: 'week' })
+  await createTask(app, { name: 'Daily thing', cadence: 'day' })
 
   await page.goto(app.url)
   const panel = await openPanel(page, 'Routine')
@@ -1132,7 +1132,7 @@ test('a completed baseline task keeps its colour in the tick and the name', asyn
   page,
   app,
 }) => {
-  await createTask(app.url, {
+  await createTask(app, {
     name: 'MED',
     cadence: 'day',
     is_baseline: true,
@@ -1170,8 +1170,8 @@ test('a completed baseline task keeps its colour in the tick and the name', asyn
 // ===========================================================================
 
 /** POST place directly, for the cases the picker is meant to make unreachable. */
-async function placeVia(url: string, taskId: number, date: string): Promise<number> {
-  const res = await fetch(`${url}/api/commands/place`, {
+async function placeVia(app: App, taskId: number, date: string): Promise<number> {
+  const res = await app.fetch('/api/commands/place', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ task_id: taskId, date }),
@@ -1183,7 +1183,7 @@ const laterField = (panel: Locator) => panel.getByLabel('Or a later date')
 
 test('a weekly task is placeable inside its week and nowhere else', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   const saturday = todo.placeable_dates[todo.placeable_dates.length - 1]!
 
   await page.goto(app.url)
@@ -1195,13 +1195,13 @@ test('a weekly task is placeable inside its week and nowhere else', async ({ pag
   await expect(laterField(panel)).toHaveCount(0)
 
   // And the server says the same to a client that asks anyway.
-  expect(await placeVia(app.url, id, addDays(saturday, 1))).toBe(409)
-  expect(await placeVia(app.url, id, saturday)).toBe(200)
+  expect(await placeVia(app, id, addDays(saturday, 1))).toBe(409)
+  expect(await placeVia(app, id, saturday)).toBe(200)
 })
 
 test('a monthly task reaches the end of its month', async ({ page, app }) => {
   app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   const range = todo.placement.find((p) => p.cadence === 'month')!
 
   await page.goto(app.url)
@@ -1216,7 +1216,7 @@ test('a monthly task reaches the end of its month', async ({ page, app }) => {
 
 test('a one-off has no far edge, and can be placed months out', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Renew the passport', cadence: null })
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   expect(todo.placement.find((p) => p.cadence === null)!.max).toBeNull()
 
   await page.goto(app.url)
@@ -1233,28 +1233,28 @@ test('a one-off has no far edge, and can be placed months out', async ({ page, a
   // It lands, and the row shows the date — which is why none of this needed a
   // new surface: the panel already displays the day against a placed task.
   await expect
-    .poll(() => fetchTodo(app.url).then((t) => taskOf(t, 'Renew the passport').effective_date))
+    .poll(() => fetchTodo(app).then((t) => taskOf(t, 'Renew the passport').effective_date))
     .toBe(far)
-  expect(await placeVia(app.url, id, addDays(todo.today, 900))).toBe(200)
+  expect(await placeVia(app, id, addDays(todo.today, 900))).toBe(200)
 })
 
 test('a placement beyond the period is refused, not silently swallowed', async ({ app }) => {
   const weekly = app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
   const monthly = app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   const monthMax = todo.placement.find((p) => p.cadence === 'month')!.max!
 
   // The far side of each cadence's own edge. A recurring task placed past its
   // period would be neither overdue nor unplaced nor done — its obligation would
   // go unmet with nothing on any screen saying so, which is what the bound stops.
-  expect(await placeVia(app.url, monthly, addDays(monthMax, 1))).toBe(409)
-  expect(await placeVia(app.url, monthly, monthMax)).toBe(200)
-  expect(await placeVia(app.url, weekly, addDays(todo.today, -1))).toBe(409)
+  expect(await placeVia(app, monthly, addDays(monthMax, 1))).toBe(409)
+  expect(await placeVia(app, monthly, monthMax)).toBe(200)
+  expect(await placeVia(app, weekly, addDays(todo.today, -1))).toBe(409)
 })
 
 test('the date field refuses a date outside the range it advertises', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
-  const todo = await fetchTodo(app.url)
+  const todo = await fetchTodo(app)
   const max = todo.placement.find((p) => p.cadence === 'month')!.max!
 
   await page.goto(app.url)
@@ -1265,12 +1265,12 @@ test('the date field refuses a date outside the range it advertises', async ({ p
   // of the month is refused here rather than sent and answered with a 409.
   await laterField(panel).fill(addDays(max, 1))
   await expect(laterField(panel)).toBeVisible()
-  expect(taskOf(await fetchTodo(app.url), 'Descale the kettle').effective_date).toBeNull()
+  expect(taskOf(await fetchTodo(app), 'Descale the kettle').effective_date).toBeNull()
 
   // The last day it does advertise goes through.
   await laterField(panel).fill(max)
   await expect
-    .poll(() => fetchTodo(app.url).then((t) => taskOf(t, 'Descale the kettle').effective_date))
+    .poll(() => fetchTodo(app).then((t) => taskOf(t, 'Descale the kettle').effective_date))
     .toBe(max)
   expect(id).toBeGreaterThan(0)
 })

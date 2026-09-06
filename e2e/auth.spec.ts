@@ -15,7 +15,9 @@ import type { Page } from '@playwright/test'
  * for how long.
  */
 
-test.use({ authRequired: true })
+// The only spec that arrives without a session — which is the whole subject.
+// Everywhere else the fixture signs in, because the app has no other mode.
+test.use({ signedIn: false })
 
 const PASSWORD = 'a-long-enough-password'
 

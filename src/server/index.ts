@@ -1,21 +1,18 @@
 import index from '../client/index.html'
 import {
-  assertAuthConfigured,
   authenticate,
   clearedCookie,
   loginPage,
   sessionCookie,
+  warnIfNobodyCanSignIn,
 } from './auth.ts'
 import { db, initDb } from './db.ts'
 import { handleApi } from './routes.ts'
 
-// Before anything listens: a production server with the door open should not
-// start at all. See `assertAuthConfigured`.
-assertAuthConfigured()
-
 // Top-level await: the server must not accept a request before the schema
 // exists and, on a replica, before the first sync has landed.
 await initDb()
+await warnIfNobodyCanSignIn(db)
 
 const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),

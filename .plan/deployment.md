@@ -286,9 +286,13 @@ Nothing sensitive is in the repository or in CI, apart from the deploy token. On
 ```
 TURSO_URL=libsql://<db>.turso.io
 TURSO_AUTH_TOKEN=...
-APP_PASSWORD=...
 NODE_ENV=production
 ```
+
+**There is no auth variable.** Accounts live in the database and signing in is
+always required — see [`changes-v9.md`](changes-v9.md), which replaced this
+document's shared-password design. Creating the first account is a one-off
+`bun run user:add <name>` against the deployed database.
 
 `DB_PATH=/data/alfred.db` and `PORT` live in `fly.toml`, since they describe the machine's layout rather than a secret.
 

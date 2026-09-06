@@ -72,16 +72,44 @@ Verified against a copy of the real development database rather than a fresh one
 key violations, ids unchanged. Worth doing because that database is in WAL mode —
 copying only `alfred.db` would have tested an almost empty file and proved nothing.
 
-### `owner`, and what happens with auth off
+### `owner`
 
 The migration creates **user 1, `owner`**, and gives it every row written before
 ownership existed. It has an empty password hash, which never verifies against
 anything, so the account cannot be signed into until `user:add` gives it one.
+That is also how you claim data that predates accounts.
 
-**With `AUTH_REQUIRED` unset, every request is the lowest-id user.** That single
-decision is why 236 browser tests and 171 unit tests still run with no login step
-threaded through any of them — the same shape `db.ts` already used for `TURSO_URL`.
-The server **refuses to start** with `NODE_ENV=production` and it unset.
+### Signing in is not optional, and there is no flag
+
+A first draft of this change had an `AUTH_REQUIRED` flag: unset in development
+and across the test suite, where every request resolved to the lowest-id user,
+with the server refusing to start in production if it was not set.
+
+**That was the wrong trade and it is gone.** The flag bought one thing — a test
+suite that never logs in — and cost a state the app should not be able to be in,
+plus a startup guard whose only job was to catch that state, plus the standing
+risk that development and production behave differently in the one area where
+that matters most. A guard is also only as good as remembering to write it.
+
+With no flag there is nothing to misconfigure, so the guard went with the switch.
+What replaces it is smaller than either: the server warns at startup when no user
+has a password yet, because a database nobody can sign into is *locked*, which is
+the safe direction to fail in and needs saying rather than guarding against.
+
+**The cost lands on the browser suite, which now signs in** — once, in
+`e2e/fixtures.ts`, over HTTP exactly the way a browser does. A fixture that
+minted its own cookie would have been a second implementation of the thing under
+test. Specs did not change beyond `fetch(...)` becoming `app.fetch(...)`, which
+carries the session; the 25 sites that needed it were mostly inside five helpers.
+
+Unit tests were unaffected: they call the builders directly with a user id and
+never had a session to begin with.
+
+**It costs about a minute of wall clock.** The browser suite went from 2.3 to
+3.3 minutes, which is one argon2 hash and one login round trip per test — 256 of
+each. That is the price of the fixture exercising the real sign-in rather than
+minting a cookie, and it is worth paying: a cheaper hash in tests would mean the
+suite never runs the code that actually guards the app.
 
 ---
 
@@ -174,8 +202,10 @@ endpoint, one message for every kind of failure, sign in, reload, sign out, two
 people on two boards, a password change invalidating a live session, an account
 with no password set, and the lockout.
 
-The fixture gained one option — `test.use({ authRequired: true })` — and nothing
-else changed in the other 236 tests.
+The fixture gained one option, and it is the inverse of what it first had:
+`test.use({ signedIn: false })`, set only by `auth.spec.ts`, because arriving
+without a session is precisely what that file is about. Everywhere else the
+session is simply there.
 
 ### One harness bug this surfaced
 
