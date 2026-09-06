@@ -113,4 +113,4 @@ Order within the pass: schema and migrations, then period logic with its tests, 
 
 The server is where the weight of this project sits. It derives every view, enforces the two scheduling constraints the model cannot express, and owns the clock; the React is three screens rendering arrays that arrive in order. That inversion is deliberate — the subtle code is the period logic, and concentrating it behind the API means it is written once, tested directly, and never duplicated in a component.
 
-The period module is second because everything after it depends on it being right, and it is the only tested code in the project.
+The period module is second because everything after it depends on it being right. It is not, in the end, the only tested code — `sort.ts` and the view builders are covered too, and `review-findings.md` records why that turned out to be necessary.

@@ -65,7 +65,15 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 | `bun run db:generate` | new migration from a schema change |
 | `bun run db:studio` | browse the database |
 
-`PORT` and `DB_PATH` are the only environment variables. `DB_PATH` defaults to `./data/alfred.db`.
+| Variable | |
+|---|---|
+| `DB_PATH` | local libSQL file. Defaults to `./data/alfred.db` |
+| `TURSO_URL` | unset for local development; set to run as a Turso **embedded replica** |
+| `TURSO_AUTH_TOKEN` | required whenever `TURSO_URL` is set |
+| `PORT` | defaults to 3000 |
+| `NODE_ENV` | anything but `production` puts `Bun.serve` in development mode |
+
+With `TURSO_URL` unset the app is a plain local libSQL file — which is how development and the whole test suite run, so neither needs a network or a Turso account. Set it and that same file becomes a replica synced from Turso: reads stay local and fast, writes go to Turso, and the durable copy is the one in the cloud.
 
 ---
 
@@ -103,7 +111,7 @@ drizzle/               generated migrations
 
 **The Routine and Backlog panels are one view, hosted by two screens.** Day and Week each fetch their own model plus `/api/todo`. Together they are the complete inventory — every active task, grouped by cadence, each group labelled with its current period. **Routine** draws the five recurring groups and **Backlog** the one-offs; it is one component rendered twice, and the endpoint knows nothing about the split. It exists because a period task you never placed used to appear on no screen you look at daily.
 
-**A row's left stripe says two things.** Its pattern is the cadence — solid for daily, two dashes weekly, three monthly, four quarterly, five yearly, one short mark for a one-off. Its colour is the task's own, if it is baseline and has one; overdue recolours the same stripe rather than adding a second mark.
+**A row's left stripe says whose row it is** — the border grey by default, the overdue colour when a task needs a new day, and a baseline task's own colour when it has one. It briefly encoded the cadence as a dash count too; that was removed, because a pattern has to be counted before it means anything.
 
 ---
 
@@ -114,7 +122,7 @@ Each of these is deliberate and argued in `.plan/`. Read before "fixing".
 - **Day is today. Week is this week.** No date navigation anywhere, because nothing writes to a past date.
 - **A missed daily task can never be caught up.** Daily tasks are never placed, so they are never overdue, so there is nothing to resolve. The gap in the History grid is permanent and correct.
 - **A task done Tuesday but ticked Thursday is recorded on Thursday.** The history records when things were *marked*.
-- **A weekly task completed Tuesday stays in Day's completed section all week.** "Done" means the period is satisfied, not that it happened today.
+- **"Done" means the period is satisfied, not that it happened today.** A weekly task placed today but ticked on Monday still shows as completed. It leaves the Day screen the next day; the Routine panel carries it for the rest of its period.
 - **Overdue means "needs a new day", not "late".** Nothing in this system is late.
 - **Nothing is ever deleted.** Removal is `active = false`, on tasks and on moods alike. The one row that is deleted is a completion, when something is unticked.
 - **A completed task leaves the Day screen the next day**, but stays struck through in the Routine panel for the rest of its period. Day answers "what now?"; the panel answers "is this month's deep clean done?"
