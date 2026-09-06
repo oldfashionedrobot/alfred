@@ -438,12 +438,27 @@ inside `@supports` do not apply and the popover keeps the UA's own placement —
 `inset: 0` with `margin: auto`, centred in the viewport. That is a reasonable
 menu rather than a broken one, so the fallback is the absence of code.
 
-**The trigger opens; it does not toggle.** A popover light-dismisses on any
-pointerdown outside itself, and the trigger counts as outside. A toggling handler
-would therefore race its own dismissal — dismiss-then-toggle and toggle-then-
-dismiss give opposite results, and which one wins depends on React's batching.
-Opening only is deterministic. Escape, a click outside, or picking a date all
-close it.
+**Dismissal is ours, not the platform's.** It began as `popover="auto"`, which
+light-dismisses on any pointerdown outside the element — and the browser's own
+date-picker chrome is outside it. Opening the calendar from the date field and
+clicking through to another month dismissed the popover mid-interaction, and the
+input committed whatever it was sitting on as it went: **clicking a month arrow
+placed a task.** It is `popover="manual"` now, with Escape and outside-pointerdown
+handled here, because an event whose target is the date field is inside the
+popover by any measure we apply. A dozen lines to make the field usable.
+
+Giving up `auto` gives up its one-open-at-a-time behaviour, which costs nothing:
+`pickerFor` is a single id, so React never mounts two.
+
+**The trigger opens; it does not toggle.** The trigger counts as outside, so a
+toggling handler would race its own dismissal — dismiss-then-toggle and
+toggle-then-dismiss give opposite results. Opening only is deterministic. Escape,
+a click outside, or picking a date all close it.
+
+**The date field refuses what it does not advertise.** `min` and `max` constrain
+the calendar but not the keyboard, and `place` answers an out-of-range date with
+a 409. Rather than show an error for something the field appeared to offer, a
+typed date outside the range is simply not sent.
 
 **It covers the rows beneath it while open.** That is what a popover does, and it
 is the reason light dismiss and Escape both had to be wired through rather than
@@ -478,6 +493,18 @@ The second was ordinary: `create_tasks` had its cap and its type checks written
 and not exercised. A 101-name batch, a non-string in the list and an extra field
 are now all asserted to be 400s.
 
+Four more went in with the popover and after it: that opening the picker moves
+nothing else on the page, that Escape and an outside click both close it, that
+only one is open at a time, and that a picker opened from a future pane is
+usable — the last being the one that would fail if the track's overflow were
+clipping it. Then two for the date field: that a typed date past the advertised
+range is refused, and that clicking the field does not dismiss the picker, which
+is the bug above written down as a test.
+
+Two long-standing claims also got tests they never had: that the week track and
+the day strip are both frozen during a reorder, and that `GET /api/week` is a 404
+now rather than a model nothing reads and nobody maintains.
+
 **What is still not covered, honestly.**
 
 The popover's no-anchor-positioning fallback is never exercised: Playwright runs
@@ -488,12 +515,21 @@ whether that counts as a dismissing click outside is a question this suite canno
 ask. Both want a second browser in the matrix, which `design/tech-stack.md`
 deliberately does not have.
 
-**A flakiness note.** Two different tests have each failed once under a full
-parallel run and then passed everywhere else: 3/3 in isolation, 40/40 and 51/51
-in their own suites, 40/40 under concentrated load, and green on the next full
-run. Each test spawns its own server and database, so contention is the likely
-cause. Recorded because a suite that fails one in two hundred runs is a thing to
-know before CI starts gating deploys on it.
+**The flakiness was a real bug in the harness, and it is fixed.** Two different
+tests had each failed once under a full parallel run and passed everywhere else.
+Contention was the easy explanation and it was wrong.
+
+`e2e/fixtures.ts` asked the OS for a free port — bind `:0`, read the number,
+**close the socket**, hand it to bun — which is a race the moment four workers
+start servers at once. The benign outcome is a failure to bind. The one that
+actually bit is silent: the fixture's readiness probe fetches `/api/day`, gets a
+200 from **another test's server** that took the port first, and the whole test
+then runs against a foreign database. It fails later and somewhere else, as a row
+that should be there and is not, or a click landing on something unexpected.
+Which is exactly what those two failures looked like, and why neither reproduced.
+
+Nothing guesses a port now: `PORT=0` lets bun choose and the fixture reads the
+number back off the line the server already prints. There is no window to race.
 
 ---
 

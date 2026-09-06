@@ -89,8 +89,17 @@ export function Tick({
  * the viewport — which is a reasonable menu rather than a broken one. There is
  * no fallback branch to maintain and nothing reads a bounding box.
  *
- * React owns whether it is open; the element owns light dismiss. A click outside
- * or Escape closes it in the browser, and `onClose` is how that gets back.
+ * DISMISSAL IS OURS, NOT THE PLATFORM'S — `popover="manual"`, not `"auto"`.
+ * Auto light-dismisses on any pointerdown outside the element, and the browser's
+ * own date-picker chrome is outside it: opening the calendar from the date field
+ * and clicking through to another month dismissed the popover mid-interaction,
+ * and the input committed whatever it was sitting on as it went. Clicking a
+ * month arrow placed a task. Handling Escape and outside-pointerdown ourselves
+ * costs a dozen lines and makes the date field usable, because an event whose
+ * target is the input is inside the popover by any measure we apply.
+ *
+ * Only one is ever mounted — `pickerFor` is a single id — so one-at-a-time comes
+ * from React rather than from the auto behaviour being given up here.
  *
  * No role and no label of its own: it is a layer, and whatever it wraps keeps
  * its own semantics. The day picker inside is still the group it always was.
@@ -107,25 +116,45 @@ export function Popover({
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
+  // Every call site passes an inline arrow, so `onClose` is a new function each
+  // render. Held in a ref, the effect below can depend on nothing and run once.
+  const close = useRef(onClose)
+  close.current = onClose
+
   // Mounted only while open, so showing it is a mount effect. Rendering every
   // row's picker permanently and toggling visibility would put a hundred hidden
   // buttons in the document for a menu that is open one at a time.
   useEffect(() => {
     const el = ref.current
-    if (el && !el.matches(':popover-open')) el.showPopover()
+    if (!el) return
+    el.showPopover()
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close.current()
+    }
+    // Anything whose target is inside the popover keeps it open — which includes
+    // the date field, and therefore the browser chrome the date field opens.
+    const onDown = (e: Event) => {
+      const target = e.target
+      if (target instanceof Node && !el.contains(target)) close.current()
+    }
+
+    document.addEventListener('keydown', onKey)
+    // Capture: a handler on the way down must not be able to swallow this.
+    document.addEventListener('pointerdown', onDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onDown, true)
+      if (el.matches(':popover-open')) el.hidePopover()
+    }
   }, [])
 
   return (
     <div
       ref={ref}
-      popover="auto"
+      popover="manual"
       className="pop"
       style={{ '--pop-anchor': anchor } as CSSProperties}
-      onToggle={(e) => {
-        // Fires for the browser's own light dismiss as well as ours. Closing
-        // something React already closed is a no-op, so this needs no guard.
-        if ((e as unknown as { newState: string }).newState === 'closed') onClose()
-      }}
     >
       {children}
     </div>
@@ -194,7 +223,15 @@ export function DayPicker({
           value={selected !== null && last !== undefined && selected > last ? selected : ''}
           disabled={disabled}
           onChange={(e) => {
-            if (e.target.value !== '') onPick(e.target.value)
+            const picked = e.target.value
+            // '' is a half-typed date in every browser. min/max constrain the
+            // calendar but not the keyboard, and `place` answers an out-of-range
+            // date with a 409 — so this refuses to ask rather than show an error
+            // for something the field said was available.
+            if (picked === '') return
+            if (picked < today) return
+            if (max !== null && picked > max) return
+            onPick(picked)
           }}
         />
       )}

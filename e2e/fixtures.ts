@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createServer } from 'node:net'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -12,18 +11,6 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  * This file runs under Node (Playwright's runner), while the app runs under Bun.
  * Anything needing bun:sqlite is shelled out to e2e/seed-cli.ts.
  */
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = createServer()
-    s.listen(0, '127.0.0.1', () => {
-      const addr = s.address()
-      if (addr && typeof addr === 'object') s.close(() => resolve(addr.port))
-      else s.close(() => reject(new Error('no free port')))
-    })
-    s.on('error', reject)
-  })
-}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -85,18 +72,46 @@ export const test = base.extend<{ app: App }>({
   app: async ({}, use) => {
     const dir = mkdtempSync(join(tmpdir(), 'alfred-e2e-'))
     const dbPath = join(dir, 'test.db')
-    const port = await freePort()
 
+    /*
+     * PORT=0 lets the SERVER choose, and we read back what it chose.
+     *
+     * This used to ask the OS for a free port — bind :0, read the number, close
+     * the socket, hand it to bun — which is a race with four workers starting
+     * servers at once. The benign outcome is a failure to bind. The one that
+     * actually bit was silent: the loop below fetches /api/day, gets a 200 from
+     * ANOTHER test's server that took the port first, and the whole test then
+     * runs against a foreign database. It fails later, somewhere else, as a
+     * missing row or an unexpected click target — which is what "flaky" looked
+     * like here. Nothing guesses a port now, so there is nothing to race.
+     */
     const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
       cwd: ROOT,
-      env: { ...process.env, DB_PATH: dbPath, PORT: String(port) },
+      env: { ...process.env, DB_PATH: dbPath, PORT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    let stdout = ''
     let stderr = ''
+    proc.stdout?.on('data', (d) => (stdout += d))
     proc.stderr?.on('data', (d) => (stderr += d))
 
-    const url = `http://127.0.0.1:${port}`
     const deadline = Date.now() + 25_000
+    let port = 0
+    for (;;) {
+      // `alfred → http://localhost:<port>`, printed once bun is listening.
+      const printed = /http:\/\/localhost:(\d+)/.exec(stdout)
+      if (printed) {
+        port = Number(printed[1])
+        break
+      }
+      if (Date.now() > deadline) {
+        proc.kill('SIGKILL')
+        throw new Error(`server never printed a port\n${stdout}\n${stderr}`)
+      }
+      await sleep(50)
+    }
+
+    const url = `http://127.0.0.1:${port}`
     let today = ''
     for (;;) {
       try {
@@ -106,13 +121,13 @@ export const test = base.extend<{ app: App }>({
           break
         }
       } catch {
-        /* not up yet */
+        /* listening but not answering yet */
       }
       if (Date.now() > deadline) {
         proc.kill('SIGKILL')
-        throw new Error(`server never started on ${port}\n${stderr}`)
+        throw new Error(`server never answered on ${port}\n${stderr}`)
       }
-      await sleep(100)
+      await sleep(50)
     }
 
     await use({ url, seed: new Seed(dbPath), today })

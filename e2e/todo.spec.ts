@@ -1251,3 +1251,45 @@ test('a placement beyond the period is refused, not silently swallowed', async (
   expect(await placeVia(app.url, monthly, monthMax)).toBe(200)
   expect(await placeVia(app.url, weekly, addDays(todo.today, -1))).toBe(409)
 })
+
+test('the date field refuses a date outside the range it advertises', async ({ page, app }) => {
+  const id = app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
+  const todo = await fetchTodo(app.url)
+  const max = todo.placement.find((p) => p.cadence === 'month')!.max!
+
+  await page.goto(app.url)
+  const panel = await openPanel(page)
+  await panel.getByRole('button', { name: 'Place Descale the kettle' }).click()
+
+  // min/max constrain the calendar, not the keyboard. A typed date past the end
+  // of the month is refused here rather than sent and answered with a 409.
+  await laterField(panel).fill(addDays(max, 1))
+  await expect(laterField(panel)).toBeVisible()
+  expect(taskOf(await fetchTodo(app.url), 'Descale the kettle').effective_date).toBeNull()
+
+  // The last day it does advertise goes through.
+  await laterField(panel).fill(max)
+  await expect
+    .poll(() => fetchTodo(app.url).then((t) => taskOf(t, 'Descale the kettle').effective_date))
+    .toBe(max)
+  expect(id).toBeGreaterThan(0)
+})
+
+test('using the date field does not dismiss the picker', async ({ page, app }) => {
+  app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
+
+  await page.goto(app.url)
+  const panel = await openPanel(page)
+  await panel.getByRole('button', { name: 'Place Descale the kettle' }).click()
+  await expect(panel.getByRole('group', { name: 'Pick a day' })).toBeVisible()
+
+  // The popover is `manual`: dismissal is ours, and anything whose target is
+  // inside it keeps it open. Under `auto` the browser's own calendar chrome
+  // counted as a click outside, which dismissed the picker mid-interaction and
+  // committed whatever date it was sitting on — clicking a month arrow placed
+  // the task. Focusing and clicking the field must be inert.
+  await laterField(panel).click()
+  await laterField(panel).focus()
+  await expect(panel.getByRole('group', { name: 'Pick a day' })).toBeVisible()
+  await expect(laterField(panel)).toBeFocused()
+})

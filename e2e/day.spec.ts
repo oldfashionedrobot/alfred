@@ -1529,7 +1529,8 @@ test('only one picker is open at a time', async ({ page, app }) => {
   await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).focus()
   await page.keyboard.press('Enter')
 
-  // `popover="auto"` closes the other one itself; this asserts we let it.
+  // One at a time comes from React — `pickerFor` is a single id — rather than
+  // from the platform: these are manual popovers, so nothing closes them for us.
   await expect(picker(page, 'Ring the plumber')).toBeVisible()
   await expect(picker(page, 'Fix the fence')).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'Pick a day' })).toHaveCount(1)
@@ -1585,4 +1586,39 @@ test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }
       body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
     }).then((r) => r.status),
   ).toBe(400)
+})
+
+test('the week track is frozen while reordering', async ({ page, app }) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  app.seed.task({ name: 'Alpha job', cadence: 'day' })
+  app.seed.task({ name: 'Bravo job', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo job'])
+  await expect(page.getByRole('button', { name: 'Next day' })).toBeEnabled()
+
+  await page.getByRole('button', { name: /^reorder$/i }).click()
+
+  // Reorder is today-only, so there is nowhere to swipe to — and a dnd-kit drag
+  // inside a snapping scroll container is the interaction that produced two
+  // wrong fixes in v4. The scrolling is removed rather than debugged.
+  await expect(page.getByRole('button', { name: 'Next day' })).toBeDisabled()
+  await expect(dayButtons(page).first()).toBeDisabled()
+  expect(
+    await page
+      .getByRole('region', { name: 'This week, day by day' })
+      .evaluate((el) => getComputedStyle(el).overflowX),
+  ).toBe('hidden')
+
+  await page.getByRole('button', { name: /^done reordering$/i }).click()
+  await expect(page.getByRole('button', { name: 'Next day' })).toBeEnabled()
+})
+
+test('the week endpoint is gone, and the two that replaced it answer', async ({ app }) => {
+  // v8 folded Week into Day. Asserted rather than assumed: a router that quietly
+  // kept serving it would leave a model nothing reads and nobody maintains.
+  expect((await fetch(`${app.url}/api/week`)).status).toBe(404)
+  expect((await fetch(`${app.url}/api/day`)).status).toBe(200)
+  expect((await fetch(`${app.url}/api/todo`)).status).toBe(200)
 })
