@@ -26,6 +26,22 @@ export class Seed {
     return JSON.parse(out.trim() || '{}')
   }
 
+  /**
+   * A second account, for the tests that prove one person cannot see another's
+   * data. Pass a password to make it one you can actually sign in as.
+   *
+   * User 1 is `owner`, created by the migration: who the app resolves to when
+   * AUTH_REQUIRED is unset, and therefore who every other test is about.
+   */
+  user(u: { username: string; password?: string; active?: boolean }): number {
+    return this.run({ kind: 'user', ...u }).id as number
+  }
+
+  /** Give an existing user a password — `owner` has none until something does. */
+  password(username: string, password: string): void {
+    this.run({ kind: 'password', username, password })
+  }
+
   /** Returns the new task id. planned_date may be any date, including the past. */
   task(t: {
     name: string
@@ -35,6 +51,8 @@ export class Seed {
     /** '#rrggbb'. Only rendered when the task is baseline. */
     color?: string | null
     active?: boolean
+    /** Owner. Defaults to user 1, the migration's `owner`. */
+    user_id?: number
   }): number {
     return this.run({ kind: 'task', ...t }).id as number
   }
@@ -44,7 +62,10 @@ export class Seed {
     this.run({ kind: 'completion', task_id, completed_on })
   }
 
-  day(date: string, d: { mood?: string | null; log?: string | null; task_order?: number[] | null }): void {
+  day(
+    date: string,
+    d: { mood?: string | null; log?: string | null; task_order?: number[] | null; user_id?: number },
+  ): void {
     this.run({ kind: 'day', date, ...d })
   }
 
@@ -68,8 +89,15 @@ export type App = {
   today: string
 }
 
-export const test = base.extend<{ app: App }>({
-  app: async ({}, use) => {
+export const test = base.extend<{ app: App; authRequired: boolean }>({
+  /**
+   * Off by default, which is how 236 browser tests run without a login step
+   * threaded through every one of them. A spec that exercises signing in turns
+   * it on with `test.use({ authRequired: true })`.
+   */
+  authRequired: [false, { option: true }],
+
+  app: async ({ authRequired }, use) => {
     const dir = mkdtempSync(join(tmpdir(), 'alfred-e2e-'))
     const dbPath = join(dir, 'test.db')
 
@@ -87,11 +115,16 @@ export const test = base.extend<{ app: App }>({
      */
     const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
       cwd: ROOT,
-      // APP_PASSWORD is cleared deliberately. Bun auto-loads `.env` for the
-      // spawned server, so a developer's local password would switch auth on
-      // for the whole browser suite and fail every test on a 401, for a reason
-      // nowhere near the failure. `.env.example` promises this; here it is.
-      env: { ...process.env, DB_PATH: dbPath, PORT: '0', APP_PASSWORD: '' },
+      // AUTH_REQUIRED is set explicitly either way, never inherited. Bun
+      // auto-loads `.env` for the spawned server, so a developer's local value
+      // would switch auth on for the whole browser suite and fail every test on
+      // a 401 — for a reason nowhere near the failure.
+      env: {
+        ...process.env,
+        DB_PATH: dbPath,
+        PORT: '0',
+        AUTH_REQUIRED: authRequired ? '1' : '',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -119,7 +152,11 @@ export const test = base.extend<{ app: App }>({
     let today = ''
     for (;;) {
       try {
-        const r = await fetch(`${url}/api/day`)
+        // /api/status rather than /api/day: it is the one endpoint before the
+        // auth gate, so this probe works whether or not the test wants a login.
+        // It also carries the date, so nothing here reimplements `today()` — the
+        // suite derives every date from the server's own answer.
+        const r = await fetch(`${url}/api/status`)
         if (r.ok) {
           today = ((await r.json()) as { date: string }).date
           break

@@ -1,7 +1,8 @@
 import { isISODate, type ISODate } from '../shared/types.ts'
+import { authRequired, currentUser } from './auth.ts'
 import { runCommand } from './commands.ts'
 import { db } from './db.ts'
-import { ApiFailure, BadRequest, NotFound } from './errors.ts'
+import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
 import { today } from './today.ts'
 import { buildDayView } from './views/day.ts'
 import { buildHistoryView } from './views/history.ts'
@@ -12,8 +13,12 @@ const MAX_LIMIT = 365
 
 /**
  * The /api router. Two endpoint kinds and nothing else:
+ *   GET  /api/status                          -> { ok, date, sha }, ungated
  *   GET  /api/day | /api/todo | /api/history  -> a view model
  *   POST /api/commands/<name>                  -> { ok: true }
+ *
+ * Every one of them is answered FOR A USER. `currentUser` is the only place a
+ * request becomes an identity, and nothing below it can forget to ask.
  *
  * There is no general-purpose CRUD. If a client needs data it is because a view
  * renders it, and it arrives in that view's model.
@@ -31,10 +36,37 @@ export async function handleApi(req: Request): Promise<Response> {
     const url = new URL(req.url)
     const path = normalise(url.pathname)
 
+    /*
+     * The one endpoint before the gate, and deliberately so.
+     *
+     * It answers three questions that all have to be answerable without a
+     * session: is the process up, which build is it, and what does it think
+     * today is. The first two are what CI's post-deploy smoke test asks — see
+     * `.plan/deployment.md`, which uses them instead of a Fly health check. The
+     * third is what the Playwright fixture reads so that no test computes a date
+     * the server did not give it.
+     *
+     * Nothing here is private: a date and a commit hash from a public repository.
+     */
+    if (req.method === 'GET' && path === '/api/status') {
+      return json({ ok: true, date: today(), sha: process.env.BUILD_SHA ?? 'dev' })
+    }
+
+    // Resolved once, here, and threaded through everything below. With
+    // AUTH_REQUIRED unset this is the lowest-id user and never null unless the
+    // database has no users at all — which only a hand-emptied one does, since
+    // the migration creates one.
+    const user = await currentUser(db, req)
+    if (user === null) {
+      throw new Unauthorized(
+        authRequired ? 'sign in at /login' : 'no users exist; run `bun run user:add <name>`',
+      )
+    }
+
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)
       if (name !== '' && !name.includes('/')) {
-        await runCommand(db, name, await readBody(req))
+        await runCommand(db, user.id, name, await readBody(req))
         return json({ ok: true })
       }
     }
@@ -42,11 +74,11 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'GET') {
       switch (path) {
         case '/api/day':
-          return json(await buildDayView(db))
+          return json(await buildDayView(db, user.id))
         case '/api/todo':
-          return json(await buildTodoView(db))
+          return json(await buildTodoView(db, user.id))
         case '/api/history':
-          return json(await buildHistoryView(db, historyOptions(url.searchParams)))
+          return json(await buildHistoryView(db, user.id, historyOptions(url.searchParams)))
       }
     }
 

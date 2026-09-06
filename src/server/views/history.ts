@@ -27,6 +27,7 @@ const DEFAULT_LIMIT = 60
  */
 export async function buildHistoryView(
   db: DB,
+  userId: number,
   opts: { limit?: number; before?: ISODate },
 ): Promise<HistoryView> {
   // routes.ts is the whole query-string boundary: it rejects a limit that is not
@@ -37,7 +38,7 @@ export async function buildHistoryView(
 
   const daily = await db.select()
     .from(tasks)
-    .where(and(eq(tasks.active, true), eq(tasks.cadence, 'day')))
+    .where(and(eq(tasks.user_id, userId), eq(tasks.active, true), eq(tasks.cadence, 'day')))
     .all()
   // The same order the To do panel uses, so a task is in the same place in both.
   const columns: HistoryColumn[] = [...daily].sort(byBaselineCategoryName).map((t) => ({
@@ -49,7 +50,7 @@ export async function buildHistoryView(
   }))
 
   // Paging stops at the earliest recorded anything; there is no history before it.
-  const earliest = await earliestRecord(db)
+  const earliest = await earliestRecord(db, userId)
   if (earliest === null || newest < earliest) {
     return { columns, rows: [], next_before: null }
   }
@@ -64,7 +65,11 @@ export async function buildHistoryView(
       and(between(completions.completed_on, oldest, newest), inArray(completions.task_id, taskIds)),
     )
     .all()
-  const dayRows = await db.select().from(days).where(between(days.date, oldest, newest)).all()
+  const dayRows = await db
+    .select()
+    .from(days)
+    .where(and(eq(days.user_id, userId), between(days.date, oldest, newest)))
+    .all()
   // All moods, retired included — a past day must still render its glyph.
   const moodRows: Mood[] = await db.select().from(moods).orderBy(asc(moods.sort_order)).all()
 
@@ -99,10 +104,26 @@ export async function buildHistoryView(
   return { columns, rows, next_before: oldest > earliest ? oldest : null }
 }
 
-/** The oldest date anything was recorded on, across completions and days. */
-async function earliestRecord(db: DB): Promise<ISODate | null> {
-  const [c] = await db.select({ oldest: min(completions.completed_on) }).from(completions).all()
-  const [d] = await db.select({ oldest: min(days.date) }).from(days).all()
+/**
+ * The oldest date anything was recorded on, across completions and days —
+ * FOR THIS USER.
+ *
+ * Scoped even though it returns a date rather than content: unscoped, somebody
+ * else's older record would page this user back through months of empty rows,
+ * which both looks broken and says that older data exists.
+ */
+async function earliestRecord(db: DB, userId: number): Promise<ISODate | null> {
+  const [c] = await db
+    .select({ oldest: min(completions.completed_on) })
+    .from(completions)
+    .innerJoin(tasks, eq(tasks.id, completions.task_id))
+    .where(eq(tasks.user_id, userId))
+    .all()
+  const [d] = await db
+    .select({ oldest: min(days.date) })
+    .from(days)
+    .where(eq(days.user_id, userId))
+    .all()
   const found = [c?.oldest ?? null, d?.oldest ?? null].filter((v): v is ISODate => v !== null)
   return found.length === 0 ? null : found.reduce((a, b) => (a < b ? a : b))
 }

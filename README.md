@@ -32,6 +32,18 @@ bun run dev             # → http://localhost:3000
 
 `bun run dev` runs migrations on startup and seeds the eight starting moods if the `moods` table is empty. Nothing else is seeded — the ~30 tasks are entered by hand, which `views.md` treats as a feature rather than a gap.
 
+### Accounts
+
+Tasks, completions and journal entries belong to a user. There is no signup page and no plan for one; accounts are made one at a time:
+
+```sh
+echo 'a-long-enough-password' | bun run user:add sanjeev
+```
+
+The same command sets an existing user's password — which also invalidates their existing sessions, because a session cookie is signed with the user's password hash.
+
+**With `AUTH_REQUIRED` unset there is no login at all**, and every request is the lowest-id user: the `owner` the migration creates, which also owns everything written before accounts existed. That is how development and the whole test suite run. Set `AUTH_REQUIRED=1` to require signing in; the server refuses to start with `NODE_ENV=production` and it unset.
+
 ### Regenerating the icons
 
 `assets/alfred.png` is the source; `src/client/icons/` holds the sizes the page links. Bun bundles them from `index.html`, so nothing needs copying into place.
@@ -150,7 +162,6 @@ This assumes local SQLite and is the assumption that ruled out artifact-style de
 
 ## Not built yet
 
-Deployment. The app is on localhost, so there is nothing to authenticate against and nothing to protect. Two decisions are deferred rather than forgotten, both documented in `tech-stack.md`:
+Deployment. [`deployment.md`](.plan/deployment.md) is the plan; nothing in it is built yet except auth, which landed with accounts. What remains is a Dockerfile, a `fly.toml`, and the GitHub Actions workflow that runs the suite and deploys.
 
-- **Where the SQLite file lives.** A host with an ephemeral filesystem wipes it on redeploy, and the failure is silent. `DB_PATH` is the single place that decision lands.
-- **Auth.** A shared password in an env var, checked in middleware. One insertion point in `routes.ts`, not a refactor.
+Both of the decisions this section used to defer are now made: `DB_PATH` points at a Fly volume holding a Turso replica, and auth is accounts rather than the shared password `tech-stack.md` originally sketched — see [`changes-v9.md`](.plan/changes-v9.md) for why that changed.

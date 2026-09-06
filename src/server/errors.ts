@@ -27,6 +27,16 @@ export class NotFound extends ApiFailure {
 }
 
 /**
+ * 401 — no valid session. The client turns this into a trip to /login rather
+ * than an error notice: being signed out is not a failure of the gesture.
+ */
+export class Unauthorized extends ApiFailure {
+  constructor(message: string) {
+    super(401, message)
+  }
+}
+
+/**
  * 409 — valid JSON, but the model refuses the gesture. Placing a daily task,
  * placing outside this week, completing an archived task.
  *

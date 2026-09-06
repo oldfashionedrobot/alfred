@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type {
   DayTask,
   DayTaskState,
@@ -14,6 +14,7 @@ import { effectiveDate, isDone, isOverdue } from '../period.ts'
 import { loadCurrentCompletions, placeableDates, placementRanges, weekDates } from './completions.ts'
 import { sortTasks } from '../sort.ts'
 import { today } from '../today.ts'
+import { authRequired } from '../auth.ts'
 
 /**
  * Everything the Day view renders. Always today — no parameters.
@@ -50,11 +51,11 @@ import { today } from '../today.ts'
  *
  * Both arrays sorted with sortTasks(), using today's days.task_order.
  */
-export async function buildDayView(db: DB): Promise<DayView> {
+export async function buildDayView(db: DB, userId: number): Promise<DayView> {
   const date = today()
 
   const taskRows = await db
-    .select().from(tasks).where(eq(tasks.active, true)).all()
+    .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()
 
   const byTask = await loadCurrentCompletions(db, taskRows, date)
 
@@ -86,7 +87,10 @@ export async function buildDayView(db: DB): Promise<DayView> {
   }
 
   // days rows are sparse — no row means no mood, no log and no arrangement.
-  const [dayRow] = await db.select().from(days).where(eq(days.date, date))
+  const [dayRow] = await db
+    .select()
+    .from(days)
+    .where(and(eq(days.user_id, userId), eq(days.date, date)))
   const order = parseTaskOrder(dayRow?.task_order ?? null)
 
   const picker: Mood[] = await db
@@ -111,6 +115,7 @@ export async function buildDayView(db: DB): Promise<DayView> {
     completed: sortTasks(completed, order),
     // Carried here as well because the reschedule picker opens from an overdue
     // row on this screen.
+    auth_required: authRequired,
     week_dates: weekDates(date),
     placeable_dates: placeable,
     // How far past this week each cadence may reach. The chips above are the

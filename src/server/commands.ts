@@ -17,6 +17,11 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * This is the only place untrusted data enters the system, so every field is
  * checked for presence AND type before it reaches a statement.
  *
+ * EVERY COMMAND IS SCOPED TO A USER. `loadTask` is the only way a command gets
+ * a task by id, and it filters on user_id — so acting on somebody else's task is
+ * a 404, not a silent success. Commands that write without reading first
+ * (create, the day record) stamp the user on the way in.
+ *
  * Day:          complete, uncomplete, place, unplan, reset_overdue
  * Tasks:        create_task, create_tasks, update_task, archive_task
  * Day record:   set_mood, set_log, set_task_order
@@ -25,39 +30,44 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * edited in the database — see "Moods are data, not a feature" in `.plan/views.md`.
  * `set_mood` records the day's mood and is the only mood command there is.
  */
-export async function runCommand(db: DB, name: string, body: unknown): Promise<void> {
+export async function runCommand(
+  db: DB,
+  userId: number,
+  name: string,
+  body: unknown,
+): Promise<void> {
   const b = asObject(body)
 
   switch (name) {
     // --- Day --------------------------------------------------------------
     case 'complete':
-      return complete(db, b)
+      return complete(db, userId, b)
     case 'uncomplete':
-      return uncomplete(db, b)
+      return uncomplete(db, userId, b)
     case 'place':
-      return place(db, b)
+      return place(db, userId, b)
     case 'unplan':
-      return unplan(db, b)
+      return unplan(db, userId, b)
     case 'reset_overdue':
-      return resetOverdue(db, b)
+      return resetOverdue(db, userId, b)
 
     // --- Tasks ------------------------------------------------------------
     case 'create_task':
-      return createTask(db, b)
+      return createTask(db, userId, b)
     case 'create_tasks':
-      return createTasks(db, b)
+      return createTasks(db, userId, b)
     case 'update_task':
-      return updateTask(db, b)
+      return updateTask(db, userId, b)
     case 'archive_task':
-      return archiveTask(db, b)
+      return archiveTask(db, userId, b)
 
     // --- Day record -------------------------------------------------------
     case 'set_mood':
-      return setMood(db, b)
+      return setMood(db, userId, b)
     case 'set_log':
-      return setLog(db, b)
+      return setLog(db, userId, b)
     case 'set_task_order':
-      return setTaskOrder(db, b)
+      return setTaskOrder(db, userId, b)
 
     default:
       // 400, not 404: the path /api/commands/<name> exists, the name in it is a
@@ -148,8 +158,19 @@ function reqDateOrNull(b: Record<string, unknown>, key: string): ISODate | null 
 // Lookups
 // ---------------------------------------------------------------------------
 
-async function loadTask(db: DB, id: number): Promise<TaskRow> {
-  const task = await db.select().from(tasks).where(eq(tasks.id, id)).get()
+/**
+ * The one place a task is fetched by id, and therefore the one place ownership
+ * is enforced for every command that takes a task_id.
+ *
+ * Another user's task is NOT FOUND rather than forbidden: a 403 would confirm
+ * the id exists, and there is nothing a caller can do with that but enumerate.
+ */
+async function loadTask(db: DB, userId: number, id: number): Promise<TaskRow> {
+  const task = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, id), eq(tasks.user_id, userId)))
+    .get()
   if (!task) throw new NotFound(`no task ${id}`)
   return task
 }
@@ -168,9 +189,9 @@ async function loadMoodSlug(db: DB, slug: string): Promise<string> {
 // Day
 // ---------------------------------------------------------------------------
 
-async function complete(db: DB, b: Record<string, unknown>): Promise<void> {
+async function complete(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
-  const task = await loadTask(db, reqId(b, 'task_id'))
+  const task = await loadTask(db, userId, reqId(b, 'task_id'))
   if (!task.active) throw new Rejected('that task is archived')
 
   // The (task_id, completed_on) key absorbs a double tap — a repeat is a
@@ -181,9 +202,9 @@ async function complete(db: DB, b: Record<string, unknown>): Promise<void> {
     .run()
 }
 
-async function uncomplete(db: DB, b: Record<string, unknown>): Promise<void> {
+async function uncomplete(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
-  const task = await loadTask(db, reqId(b, 'task_id'))
+  const task = await loadTask(db, userId, reqId(b, 'task_id'))
 
   // NOT necessarily today's row: unticking a weekly task on Wednesday that was
   // completed Tuesday must delete Tuesday's, since that is the row making it
@@ -196,11 +217,11 @@ async function uncomplete(db: DB, b: Record<string, unknown>): Promise<void> {
     .run()
 }
 
-async function place(db: DB, b: Record<string, unknown>): Promise<void> {
+async function place(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id', 'date'])
   const id = reqId(b, 'task_id')
   const date = reqDate(b, 'date')
-  const task = await loadTask(db, id)
+  const task = await loadTask(db, userId, id)
 
   if (!task.active) throw new Rejected('that task is archived')
   if (task.cadence === 'day') throw new Rejected('daily tasks are never placed')
@@ -224,9 +245,9 @@ async function place(db: DB, b: Record<string, unknown>): Promise<void> {
   await db.update(tasks).set({ planned_date: date }).where(eq(tasks.id, task.id)).run()
 }
 
-async function unplan(db: DB, b: Record<string, unknown>): Promise<void> {
+async function unplan(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
-  const task = await loadTask(db, reqId(b, 'task_id'))
+  const task = await loadTask(db, userId, reqId(b, 'task_id'))
   await db.update(tasks).set({ planned_date: null }).where(eq(tasks.id, task.id)).run()
 }
 
@@ -237,7 +258,7 @@ async function unplan(db: DB, b: Record<string, unknown>): Promise<void> {
  * The read and the clear are one transaction so the set cleared is exactly the
  * set computed.
  */
-async function resetOverdue(db: DB, b: Record<string, unknown>): Promise<void> {
+async function resetOverdue(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, [])
   const now = today()
 
@@ -257,7 +278,9 @@ async function resetOverdue(db: DB, b: Record<string, unknown>): Promise<void> {
   const candidates = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.active, true), isNotNull(tasks.planned_date)))
+    .where(
+      and(eq(tasks.user_id, userId), eq(tasks.active, true), isNotNull(tasks.planned_date)),
+    )
   if (candidates.length === 0) return
 
   // The one implementation of this grouping, bounded to the current period.
@@ -275,7 +298,7 @@ async function resetOverdue(db: DB, b: Record<string, unknown>): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** The `+` on Day. One field, deliberately — see "Input" in `.plan/views.md`. */
-async function createTask(db: DB, b: Record<string, unknown>): Promise<void> {
+async function createTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['name', 'is_baseline', 'cadence', 'planned_date', 'color', 'category'])
   const name = reqName(b, 'name')
   const is_baseline = 'is_baseline' in b ? reqBoolean(b, 'is_baseline') : false
@@ -286,6 +309,7 @@ async function createTask(db: DB, b: Record<string, unknown>): Promise<void> {
 
   await db.insert(tasks)
     .values({
+      user_id: userId,
       name,
       is_baseline,
       cadence,
@@ -318,7 +342,7 @@ const MAX_BULK = 100
  * with a name and nothing else already did the same thing. This does something
  * `create_task` cannot express at all.
  */
-async function createTasks(db: DB, b: Record<string, unknown>): Promise<void> {
+async function createTasks(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['names'])
   const raw = b['names']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
@@ -339,6 +363,7 @@ async function createTasks(db: DB, b: Record<string, unknown>): Promise<void> {
   await db.insert(tasks)
     .values(
       names.map((name) => ({
+        user_id: userId,
         name,
         is_baseline: false,
         cadence: null,
@@ -351,9 +376,9 @@ async function createTasks(db: DB, b: Record<string, unknown>): Promise<void> {
     .run()
 }
 
-async function updateTask(db: DB, b: Record<string, unknown>): Promise<void> {
+async function updateTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['id', 'name', 'is_baseline', 'cadence', 'planned_date', 'color', 'category'])
-  const task = await loadTask(db, reqId(b, 'id'))
+  const task = await loadTask(db, userId, reqId(b, 'id'))
 
   // 'key in body' throughout: an omitted field is untouched, an explicit null
   // clears. A truthiness check cannot tell those apart.
@@ -382,9 +407,9 @@ async function updateTask(db: DB, b: Record<string, unknown>): Promise<void> {
 }
 
 /** The only removal in the system. There is no delete anywhere. */
-async function archiveTask(db: DB, b: Record<string, unknown>): Promise<void> {
+async function archiveTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['id'])
-  const task = await loadTask(db, reqId(b, 'id'))
+  const task = await loadTask(db, userId, reqId(b, 'id'))
   await db.update(tasks).set({ active: false }).where(eq(tasks.id, task.id)).run()
 }
 
@@ -393,10 +418,16 @@ async function archiveTask(db: DB, b: Record<string, unknown>): Promise<void> {
 // what keeps `days` sparse without the client tracking whether one exists.
 // ---------------------------------------------------------------------------
 
-async function upsertDay(db: DB, patch: { mood?: string | null; log?: string | null; task_order?: string | null }): Promise<void> {
+async function upsertDay(
+  db: DB,
+  userId: number,
+  patch: { mood?: string | null; log?: string | null; task_order?: string | null },
+): Promise<void> {
   await db.insert(days)
-    .values({ date: today(), ...patch })
-    .onConflictDoUpdate({ target: days.date, set: patch })
+    // The key is (user_id, date), so two people record their own mood on the
+    // same date without colliding.
+    .values({ user_id: userId, date: today(), ...patch })
+    .onConflictDoUpdate({ target: [days.user_id, days.date], set: patch })
     .run()
 }
 
@@ -404,7 +435,7 @@ async function upsertDay(db: DB, patch: { mood?: string | null; log?: string | n
  * Records the day's mood. The mood set itself is not editable through the API —
  * it is seeded on first run and changed in the database.
  */
-async function setMood(db: DB, b: Record<string, unknown>): Promise<void> {
+async function setMood(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['slug'])
   if (!('slug' in b)) throw new BadRequest('slug is required')
 
@@ -412,10 +443,10 @@ async function setMood(db: DB, b: Record<string, unknown>): Promise<void> {
   if (raw !== null && typeof raw !== 'string') throw new BadRequest('slug must be a string or null')
   const slug = raw === null ? null : await loadMoodSlug(db, raw)
 
-  await upsertDay(db, { mood: slug })
+  await upsertDay(db, userId, { mood: slug })
 }
 
-async function setLog(db: DB, b: Record<string, unknown>): Promise<void> {
+async function setLog(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['text'])
   if (!('text' in b)) throw new BadRequest('text is required')
 
@@ -424,10 +455,10 @@ async function setLog(db: DB, b: Record<string, unknown>): Promise<void> {
   // An empty entry is the absence of one.
   const text = raw === null || raw === '' ? null : raw
 
-  await upsertDay(db, { log: text })
+  await upsertDay(db, userId, { log: text })
 }
 
-async function setTaskOrder(db: DB, b: Record<string, unknown>): Promise<void> {
+async function setTaskOrder(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_ids'])
   const raw = b['task_ids']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'number' || !Number.isInteger(v))) {
@@ -436,5 +467,5 @@ async function setTaskOrder(db: DB, b: Record<string, unknown>): Promise<void> {
 
   // Stored opaquely. `.plan/data-model.md` has the order disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
-  await upsertDay(db, { task_order: JSON.stringify(raw) })
+  await upsertDay(db, userId, { task_order: JSON.stringify(raw) })
 }

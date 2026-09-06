@@ -517,3 +517,11 @@
   resize: vertical;
   line-height: 1.5;
 }
+
+/* Only rendered where a session exists to end — see `auth_required`. Quiet and
+   at the foot of the page: signing out is not something to do by accident. */
+.day-signout {
+  display: flex;
+  justify-content: center;
+  padding: var(--gap-5) 0 var(--gap-2);
+}

@@ -3,7 +3,8 @@ import type { TaskRow } from '../src/server/schema.ts'
 import { sortTasks } from '../src/server/sort.ts'
 
 function task(id: number, name: string, is_baseline = false): TaskRow {
-  return { id, name, is_baseline, cadence: null, planned_date: null, color: null, category: null, active: true }
+  // user_id is never read by sortTasks; it is here because a TaskRow has one.
+  return { id, user_id: 1, name, is_baseline, cadence: null, planned_date: null, color: null, category: null, active: true }
 }
 
 const names = (tasks: Pick<TaskRow, 'name'>[]) => tasks.map((t) => t.name)

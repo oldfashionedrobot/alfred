@@ -137,6 +137,12 @@ export interface DayView {
   /** One entry per placeable cadence. See `Placement`. */
   placement: Placement[]
   /**
+   * Whether this deployment requires a login — `AUTH_REQUIRED` on the server.
+   * The client needs it for one thing: whether to offer a way to sign out. With
+   * auth off there is no session to end and the control would be a dead end.
+   */
+  auth_required: boolean
+  /**
    * Tomorrow through Saturday — `placeable_dates` minus today. Empty on a
    * Saturday, which is what makes that day one pane and no special case.
    */

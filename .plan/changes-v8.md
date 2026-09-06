@@ -609,3 +609,7 @@ static skeleton inlined in `index.html`, which covers the bundle download but no
 the boot; and a web app manifest, whose OS splash screen is the only thing that
 covers the boot at all, and only from a home-screen icon. Neither is being built.
 Recorded so the next reader can tell this was measured rather than missed.
+
+---
+
+Continued in [`changes-v9.md`](changes-v9.md).

@@ -13,6 +13,9 @@ let nextId = 1
 function task(over: Partial<TaskRow> = {}): TaskRow {
   return {
     id: nextId++,
+    // These suites test pure functions that never read it. Present because the
+    // row shape requires it, and constant for the same reason.
+    user_id: 1,
     name: 'a task',
     is_baseline: false,
     cadence: null,

@@ -393,6 +393,17 @@ export default function Day() {
         +
       </button>
 
+      {/* Only where there is a session to end. With auth off this would be a
+          control that signs you out of nothing and lands you on a login page you
+          do not need. */}
+      {view.auth_required && (
+        <form className="day-signout" method="post" action="/logout">
+          <button className="btn btn--small btn--quiet" type="submit">
+            Sign out
+          </button>
+        </form>
+      )}
+
       <NoticeBar notice={notice} onDismiss={() => setNotice(null)} />
 
       {capturing && (

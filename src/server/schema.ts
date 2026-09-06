@@ -6,10 +6,36 @@ import type { Cadence, ISODate } from '../shared/types.ts'
  * format. There is no mapping layer anywhere.
  *
  * Dates are TEXT 'YYYY-MM-DD', never timestamps — see `.plan/api.md`.
+ *
+ * OWNERSHIP. `tasks` and `days` carry a user_id; `completions` does not, because
+ * a completion belongs to whoever owns its task and a second copy of that fact
+ * could disagree with the first. `moods` is global — it is a vocabulary, not
+ * anybody's data. See `.plan/changes-v9.md`.
  */
+
+/**
+ * A person. There is no signup: users are created with `bun run user:add`, which
+ * is also the only way to set a password — an argon2 hash cannot be typed into a
+ * SQL console.
+ *
+ * `active` rather than deletion, like everywhere else in this model. Deleting a
+ * user would orphan every task, completion and journal entry they own; setting
+ * active to false stops them logging in and leaves the record intact.
+ */
+export const users = sqliteTable('users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  username: text('username').notNull().unique(),
+  /** argon2id, from Bun.password. Never compared by hand. */
+  password_hash: text('password_hash').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+})
 
 export const tasks = sqliteTable('tasks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Owner. Every query in every view builder filters on this. */
+  user_id: integer('user_id')
+    .notNull()
+    .references(() => users.id),
   name: text('name').notNull(),
   is_baseline: integer('is_baseline', { mode: 'boolean' }).notNull().default(false),
   /** null = one-off. The load-bearing nullable in the whole model. */
@@ -28,7 +54,11 @@ export const tasks = sqliteTable('tasks', {
    */
   category: text('category'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
-})
+}, (t) => [
+  // Every read starts "this user's active tasks", so this is the shape of
+  // essentially every query the app makes.
+  index('tasks_user_id_idx').on(t.user_id),
+])
 
 export const completions = sqliteTable(
   'completions',
@@ -46,14 +76,25 @@ export const completions = sqliteTable(
   ],
 )
 
-export const days = sqliteTable('days', {
-  date: text('date').$type<ISODate>().primaryKey(),
-  /** FK -> moods.slug. At most one mood per day. */
-  mood: text('mood').references(() => moods.slug),
-  log: text('log'),
-  /** JSON array of task ids, stored opaquely. Named task_order; `order` is reserved. */
-  task_order: text('task_order'),
-})
+/**
+ * One row per user per day. The key is (user_id, date): a day is only ever a
+ * day for somebody, and two people record their own mood on the same date.
+ */
+export const days = sqliteTable(
+  'days',
+  {
+    user_id: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    date: text('date').$type<ISODate>().notNull(),
+    /** FK -> moods.slug. At most one mood per day. */
+    mood: text('mood').references(() => moods.slug),
+    log: text('log'),
+    /** JSON array of task ids, stored opaquely. Named task_order; `order` is reserved. */
+    task_order: text('task_order'),
+  },
+  (t) => [primaryKey({ columns: [t.user_id, t.date] })],
+)
 
 export const moods = sqliteTable('moods', {
   slug: text('slug').primaryKey(),
@@ -67,3 +108,4 @@ export type TaskRow = typeof tasks.$inferSelect
 export type CompletionRow = typeof completions.$inferSelect
 export type DayRow = typeof days.$inferSelect
 export type MoodRow = typeof moods.$inferSelect
+export type UserRow = typeof users.$inferSelect

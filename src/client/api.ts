@@ -23,6 +23,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   })
+  if (res.status === 401) {
+    // Being signed out is not a failure of the gesture, and an error notice
+    // behind a screen you cannot use helps nobody. The navigation IS the
+    // outcome, so this never resolves — settling it would let the caller render
+    // an error for the half-second before the page goes away.
+    window.location.href = '/login'
+    await new Promise(() => {})
+  }
   if (!res.ok) {
     let message = res.statusText
     try {

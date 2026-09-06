@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { TODO_GROUPS } from '../../shared/types.ts'
 import type { ISODate, TodoGroup, TodoTask, TodoView } from '../../shared/types.ts'
 import type { DB } from '../db.ts'
@@ -29,11 +29,11 @@ import { today } from '../today.ts'
  * Both are null for the one-off group: its period is unbounded. There is no week
  * number in this model, deliberately — the client renders a range.
  */
-export async function buildTodoView(db: DB): Promise<TodoView> {
+export async function buildTodoView(db: DB, userId: number): Promise<TodoView> {
   const date = today()
 
   const taskRows = await db
-    .select().from(tasks).where(eq(tasks.active, true)).all()
+    .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()
   const byTask = await loadCurrentCompletions(db, taskRows, date)
 
   // The one-off group's cutoff. periodStart owns the week boundary — no builder

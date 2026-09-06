@@ -19,8 +19,11 @@ let out: Record<string, unknown> = {}
 switch (op.kind) {
   case 'task': {
     db.run(
-      'INSERT INTO tasks (name, is_baseline, cadence, planned_date, color, active) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO tasks (user_id, name, is_baseline, cadence, planned_date, color, active) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
+        // The migration's `owner`, which is who the app resolves to with auth
+        // off. A seed for a second user passes its id explicitly.
+        op.user_id ?? 1,
         op.name,
         op.is_baseline ? 1 : 0,
         op.cadence ?? null,
@@ -37,11 +40,27 @@ switch (op.kind) {
     break
   case 'day':
     db.run(
-      'INSERT INTO days (date, mood, log, task_order) VALUES (?, ?, ?, ?) ' +
-        'ON CONFLICT(date) DO UPDATE SET mood=excluded.mood, log=excluded.log, task_order=excluded.task_order',
-      [op.date, op.mood ?? null, op.log ?? null, op.task_order ? JSON.stringify(op.task_order) : null],
+      'INSERT INTO days (user_id, date, mood, log, task_order) VALUES (?, ?, ?, ?, ?) ' +
+        'ON CONFLICT(user_id, date) DO UPDATE SET mood=excluded.mood, log=excluded.log, task_order=excluded.task_order',
+      [op.user_id ?? 1, op.date, op.mood ?? null, op.log ?? null, op.task_order ? JSON.stringify(op.task_order) : null],
     )
     break
+  // A second account, for the tests that prove one user cannot see another's
+  // data. The hash is real so the login flow can be exercised.
+  case 'user': {
+    const password_hash = op.password ? await Bun.password.hash(op.password) : ''
+    db.run('INSERT INTO users (username, password_hash, active) VALUES (?, ?, ?)', [
+      op.username, password_hash, (op.active ?? true) ? 1 : 0,
+    ])
+    out = db.query('SELECT last_insert_rowid() AS id').get() as Record<string, unknown>
+    break
+  }
+  case 'password': {
+    db.run('UPDATE users SET password_hash = ? WHERE username = ?', [
+      await Bun.password.hash(op.password), op.username,
+    ])
+    break
+  }
   case 'mood':
     db.run('INSERT OR REPLACE INTO moods (slug, emoji, label, sort_order, active) VALUES (?, ?, ?, ?, ?)', [
       op.slug, op.emoji, op.label, op.sort_order, (op.active ?? true) ? 1 : 0,

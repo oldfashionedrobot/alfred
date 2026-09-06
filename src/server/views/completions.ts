@@ -1,4 +1,4 @@
-import { gte, inArray, or } from 'drizzle-orm'
+import { and, gte, inArray, or } from 'drizzle-orm'
 import { CADENCES } from '../../shared/types.ts'
 import type { Cadence, ISODate, Placement } from '../../shared/types.ts'
 import type { DB } from '../db.ts'
@@ -93,10 +93,22 @@ export async function loadCurrentCompletions(
     .filter((s): s is ISODate => s !== null)
     .reduce((a, b) => (a < b ? a : b))
 
+  // Bounded to THIS caller's tasks. The window below is a date range, which on
+  // its own would read every user's completions in it — harmless, since the map
+  // is only ever read by the caller's own task ids, but wasteful and one
+  // refactor away from not being harmless.
+  const allIds = taskRows.map((t) => t.id)
+  if (allIds.length === 0) return new Map()
+
   const rows = await db
     .select()
     .from(completions)
-    .where(or(gte(completions.completed_on, earliest), inArray(completions.task_id, oneOffIds)))
+    .where(
+      and(
+        inArray(completions.task_id, allIds),
+        or(gte(completions.completed_on, earliest), inArray(completions.task_id, oneOffIds)),
+      ),
+    )
     .all()
 
   const byTask = new Map<number, CompletionRow[]>()
