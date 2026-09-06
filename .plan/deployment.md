@@ -109,16 +109,62 @@ Rejected: **Lightsail's load balancer**, which does TLS termination for roughly 
 
 ## Auth
 
-**Open decision.** `design/tech-stack.md` calls for *"a single shared password in an env var, checked in middleware"*, and that stands. The shape is undecided:
+A **shared password and a session cookie**. `design/tech-stack.md` asked for *"a single shared password in an env var, checked in middleware"*; this is that, with a cookie so a phone is not re-prompted.
 
-- **HTTP Basic** — about fifteen lines, no UI, no cookie, no session. Browsers remember it. Rougher on a phone, and the browser's own dialog is the login screen.
-- **A cookie set by a small login form** — one page, one command, a signed cookie. Nicer on a phone, since Safari will not re-prompt; costs a form and a session secret.
+### The cookie is stateless
 
-`routes.ts` has one request pipeline, so either is a single insertion point. Nothing else in the design depends on which.
+```
+value   <expiry-ms>.<hmac>
+hmac    HMAC-SHA256(key, expiry-ms)
+key     derived from APP_PASSWORD
+```
 
-Until this is settled, **the app is not deployed with a public DNS name.**
+Verifying means recomputing the HMAC, comparing it in constant time, and checking the expiry. **No sessions table, no in-memory map, no cleanup, and it survives a restart.** A session table would have been a fifth table in a model that argued its way down to four, and the only one holding something that is not an observation about the household.
 
----
+Deriving the key from the password gives revocation for nothing: change `APP_PASSWORD` and every existing cookie stops verifying.
+
+### Two insertion points
+
+The server has two route groups and both need gating:
+
+- `/api/*` → `401` without a valid cookie, except `POST /api/login`.
+- `/*` → serve the login page *instead of* the app.
+
+The second is easy to omit and worth doing. Without it an unauthenticated visitor downloads the whole client bundle and then watches it fail on `/api/day`; with it they get a form and nothing else.
+
+### Cookie flags
+
+`HttpOnly` so script cannot read it. `Secure` in production only, since local development is plain `http://localhost`. `Path=/`. `Max-Age` of 90 days — being logged out weekly on the screen you tick seventeen times a day is exactly the friction this design keeps refusing.
+
+**`SameSite=Lax` is the one doing quiet work.** It stops the cookie riding along on cross-site POSTs, and since every mutation here is a POST, that is CSRF protection without a token scheme. The cookie approach does not drag one in.
+
+### The login page is server-rendered
+
+About thirty lines of HTML returned as a `Response`, with its own inline styles. Not a React view: that would mean shipping the bundle to unauthenticated visitors, which is the thing gating `/*` exists to prevent. It does not need to look like the app.
+
+### The password stays plaintext in the env var
+
+Compared in constant time, not stored as a hash. Hashing would mean generating a hash to configure the app — ceremony against a threat that does not exist for one shared password on a box only you can reach.
+
+### Off when `APP_PASSWORD` is unset
+
+The same pattern as `TURSO_URL`: development and all 251 tests run unchanged, with no login step threaded through every fixture.
+
+With one guard — **the server refuses to start when `NODE_ENV=production` and `APP_PASSWORD` is unset.** A misconfigured deploy should fail loudly rather than quietly serve a household journal to the internet.
+
+### A footgun this creates, and its fix
+
+**Bun auto-loads `.env`, for `bun test` as well as for the app.** Verified. So an `APP_PASSWORD` in a developer's local `.env` would silently switch auth on for the browser suite, and every test would fail on a `401` — for a reason nowhere near the failure.
+
+The fix belongs in the test harness, not in a convention nobody will remember: `e2e/fixtures.ts` passes `APP_PASSWORD: ''` explicitly when spawning each server, and takes an option to set it for the tests that exercise the login flow. A local `.env` then cannot reach the suite.
+
+`.env` and `.env.*` are gitignored; `.env.example` is tracked as the template.
+
+### What it costs
+
+Roughly sixty lines of server code — sign, verify, the login route, the gate, the page — five in `api.ts` to send a `401` to the login page, and a handful of tests: no cookie, wrong password, right password, expired cookie.
+
+Rejected: **HTTP Basic**, at about fifteen lines. It buys the same protection, but the browser's own dialog is the login screen, Safari re-prompts, and there is no logout.
 
 ## CI
 
@@ -152,6 +198,8 @@ APP_PASSWORD=...
 PORT=3000
 NODE_ENV=production
 ```
+
+Locally the same variables go in a gitignored `.env`, which Bun loads automatically. `.env.example` is the tracked template and documents that every one of them is optional — with none set, the app runs against a local file with no authentication.
 
 `DB_PATH=/data/alfred.db` is set in the compose file, since it describes the container's layout rather than a secret.
 
@@ -187,9 +235,8 @@ Call it **$4–5 a month**, all of it the instance.
 
 ## Open decisions
 
-1. **The shared password's shape** — Basic or a cookie. Blocking a public deploy.
-2. **Domain name.** Caddy needs one for certificates. A subdomain of something you own is fine.
-3. **Instance size and architecture.** The smallest plan is almost certainly enough; ARM (Graviton) is cheaper if the image is built for it, which means a `linux/arm64` build in CI.
+1. **Domain name.** Caddy needs one for certificates. A subdomain of something you own is fine.
+2. **Instance size and architecture.** The smallest plan is almost certainly enough; ARM (Graviton) is cheaper if the image is built for it, which means a `linux/arm64` build in CI.
 
 ## Explicitly not doing
 

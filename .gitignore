@@ -1,5 +1,11 @@
 node_modules/
 data/
+
+# secrets — APP_PASSWORD, TURSO_AUTH_TOKEN. Bun auto-loads .env, so anything
+# here reaches the app AND the test suite. .env.example is the tracked template.
+.env
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal
