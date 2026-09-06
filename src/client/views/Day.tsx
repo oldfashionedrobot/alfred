@@ -21,7 +21,7 @@ import { TaskFields, draftIsValid, draftToPatch, emptyDraft, type TaskDraft } fr
 import './day.css'
 import type { Cadence, DayTask, DayView, ISODate, TodoView, UpcomingDay } from '../../shared/types.ts'
 import { CADENCES } from '../../shared/types.ts'
-import { command, errorText, getDay, getTodo } from '../api.ts'
+import { command, errorText, getDay, getTodo, logout } from '../api.ts'
 import { dayLabel, longDate, shortDate, weekdayShort } from '../dates.ts'
 import { Confirm, DayPicker, NoticeBar, Popover, Sheet, Tick, type Notice } from '../ui.tsx'
 import Todo from './Todo.tsx'
@@ -394,12 +394,13 @@ export default function Day() {
       </button>
 
       {/* Unconditional: there is always a session, because there is no way to
-          run this app without one. */}
-      <form className="day-signout" method="post" action="/logout">
-        <button className="btn btn--small btn--quiet" type="submit">
+          run this app without one. `logout` clears the cookie and then tells the
+          shell, which is the same path a 401 takes. */}
+      <div className="day-signout">
+        <button className="btn btn--small btn--quiet" onClick={() => void logout()}>
           Sign out
         </button>
-      </form>
+      </div>
 
       <NoticeBar notice={notice} onDismiss={() => setNotice(null)} />
 

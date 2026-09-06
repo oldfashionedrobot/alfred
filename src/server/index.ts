@@ -1,11 +1,5 @@
 import index from '../client/index.html'
-import {
-  authenticate,
-  clearedCookie,
-  loginPage,
-  sessionCookie,
-  warnIfNobodyCanSignIn,
-} from './auth.ts'
+import { warnIfNobodyCanSignIn } from './auth.ts'
 import { db, initDb } from './db.ts'
 import { handleApi } from './routes.ts'
 
@@ -19,43 +13,11 @@ const server = Bun.serve({
   development: process.env.NODE_ENV !== 'production',
   routes: {
     /*
-     * Auth is server-side end to end. The password never reaches the client
-     * bundle, and the login page is plain HTML rather than a React view.
-     *
-     * The bundle at `/*` is NOT gated, and cannot be: a Bun route handler can
-     * return a Response but not an HTMLBundle, so there is no way to serve the
-     * app conditionally. Verified rather than assumed. It matters less than it
-     * reads — the repository is public, so the bundle is not a secret — and an
-     * unauthenticated visitor is bounced here by the client the moment its
-     * first request comes back 401.
+     * Signing in is `POST /api/login`, and the form is a React view — see
+     * `.plan/changes-v9.md`. There is no `/login` URL: the client owns the
+     * signed-out state, so one place decides you are signed out rather than a
+     * server route and a client route that have to agree with each other.
      */
-    '/login': {
-      GET: () => loginPage(),
-      POST: async (req: Request) => {
-        const form = await req.formData()
-        const user = await authenticate(
-          db,
-          String(form.get('username') ?? ''),
-          String(form.get('password') ?? ''),
-        )
-        // One message for every failure — unknown name, wrong password, disabled
-        // account. Telling them apart only helps someone finding out which names
-        // are real.
-        if (user === null) return loginPage('That name and password did not match.')
-        return new Response(null, {
-          status: 303,
-          headers: { location: '/', 'set-cookie': sessionCookie(user) },
-        })
-      },
-    },
-    // POST, so SameSite=Lax means a cross-site link cannot sign you out.
-    '/logout': {
-      POST: () =>
-        new Response(null, {
-          status: 303,
-          headers: { location: '/login', 'set-cookie': clearedCookie() },
-        }),
-    },
     '/api/*': (req: Request) => handleApi(req),
     // Bun bundles the client from the HTML entrypoint — no Vite, no separate build.
     '/*': index,

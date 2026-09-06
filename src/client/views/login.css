@@ -1,0 +1,26 @@
+/* The signed-out screen. Everything visual here is a shared primitive from
+   styles.css — this file only places them. */
+
+.login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gap-4);
+}
+
+.login__form {
+  width: min(22rem, 100%);
+}
+
+.login__title {
+  margin: 0 0 var(--gap-2);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.login__error {
+  margin: 0;
+  color: var(--overdue);
+  font-size: 0.86rem;
+}

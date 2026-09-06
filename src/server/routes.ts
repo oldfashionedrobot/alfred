@@ -1,5 +1,5 @@
 import { isISODate, type ISODate } from '../shared/types.ts'
-import { currentUser } from './auth.ts'
+import { authenticate, clearedCookie, currentUser, sessionCookie } from './auth.ts'
 import { runCommand } from './commands.ts'
 import { db } from './db.ts'
 import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
@@ -14,6 +14,7 @@ const MAX_LIMIT = 365
 /**
  * The /api router. Two endpoint kinds and nothing else:
  *   GET  /api/status                          -> { ok, date, sha }, ungated
+ *   POST /api/login | /api/logout             -> { ok: true }, ungated
  *   GET  /api/day | /api/todo | /api/history  -> a view model
  *   POST /api/commands/<name>                  -> { ok: true }
  *
@@ -50,6 +51,28 @@ export async function handleApi(req: Request): Promise<Response> {
      */
     if (req.method === 'GET' && path === '/api/status') {
       return json({ ok: true, date: today(), sha: process.env.BUILD_SHA ?? 'dev' })
+    }
+
+    // Signing in and out are the other two things that cannot require a session.
+    if (req.method === 'POST' && path === '/api/login') {
+      const body = await readBody(req)
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        throw new BadRequest('body must be a JSON object')
+      }
+      const { username, password } = body as Record<string, unknown>
+      if (typeof username !== 'string' || typeof password !== 'string') {
+        throw new BadRequest('username and password are required')
+      }
+      const user = await authenticate(db, username, password)
+      // One answer for every failure — unknown name, wrong password, disabled
+      // account, no password set. Telling them apart only helps somebody
+      // finding out which names are real.
+      if (user === null) throw new Unauthorized('That name and password did not match.')
+      return json({ ok: true }, 200, { 'set-cookie': sessionCookie(user) })
+    }
+
+    if (req.method === 'POST' && path === '/api/logout') {
+      return json({ ok: true }, 200, { 'set-cookie': clearedCookie() })
     }
 
     // Resolved once, here, and threaded through everything below. There is no
@@ -100,10 +123,24 @@ type NotPromise<T> = T extends PromiseLike<unknown> ? never : T
  * builder became async in the libSQL migration, which is exactly when that
  * mistake is easiest to make, so the type rules it out instead.
  */
-function json<T>(data: NotPromise<T>, status = 200): Response {
+function json<T>(data: NotPromise<T>, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      /*
+       * NO-STORE, on every API response including the errors.
+       *
+       * This matters more since accounts than it did before them: these bodies
+       * are one person's tasks, moods and journal, and Fly terminates TLS in
+       * front of the app. Without it an intermediary is entitled to hold a
+       * response and hand it to the next request — which, now, could be somebody
+       * else. Nothing here is cacheable in any useful sense anyway: every view
+       * is derived per request and changes on every tick.
+       */
+      'cache-control': 'no-store',
+      ...extra,
+    },
   })
 }
 

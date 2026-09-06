@@ -188,14 +188,13 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
     let cookie = ''
     if (signedIn) {
       seed.password('owner', TEST_PASSWORD)
-      const res = await fetch(`${url}/login`, {
+      const res = await fetch(`${url}/api/login`, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ username: 'owner', password: TEST_PASSWORD }),
-        redirect: 'manual',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'owner', password: TEST_PASSWORD }),
       })
       const header = res.headers.get('set-cookie')
-      if (res.status !== 303 || header === null) {
+      if (!res.ok || header === null) {
         proc.kill('SIGKILL')
         throw new Error(`fixture could not sign in: ${res.status}`)
       }

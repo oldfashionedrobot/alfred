@@ -3,7 +3,23 @@ import type { DayView, TodoView, HistoryView, ISODate } from '../shared/types.ts
 /**
  * The whole client/server surface. Queries return view models; commands return
  * nothing and the caller refetches the view it is on.
+ *
+ * This is also the only place a 401 is recognised. `main.tsx` registers a
+ * listener and swaps the app for the login view, so every screen is spared
+ * knowing whether it is signed in — the same reason view models arrive
+ * pre-derived rather than assembled per screen.
  */
+
+let signedOut: (() => void) | null = null
+
+/** Registered once, by the shell. */
+export function onSignedOut(fn: () => void): void {
+  signedOut = fn
+}
+
+function notifySignedOut(): void {
+  signedOut?.()
+}
 
 export class ApiError extends Error {
   constructor(
@@ -25,10 +41,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (res.status === 401) {
     // Being signed out is not a failure of the gesture, and an error notice
-    // behind a screen you cannot use helps nobody. The navigation IS the
-    // outcome, so this never resolves — settling it would let the caller render
-    // an error for the half-second before the page goes away.
-    window.location.href = '/login'
+    // behind a screen you cannot use helps nobody. The app is replaced by the
+    // login view instead, so this never resolves: settling it would let the
+    // caller render an error for the frame before it unmounts.
+    notifySignedOut()
     await new Promise(() => {})
   }
   if (!res.ok) {
@@ -61,6 +77,31 @@ export async function command(name: string, body: Record<string, unknown> = {}):
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+/**
+ * Signing in. Deliberately NOT routed through `request`: a wrong password is a
+ * 401, and `request` treats a 401 as "you have been signed out" and never
+ * resolves — which is right everywhere else and would stop this form ever
+ * showing an error.
+ *
+ * Returns null on success, or the message to show.
+ */
+export async function login(username: string, password: string): Promise<string | null> {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (res.ok) return null
+  const body = (await res.json().catch(() => ({}))) as { error?: string }
+  return body.error ?? 'Could not sign in.'
+}
+
+/** Clears the cookie server-side, then puts the app back to the login view. */
+export async function logout(): Promise<void> {
+  await fetch('/api/logout', { method: 'POST' })
+  notifySignedOut()
 }
 
 /**

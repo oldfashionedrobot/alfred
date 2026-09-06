@@ -158,10 +158,43 @@ intention — *this person should be able to sign in* — and that is also how t
 
 ---
 
-## The login page, and the gate that could not be built
+## The login page is a React view, and the gate could not be built
 
-The login page is server-rendered HTML. A password never passes through the React
-bundle, and the whole of auth stays on the server.
+The form started as a server-rendered HTML string, on the reasoning that a
+password should not pass through the client bundle. **That reasoning does not
+survive contact.** Both paths send the password over TLS to the same server, and
+anyone able to alter the bundle owns the app either way. It was a rationalisation,
+not a security property.
+
+What the string actually cost was **seventeen lines restating colour tokens,
+inputs and buttons** — a second style system, which is the precise thing `ui.tsx`
+exists to prevent and which this project's first review was about. It would have
+drifted.
+
+So the form is `views/Login.tsx`, using `.field`, `.input` and `.btn--primary`
+from `styles.css` like every other screen. `POST /api/login` and
+`POST /api/logout` join `/api/status` as the endpoints before the gate.
+`auth.ts` lost 54 lines; the client gained 111 across a view and its placement
+CSS — near enough a wash, with one style system instead of two.
+
+**There is no `/login` URL.** The client owns the signed-out state, so one place
+decides you are signed out rather than a server route and a client route that
+have to agree. `api.ts` is where a 401 is recognised — from the first fetch on
+load, from a command, or from signing out — and the shell swaps the app for the
+form. No screen has to know whether it is signed in, which is the same division
+the view models already draw.
+
+Two details worth keeping:
+
+**`login()` deliberately bypasses `request()`.** A wrong password is a 401, and
+`request` treats a 401 as *you have been signed out* and never resolves — right
+everywhere else, and it would stop the form ever showing an error.
+
+**A failed attempt clears the password and keeps the name.** Retyping a name is
+friction; retyping the password is the point. That also gave the browser suite a
+deterministic signal — the cleared field is how a test knows a rejection landed,
+without which a second attempt fills the fields before the clear arrives and
+leaves the button disabled forever. Which it did, once.
 
 **`deployment.md` also specified gating `/*`** so an unauthenticated visitor got
 the form instead of downloading the client. That cannot be built. A Bun route
@@ -173,10 +206,63 @@ a secret; what the gate was really protecting was a visitor's experience, and
 that is preserved by the client leaving for `/login` the moment its first request
 comes back `401`. The bundle loads and is immediately abandoned.
 
-`GET /api/status` is the one endpoint before the gate. It answers three questions
+`GET /api/status` is one of three endpoints before the gate. It answers three questions
 that all have to be answerable without a session — is the process up, which build
 is it, what does it think today is — and it is what CI's post-deploy smoke test
 will ask instead of a Fly health check.
+
+---
+
+## Caching, compression, and what Bun will not do
+
+`Cache-Control: no-store` on **every API response, errors included**. This matters
+more with accounts than it did without them: the bodies are one person's tasks,
+moods and journal, and Fly terminates TLS in front of the app. Without it an
+intermediary is entitled to hold a response and hand it to the next request —
+which could now be somebody else. Nothing here is cacheable in any useful sense
+anyway; every view is derived per request and changes on every tick.
+
+**Bun cannot be configured to compress, and cannot be given a `Cache-Control` for
+its bundled assets.** Checked against the type definitions rather than assumed:
+`Bun.serve`'s only bundler-adjacent option is `development`, which controls HMR,
+console streaming and devtools. There is no compression setting and no static
+header setting.
+
+Measured against `NODE_ENV=production`:
+
+| | |
+|---|---|
+| Client JS | 269,163 bytes, minified, React's production build |
+| The same bytes gzipped | 85,470 |
+| `Content-Encoding` when asked for gzip | none |
+| `ETag` | present |
+| `If-None-Match` revalidation | **304** |
+| `Cache-Control` | none |
+| Sourcemap | external, 630 bytes — negligible |
+
+**This corrects a claim made during the deployment review.** That review said a
+returning visitor re-downloads the bundle every time. They do not: Bun sends an
+ETag and honours `If-None-Match` with a 304, so a repeat visit costs one round
+trip and no body. What the missing `Cache-Control` costs is that round trip, on
+every asset, on every page load — which on a machine that sleeps can mean waking
+it up to be told nothing changed.
+
+The bundle is already about as small as it gets without removing a dependency: it
+is minified, it links React's production build, and its sourcemap is a stub.
+
+### What is deliberately not being done
+
+Serving the assets ourselves — pre-building with `Bun.build`, which exposes the
+output files and their headers, then handing them back with gzip and
+`Cache-Control: immutable` — would fix both. It would also add the build step
+`design/tech-stack.md` spent a paragraph avoiding, to save a round trip that
+already returns 304 and nothing else.
+
+**The question is whether Fly Proxy compresses on the way out, and that cannot be
+answered from a laptop.** So it stays open until there is something deployed to
+measure. If Fly compresses, this costs nothing and the note is just a record. If
+it does not, 184 KB a cold visit is a real number to weigh a build step against —
+but it is a number worth having before writing the code, not after.
 
 ---
 
