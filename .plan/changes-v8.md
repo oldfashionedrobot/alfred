@@ -140,6 +140,24 @@ simplifications below** — `weekDates()` was to become local to `completions.ts
 once `buildWeekView` stopped calling it; instead it stays exported and has one
 caller again. What does not change is that the client derives no dates.
 
+**Each day carries a count** of what is outstanding on it — today's `active`,
+and each upcoming pane's `tasks`, both of which are already filtered to what is
+still to do. That puts the week's shape back on one screen, which is what the
+panes cost when they replaced Week's seven visible sections: you can now see that
+Thursday is heavy without flipping to it.
+
+A zero is left blank rather than drawn. The slot is still rendered so the buttons
+stay the same height, but a row of zeroes is noise and an empty day is not news.
+The count also goes in the accessible name — "Monday, 7 September, 2 tasks" —
+because the badge itself is `aria-hidden` and a bare number read out beside a
+weekday says nothing.
+
+**Today and "the day you are looking at" are marked differently**, because the
+strip has to answer both questions at once and one highlight cannot. Today is the
+accent colour with a wash of it behind; the day you are on is the raised pill.
+When they are the same day the pill takes the background and today keeps its
+colour, so neither mark is lost.
+
 **Which pane is showing is read back off the scroll position** rather than held
 as the source of truth. A button scrolls the track, the track's scroll handler
 sets the index, the strip renders from the index. A swipe and a button press then

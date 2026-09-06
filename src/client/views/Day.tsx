@@ -223,6 +223,10 @@ export default function Day() {
           dates={view.week_dates}
           today={view.date}
           panes={view.placeable_dates}
+          // Index-aligned with placeable_dates, like the panes themselves: today
+          // is what is still to do, and an upcoming pane is already filtered to
+          // what is outstanding on it.
+          counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
           index={paneIndex}
           onGo={goTo}
           disabled={busy || reordering}
@@ -614,6 +618,10 @@ function TaskRow({
 /**
  * Previous, one button per day of the week, next.
  *
+ * Each day carries the number of things outstanding on it, so the week's shape
+ * is readable without flipping through it — which is what the panes were asked
+ * for in the first place. Past days have no count because they have no pane.
+ *
  * ALL SEVEN days are shown so the week reads as a week, but only today onward
  * are panes — the earlier ones are rendered disabled rather than omitted, which
  * keeps the strip the same width all week and says plainly that a past day is
@@ -627,6 +635,7 @@ function DayStrip({
   dates,
   today,
   panes,
+  counts,
   index,
   onGo,
   disabled,
@@ -634,6 +643,8 @@ function DayStrip({
   dates: ISODate[]
   today: ISODate
   panes: ISODate[]
+  /** Outstanding items per pane, index-aligned with `panes`. */
+  counts: number[]
   index: number
   onGo: (i: number) => void
   disabled: boolean
@@ -655,17 +666,30 @@ function DayStrip({
         {dates.map((d) => {
           // Not a pane: it is behind today. -1 from indexOf is the whole test.
           const pane = panes.indexOf(d)
+          const count = pane < 0 ? null : (counts[pane] ?? 0)
           return (
             <li key={d}>
               <button
                 className="day-strip__day"
-                aria-label={d === today ? `${longDate(d)} — today` : longDate(d)}
+                // The count belongs in the name, not only in the badge: the badge
+                // is aria-hidden, and "Tuesday, 3 tasks" is the whole point of it.
+                aria-label={[
+                  longDate(d),
+                  d === today ? ' — today' : '',
+                  count === null ? '' : count === 1 ? ', 1 task' : `, ${count} tasks`,
+                ].join('')}
                 aria-current={d === showing ? 'true' : undefined}
                 data-today={d === today ? '' : undefined}
                 disabled={disabled || pane < 0}
                 onClick={() => onGo(pane)}
               >
-                {weekdayShort(d)}
+                <span className="day-strip__dow">{weekdayShort(d)}</span>
+                {/* The slot is always rendered so the buttons stay the same
+                    height; a zero is left blank rather than drawn, because a row
+                    of zeroes is noise and an empty day is not news. */}
+                <span className="day-strip__count" aria-hidden="true">
+                  {count !== null && count > 0 ? count : ''}
+                </span>
               </button>
             </li>
           )

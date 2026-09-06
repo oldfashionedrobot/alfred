@@ -1168,14 +1168,82 @@ test('the strip shows all seven days, and the ones already past are disabled', a
   await expect(dayButtons(page)).toHaveCount(7)
 
   const shown = await dayButtons(page).evaluateAll((els) =>
-    els.map((e) => [(e.textContent ?? '').trim(), (e as HTMLButtonElement).disabled] as const),
+    els.map((e) => ({
+      name: e.getAttribute('aria-label') ?? '',
+      text: (e.textContent ?? '').trim(),
+      off: (e as HTMLButtonElement).disabled,
+    })),
   )
-  expect(shown.map(([label]) => label)).toEqual(day.week_dates.map(weekdayShortLabel))
+
+  // The accessible name is the full date; the visible label is the three-letter
+  // abbreviation, with the count beside it where there is one.
+  expect(shown.every((b, i) => b.name.startsWith(longDateLabel(day.week_dates[i]!)))).toBe(true)
+  expect(shown.every((b, i) => b.text.startsWith(weekdayShortLabel(day.week_dates[i]!)))).toBe(true)
+
+  // Exactly one day is named as today, and it is today.
+  expect(shown.filter((b) => b.name.includes('— today'))).toHaveLength(1)
+  expect(shown[day.week_dates.indexOf(day.date)]!.name).toContain('— today')
 
   // Disabled exactly where the day is behind today, which is exactly where
   // there is no pane to go to. The count is today's weekday index.
-  expect(shown.filter(([, off]) => off).length).toBe(day.week_dates.indexOf(day.date))
-  expect(shown.every(([, off], i) => off === (day.week_dates[i]! < day.date))).toBe(true)
+  expect(shown.filter((b) => b.off).length).toBe(day.week_dates.indexOf(day.date))
+  expect(shown.every((b, i) => b.off === (day.week_dates[i]! < day.date))).toBe(true)
+})
+
+test('each day button carries how much is outstanding on it', async ({ page, app }) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  const next = day.upcoming[0]!.date
+
+  app.seed.task({ name: 'Feed Barney', cadence: 'day' })
+  app.seed.task({ name: 'Water the plants', cadence: 'week', planned_date: app.today })
+  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next })
+  app.seed.task({ name: 'Bins out', cadence: 'week', planned_date: next })
+  // On no day at all, so it is in no count.
+  app.seed.task({ name: 'Call the vet', cadence: null })
+
+  await page.goto(app.url)
+  const button = (date: string) => dayButtons(page).nth(day.week_dates.indexOf(date))
+  const nameOf = async (date: string) => (await button(date).getAttribute('aria-label')) ?? ''
+
+  expect(await nameOf(app.today)).toContain(', 2 tasks') // the daily and the placed one
+  expect(await nameOf(next)).toContain(', 2 tasks')
+  await expect(button(app.today)).toHaveText(new RegExp(`^${weekdayShortLabel(app.today)}2$`))
+
+  // A day with nothing on it shows no number rather than a zero.
+  const bare = day.upcoming[1]?.date
+  if (bare !== undefined) {
+    expect(await nameOf(bare)).toContain(', 0 tasks')
+    await expect(button(bare)).toHaveText(new RegExp(`^${weekdayShortLabel(bare)}$`))
+  }
+
+  // Completing something takes it out of the count, so the badge tracks what is
+  // left rather than what was planned.
+  await row(page, 'Water the plants').getByRole('checkbox').click()
+  await expect.poll(() => nameOf(app.today)).toContain(', 1 task')
+})
+
+test("today stays marked while you are looking at another day", async ({ page, app }) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  const next = day.upcoming[0]!.date
+
+  await page.goto(app.url)
+  const todayButton = dayButtons(page).nth(day.week_dates.indexOf(day.date))
+  await expect(todayButton).toHaveAttribute('data-today', '')
+  await expect(todayButton).toHaveAttribute('aria-current', 'true')
+
+  await page.getByRole('button', { name: 'Next day' }).click()
+  await expect(paneFor(page, next)).toBeInViewport({ ratio: 0.5 })
+
+  // The pill moved; today's mark did not. The strip answers two questions at
+  // once — where am I, and where is today — with two different marks.
+  await expect(todayButton).toHaveAttribute('data-today', '')
+  await expect(todayButton).not.toHaveAttribute('aria-current', 'true')
+  await expect(dayButtons(page).nth(day.week_dates.indexOf(next))).toHaveAttribute(
+    'aria-current',
+    'true',
+  )
 })
 
 test('next and previous move between the panes', async ({ page, app }) => {

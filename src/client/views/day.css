@@ -416,7 +416,7 @@
 
 .day-strip__step,
 .day-strip__day {
-  min-height: 34px;
+  min-height: var(--tap);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -426,9 +426,30 @@
   font-weight: 600;
 }
 
+/* Two lines: the weekday, and how much is outstanding on it. */
 .day-strip__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   width: 100%;
-  padding: 0;
+  padding: 2px 0;
+}
+
+.day-strip__dow {
+  line-height: 1.1;
+}
+
+/* The slot is always here so the buttons stay the same height whether or not
+   they have a number in them. */
+.day-strip__count {
+  min-height: 1em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
 }
 
 .day-strip__step {
@@ -438,16 +459,26 @@
   line-height: 1;
 }
 
-/* Today keeps full colour even when you are looking at another day — the strip
-   has to answer "where am I" and "where is today" at the same time. */
+/* The strip answers two questions at once — where am I, and where is today — so
+   the two marks are deliberately different kinds of thing. Today is the accent
+   colour and a wash of it; the day you are looking at is the raised pill. */
 .day-strip__day[data-today] {
-  color: var(--text);
+  color: var(--accent);
+}
+
+.day-strip__day[data-today]:not([aria-current]) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .day-strip__day[aria-current] {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
+}
+
+/* Both at once: the pill takes the background, today keeps its colour. */
+.day-strip__day[aria-current][data-today] {
+  color: var(--accent);
 }
 
 .day-strip__step:disabled,
