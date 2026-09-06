@@ -4,7 +4,7 @@ An iteration log, oldest first — it reads as the project's history in order.
 
 **This is the maintained document.** [`design/`](design/) holds the original plan, frozen and no longer updated; where the two disagree, this one is right. From here on a change is recorded here and nowhere else. Each entry records what changed, why, and what it cost — including decisions it reverses, so a later reader can tell a deliberate reversal from a drift.
 
-`design/data-model.md`, `design/views.md`, `design/tech-stack.md` and `design/api.md` are always current; this file is how they got that way. `design/review-findings.md` is separate — it records defects found in the first build rather than intentional changes.
+`design/data-model.md`, `design/views.md`, `design/tech-stack.md` and `design/api.md` describe the FIRST BUILD. They were accurate when they were frozen and they are not updated, so each one drifts further from the code with every entry below — `design/api.md` still documents `GET /api/week`, for instance, which v8 deleted. Read them for the reasoning behind a decision, never as a description of what the code does now; the change logs are the current state. `design/review-findings.md` is separate — it records defects found in the first build rather than intentional changes.
 
 ---
 
@@ -266,3 +266,7 @@ The transaction was removed rather than reworked, because it was never what prot
 ### Verified
 
 `tsc` clean, 141 unit tests, 200 Playwright tests across two viewports. WAL is re-enabled on the local file, which libSQL does not default to.
+
+---
+
+Continued in [`changes-v8.md`](changes-v8.md).

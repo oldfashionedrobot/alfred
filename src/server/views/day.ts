@@ -1,9 +1,17 @@
 import { asc, eq } from 'drizzle-orm'
-import type { DayTask, DayTaskState, DayView, Mood } from '../../shared/types.ts'
+import type {
+  DayTask,
+  DayTaskState,
+  DayView,
+  ISODate,
+  Mood,
+  UpcomingDay,
+} from '../../shared/types.ts'
 import type { DB } from '../db.ts'
 import { days, moods, tasks } from '../schema.ts'
+import type { CompletionRow, TaskRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue } from '../period.ts'
-import { loadCurrentCompletions, placeableDates } from './completions.ts'
+import { loadCurrentCompletions, placeableDates, weekDates } from './completions.ts'
 import { sortTasks } from '../sort.ts'
 import { today } from '../today.ts'
 
@@ -11,8 +19,14 @@ import { today } from '../today.ts'
  * Everything the Day view renders. Always today — no parameters.
  * See "GET /api/day" in `.plan/api.md`.
  *
- * MEMBERSHIP IS A UNION OF FOUR INDEPENDENT RULES, never a chain of else-if.
- * An active task is a member if ANY of these holds:
+ * Since v8 this also carries the rest of the week: `upcoming` holds one entry per
+ * day from tomorrow through Saturday, which the client renders as the panes you
+ * swipe through. The Week view and `GET /api/week` are gone — see
+ * `.plan/changes-v8.md`. There is still NO date parameter and this endpoint still
+ * means today; what changed is how much of the week rides along with it.
+ *
+ * MEMBERSHIP OF TODAY IS A UNION OF FOUR INDEPENDENT RULES, never a chain of
+ * else-if. An active task is a member if ANY of these holds:
  *
  *   cadence === 'day'
  *   effective_date === today
@@ -57,7 +71,7 @@ export async function buildDayView(db: DB): Promise<DayView> {
       effective === date ||
       overdue ||
       own.some((c) => c.completed_on === date)
-    // A date in the future is not a member: tomorrow's plan is not today's business.
+    // A date in the future is not a member of TODAY. It belongs to `upcoming`.
     if (!member) continue
 
     // A daily task is never placed, so it can never be overdue — the two
@@ -66,18 +80,7 @@ export async function buildDayView(db: DB): Promise<DayView> {
     const state: DayTaskState =
       task.cadence === 'day' ? 'daily' : overdue ? 'overdue' : 'planned'
 
-    const view: DayTask = {
-      id: task.id,
-      name: task.name,
-      is_baseline: task.is_baseline,
-      // Baseline only. Keeping the rule here means the stored value survives a
-      // task ceasing to be baseline, and the client never has to know that.
-      color: task.is_baseline ? task.color : null,
-      cadence: task.cadence,
-      planned_date: task.planned_date,
-      state,
-      effective_date: effective,
-    }
+    const view = toDayTask(task, state, effective)
     if (isDone(task, own, date)) completed.push(view)
     else active.push(view)
   }
@@ -95,6 +98,10 @@ export async function buildDayView(db: DB): Promise<DayView> {
 
   const sortedActive = sortTasks(active, order)
 
+  // today through Saturday. Derived once and used twice: it is what the day
+  // picker may offer AND which panes exist, so the two cannot disagree.
+  const placeable = placeableDates(date)
+
   return {
     date,
     mood: dayRow?.mood ?? null,
@@ -102,10 +109,68 @@ export async function buildDayView(db: DB): Promise<DayView> {
     moods: picker,
     active: sortedActive,
     completed: sortTasks(completed, order),
-    has_overdue: sortedActive.some((t) => t.state === 'overdue'),
-    // Carried here as well as on Week because the reschedule picker opens from
-    // an overdue row on this screen. Day must never fetch the Week model for it.
-    placeable_dates: placeableDates(date),
+    // Carried here as well because the reschedule picker opens from an overdue
+    // row on this screen.
+    week_dates: weekDates(date),
+    placeable_dates: placeable,
+    upcoming: buildUpcoming(taskRows, byTask, placeable),
+  }
+}
+
+/**
+ * The future panes — tomorrow through Saturday, so `placeable` minus today.
+ * Empty on a Saturday, which is what makes that day one pane and no special case.
+ *
+ * PLACED TASKS ONLY, and only those still outstanding.
+ *
+ * Daily tasks are excluded without a filter: one can never hold a planned_date
+ * (`create_task` writes null and `update_task` clears it on a cadence change), so
+ * `planned_date === d` never matches one. `buildWeekView` carried an explicit
+ * `cadence != 'day'` clause; it was belt and braces and is not carried across.
+ *
+ * A task already satisfied for its period is DROPPED rather than struck through.
+ * The panes are read for load, and a done task adds none. See "Future panes show
+ * placed tasks only" in `.plan/changes-v8.md` for why this does not become a flag
+ * on DayTask.
+ *
+ * `isDone` is asked about THE PANE'S OWN DATE, not about today. Those differ at a
+ * period boundary: a monthly task placed Thu 1 Oct and completed 15 Sep is done
+ * for September, and asking with today = Tue 29 Sep would hide it from a pane
+ * whose obligation is October's and unmet. This is the same trap `effectiveDate`
+ * documents from the other direction.
+ */
+function buildUpcoming(
+  taskRows: TaskRow[],
+  byTask: Map<number, CompletionRow[]>,
+  placeable: ISODate[],
+): UpcomingDay[] {
+  return placeable.slice(1).map((d) => ({
+    date: d,
+    tasks: sortTasks(
+      taskRows
+        .filter((t) => t.planned_date === d && !isDone(t, byTask.get(t.id) ?? [], d))
+        // effective_date is d by construction: planned_date === d, and a period
+        // containing d never starts after it, so effectiveDate() cannot roll it back.
+        .map((t) => toDayTask(t, 'planned', d)),
+      // No days.task_order for a future date — only today's row exists.
+      null,
+    ),
+  }))
+}
+
+/** The wire shape of a task row. One mapping, so every pane agrees on it. */
+function toDayTask(task: TaskRow, state: DayTaskState, effective: ISODate | null): DayTask {
+  return {
+    id: task.id,
+    name: task.name,
+    is_baseline: task.is_baseline,
+    // Baseline only. Keeping the rule here means the stored value survives a
+    // task ceasing to be baseline, and the client never has to know that.
+    color: task.is_baseline ? task.color : null,
+    cadence: task.cadence,
+    planned_date: task.planned_date,
+    state,
+    effective_date: effective,
   }
 }
 

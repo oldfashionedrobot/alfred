@@ -13,7 +13,7 @@ import {
 import './todo.css';
 
 /**
- * The To do panel — the complete inventory. Hosted by Day and by Week,
+ * The To do panel — the complete inventory. Hosted by Day,
  * identical in both. See "To do" in `.plan/views.md`.
  *
  * The host owns fetching: it passes the model in and a refresh callback, so a
@@ -166,7 +166,6 @@ export default function Todo({
   kind = 'periodic',
   onChanged,
   onError,
-  defaultOpen,
   busy
 }: {
   view: TodoView | null;
@@ -176,10 +175,12 @@ export default function Todo({
   /** Report a command failure to the host's notice bar. */
   onError: (e: unknown) => void;
   /** Day collapses it by default; Week expands it. */
-  defaultOpen: boolean;
   busy?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  // Collapsed by default. Week opened both panels expanded on the grounds that
+  // there the panel WAS the planning surface; Day is now the only surface, and
+  // its first screen is the day's list — see `.plan/changes-v8.md`.
+  const [open, setOpen] = useState(false);
   // One picker open at a time: a long panel with six of them fanned out is not
   // a picker, it is a mess.
   const [picking, setPicking] = useState<number | null>(null);

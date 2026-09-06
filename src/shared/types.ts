@@ -64,6 +64,24 @@ export interface DayTask {
   effective_date: ISODate | null
 }
 
+/**
+ * One future day of this week, in `DayView.upcoming`.
+ *
+ * `tasks` is what is PLACED on that date and not already satisfied for its
+ * period — see "Future panes show placed tasks only" in `.plan/changes-v8.md`.
+ * Daily tasks are excluded structurally rather than by a filter: one can never
+ * hold a planned_date, so `planned_date === date` never matches one.
+ *
+ * Reuses DayTask so a single row component renders every pane. Every row here is
+ * state 'planned' and its effective_date equals `date`; both are carried anyway
+ * rather than splitting the type.
+ */
+export interface UpcomingDay {
+  date: ISODate
+  /** Already in render order. The client never sorts. */
+  tasks: DayTask[]
+}
+
 export interface DayView {
   date: ISODate
   mood: string | null
@@ -74,44 +92,22 @@ export interface DayView {
   active: DayTask[]
   /** Period-satisfied, sorted independently. */
   completed: DayTask[]
-  has_overdue: boolean
+  /**
+   * All seven days of this week, Sunday first. The day strip renders one button
+   * each and disables those before `date`; the client never derives a week.
+   */
+  week_dates: ISODate[]
   /** today through Saturday. Never computed on the client. */
   placeable_dates: ISODate[]
+  /**
+   * Tomorrow through Saturday — `placeable_dates` minus today. Empty on a
+   * Saturday, which is what makes that day one pane and no special case.
+   */
+  upcoming: UpcomingDay[]
 }
 
 // ---------------------------------------------------------------------------
-// Week view
-// ---------------------------------------------------------------------------
-
-export interface WeekTask {
-  id: number
-  name: string
-  is_baseline: boolean
-  cadence: Cadence | null
-  planned_date: ISODate | null
-  is_done: boolean
-  can_complete: boolean
-}
-
-export interface WeekDay {
-  date: ISODate
-  is_today: boolean
-  is_past: boolean
-  tasks: WeekTask[]
-}
-
-export interface WeekView {
-  week_start: ISODate
-  week_end: ISODate
-  today: ISODate
-  /** Exactly what the day picker may offer: today through Saturday. */
-  placeable_dates: ISODate[]
-  /** Always 7, Sunday first. Overdue/unplaced/backlog live in the To do panel. */
-  days: WeekDay[]
-}
-
-// ---------------------------------------------------------------------------
-// To do panel — hosted by Day and by Week, identical in both
+// To do panel — hosted by Day. Week hosted it too until v8 merged the two.
 // ---------------------------------------------------------------------------
 
 export interface TodoTask {

@@ -1,4 +1,4 @@
-import type { DayView, WeekView, TodoView, HistoryView, ISODate } from '../shared/types.ts'
+import type { DayView, TodoView, HistoryView, ISODate } from '../shared/types.ts'
 
 /**
  * The whole client/server surface. Queries return view models; commands return
@@ -37,7 +37,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const getDay = () => request<DayView>('/day')
-export const getWeek = () => request<WeekView>('/week')
 export const getTodo = () => request<TodoView>('/todo')
 
 export function getHistory(opts: { limit?: number; before?: ISODate } = {}) {

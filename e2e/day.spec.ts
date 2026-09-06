@@ -4,7 +4,9 @@ import type { DayView, HistoryView, TodoTask, TodoView } from '../src/shared/typ
 import { test, expect, addDays, type App } from './fixtures.ts'
 
 /**
- * Day — the doing surface. Today only, no date navigation anywhere.
+ * Day — the doing surface, and since v8 the only task surface there is.
+ * Today's pane is the whole of the old Day view; the rest of the week rides
+ * on the same model as `upcoming` and renders as the panes beside it.
  *
  * Every date in here is derived from `app.today`, so the suite passes on any
  * weekday. Where a fact is only observable server-side it is cross-checked
@@ -44,7 +46,7 @@ async function historyView(app: App): Promise<HistoryView> {
  * A read-only peek at the test's own SQLite file, for the two facts no endpoint
  * can express: the completions of an ARCHIVED task (GET /api/history lists
  * active daily tasks only) and the planned_date of a task placed beyond the
- * current week (GET /api/week only spans Sunday–Saturday). Never used where an
+ * current week (DayView.upcoming spans today–Saturday). Never used where an
  * API answer exists.
  */
 const PEEK = `
@@ -357,9 +359,12 @@ test('Day fetches its own model and the panel’s, and never the Week model', as
   await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
   await expect(picker(page, 'Fix the fence').getByRole('button').first()).toBeVisible()
 
-  expect(paths).toContain('/api/day')
-  expect(paths).toContain('/api/todo')
-  expect(paths.filter((p) => p === '/api/week')).toEqual([])
+  // Exactly two models, still. The whole week rides on DayView since v8, so a
+  // third GET here would mean something had started deriving what is already sent.
+  expect([...new Set(paths.filter((p) => p.startsWith('/api/')))].sort()).toEqual([
+    '/api/day',
+    '/api/todo',
+  ])
 })
 
 test('an archived task never appears', async ({ page, app }) => {
@@ -479,13 +484,12 @@ test('an overdue task sits in the same flat list, marked, offering a day or an u
   const overdueRow = row(page, 'Change the sheets')
   await expect(overdueRow.getByText(/needs a day/i)).toBeVisible()
   await expect(overdueRow.getByRole('button', { name: /give it a day/i })).toBeVisible()
-  await expect(overdueRow.getByRole('button', { name: /^unplan$/i })).toBeVisible()
+  await expect(overdueRow.getByRole('button', { name: /^unplan/i })).toBeVisible()
 
   // The daily task is not marked.
   await expect(row(page, 'Aardvark daily').getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.has_overdue).toBe(true)
   expect(day.active.find((t) => t.name === 'Change the sheets')!.state).toBe('overdue')
 })
 
@@ -494,13 +498,12 @@ test('unplanning an overdue task clears its date and drops it from Day', async (
   app.seed.task({ name: 'Keep me', cadence: 'day' })
 
   await page.goto(app.url)
-  await row(page, 'Descale the kettle').getByRole('button', { name: /^unplan$/i }).click()
+  await row(page, 'Descale the kettle').getByRole('button', { name: /^unplan/i }).click()
 
   await expect(page.getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Keep me'])
 
   const day = await dayView(app)
-  expect(day.has_overdue).toBe(false)
   expect(day.active.map((t) => t.name)).not.toContain('Descale the kettle')
 
   // Cleared, not deleted. It is off every day's list and still in the inventory,
@@ -522,7 +525,6 @@ test('completing an overdue task clears the overdue state', async ({ page, app }
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.has_overdue).toBe(false)
   // The completion is written against TODAY, never the day it was planned for.
   expect(peek(app, 'SELECT completed_on AS d FROM completions WHERE task_id = ?', [id])).toEqual([
     { d: app.today },
@@ -569,7 +571,6 @@ test('rescheduling an overdue task onto today resolves it', async ({ page, app }
   await expect.poll(() => activeNames(page)).toEqual(['Ring the plumber'])
 
   const day = await dayView(app)
-  expect(day.has_overdue).toBe(false)
   expect(day.active.find((t) => t.id === id)!.state).toBe('planned')
   expect(plannedDate(app, id)).toBe(app.today)
 })
@@ -610,24 +611,24 @@ test('a daily task with a past planned_date is never overdue', async ({ page, ap
 
   await expect.poll(() => activeNames(page)).toEqual(['Brush teeth'])
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
-  await expect(row(page, 'Brush teeth').getByRole('button', { name: /^unplan$/i })).toHaveCount(0)
+  await expect(row(page, 'Brush teeth').getByRole('button', { name: /^unplan/i })).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.has_overdue).toBe(false)
   expect(day.active.find((t) => t.name === 'Brush teeth')!.state).toBe('daily')
 })
 
 /**
  * Reset to backlog is NOT here. It lives in the Routine panel and only there —
- * one control, reachable from both hosts, instead of the two Day and Week each
- * grew. Its behaviour is asserted in the panel's own suite.
+ * one control instead of the two that Day and Week each grew before v5. Its
+ * behaviour is asserted in the panel's own suite.
  */
 test('Day offers no reset-to-backlog control of its own', async ({ page, app }) => {
   app.seed.task(overdueSeed(app.today, 'Overdue one', 1))
 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Overdue one'])
-  expect((await dayView(app)).has_overdue).toBe(true)
+  // The control is driven by the PANEL's flag, which is the one that survives.
+  expect((await todoView(app)).has_overdue).toBe(true)
 
   // Not in the active section, and not anywhere else on the collapsed screen.
   await expect(activeRegion(page).getByRole('button', { name: /reset/i })).toHaveCount(0)
@@ -1085,4 +1086,307 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
 
   const plain = page.getByRole('listitem').filter({ hasText: 'Zebra' }).first()
   await expect(plain).not.toHaveAttribute('data-colour', '')
+})
+
+// ===========================================================================
+// The week's panes
+//
+// Day absorbed the Week view in v8. Today's pane is everything above; these
+// cover the rest of the week, which rides on the same model as `upcoming` and
+// renders as the panes beside it.
+//
+// Date labelling is an oracle here, as in history.spec.ts — written out rather
+// than imported from src/, so a formatting change cannot make a test agree with
+// the app by construction.
+// ===========================================================================
+
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const DOW_FULL = [
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+] as const
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const
+
+function dowOf(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number]
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
+/** 'Sunday, 6 September' — a pane's accessible name. */
+function longDateLabel(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number) as [number, number, number]
+  return `${DOW_FULL[dowOf(iso)]}, ${d} ${MONTHS[m - 1]}`
+}
+
+/** 'Sun' — a day button in the strip. */
+const weekdayShortLabel = (iso: string): string => DOW_SHORT[dowOf(iso)]!
+
+/** A future day's pane, addressed by its section's accessible name. */
+const paneFor = (page: Page, date: string) =>
+  page.getByRole('region', { name: longDateLabel(date), exact: true })
+
+const strip = (page: Page) => page.getByRole('navigation', { name: 'Days of this week' })
+
+/** The seven day buttons, without the previous/next pair either side of them. */
+const dayButtons = (page: Page) => strip(page).getByRole('list').getByRole('button')
+
+const MON_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const
+
+/** 'Sat 5 Sep' — a day picker chip, for any date that is not today. */
+function shortDayChip(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number) as [number, number, number]
+  return `${DOW_SHORT[dowOf(iso)]} ${d} ${MON_SHORT[m - 1]}`
+}
+
+/** Completions recorded for a task, by name. No endpoint exposes this directly. */
+function completionsOf(app: App, name: string): number {
+  const rows = peek(
+    app,
+    'SELECT COUNT(*) AS n FROM completions c JOIN tasks t ON t.id = c.task_id WHERE t.name = ?',
+    [name],
+  )
+  return Number(rows[0]!.n)
+}
+
+/** The first day after today, or null on a Saturday when there is none. */
+async function firstUpcoming(app: App): Promise<string | null> {
+  return (await dayView(app)).upcoming[0]?.date ?? null
+}
+
+test('the strip shows all seven days, and the ones already past are disabled', async ({
+  page,
+  app,
+}) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+
+  await page.goto(app.url)
+  await expect(dayButtons(page)).toHaveCount(7)
+
+  const shown = await dayButtons(page).evaluateAll((els) =>
+    els.map((e) => [(e.textContent ?? '').trim(), (e as HTMLButtonElement).disabled] as const),
+  )
+  expect(shown.map(([label]) => label)).toEqual(day.week_dates.map(weekdayShortLabel))
+
+  // Disabled exactly where the day is behind today, which is exactly where
+  // there is no pane to go to. The count is today's weekday index.
+  expect(shown.filter(([, off]) => off).length).toBe(day.week_dates.indexOf(day.date))
+  expect(shown.every(([, off], i) => off === (day.week_dates[i]! < day.date))).toBe(true)
+})
+
+test('next and previous move between the panes', async ({ page, app }) => {
+  const next = await firstUpcoming(app)
+  test.skip(next === null, 'on a Saturday there is nowhere to go')
+
+  await page.goto(app.url)
+  await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
+
+  await page.getByRole('button', { name: 'Next day' }).click()
+  await expect(paneFor(page, next!)).toBeInViewport({ ratio: 0.5 })
+  await expect(activeRegion(page)).not.toBeInViewport({ ratio: 0.5 })
+
+  await page.getByRole('button', { name: 'Previous day' }).click()
+  await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
+})
+
+test('a day button jumps straight to that day', async ({ page, app }) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane')
+  const target = day.upcoming[day.upcoming.length - 1]!.date
+
+  await page.goto(app.url)
+  await dayButtons(page).nth(day.week_dates.indexOf(target)).click()
+  await expect(paneFor(page, target)).toBeInViewport({ ratio: 0.5 })
+})
+
+test('a task placed on a future day is on that pane and not on today', async ({ page, app }) => {
+  const next = await firstUpcoming(app)
+  test.skip(next === null, 'on a Saturday nothing can be placed later this week')
+  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+  app.seed.task({ name: 'Feed Barney', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toEqual(['Feed Barney'])
+
+  const rows = paneFor(page, next!).getByRole('listitem')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Grocery run')
+  // A daily task is on every day equally, so it is on no future pane at all.
+  await expect(paneFor(page, next!).getByText('Feed Barney')).toHaveCount(0)
+})
+
+test('a future row cannot be ticked', async ({ page, app }) => {
+  const next = await firstUpcoming(app)
+  test.skip(next === null, 'on a Saturday there is no future pane')
+  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+
+  await page.goto(app.url)
+  const futurePane = paneFor(page, next!)
+  await expect(futurePane.getByRole('listitem')).toHaveCount(1)
+
+  // Not a disabled control — not a control. `Tick` renders a static box with no
+  // checkbox role, so there is nothing here for a screen reader to offer either.
+  await expect(futurePane.getByRole('checkbox')).toHaveCount(0)
+  expect(completionsOf(app, 'Grocery run')).toBe(0)
+})
+
+test('a future row moves to another day, and unplans', async ({ page, app }) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length < 2, 'needs two days ahead to move between')
+  const [from, to] = [day.upcoming[0]!.date, day.upcoming[1]!.date]
+  const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: from })
+
+  await page.goto(app.url)
+  await paneFor(page, from).getByRole('button', { name: 'Move Grocery run' }).click()
+  await paneFor(page, from)
+    .getByRole('group', { name: 'Pick a day' })
+    .getByRole('button', { name: shortDayChip(to) })
+    .click()
+
+  await expect.poll(() => plannedDate(app, id)).toBe(to)
+  await expect(paneFor(page, to).getByText('Grocery run')).toBeVisible()
+  await expect(paneFor(page, from).getByText('Grocery run')).toHaveCount(0)
+
+  await paneFor(page, to).getByRole('button', { name: 'Unplan Grocery run' }).click()
+  await expect.poll(() => plannedDate(app, id)).toBe(null)
+  await expect(paneFor(page, to).getByText('Grocery run')).toHaveCount(0)
+})
+
+test('a task satisfied for its period is not on the day it was placed', async ({ page, app }) => {
+  const next = await firstUpcoming(app)
+  test.skip(next === null, 'on a Saturday there is no future pane')
+  // Placed later this week, but ticked today: the week's obligation is met, so
+  // that day carries no load and the row is dropped rather than struck through.
+  const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+  app.seed.completion(id, app.today)
+
+  await page.goto(app.url)
+  await expect(paneFor(page, next!).getByText('Grocery run')).toHaveCount(0)
+  expect(plannedDate(app, id)).toBe(next)
+})
+
+test('the track scrolls sideways in itself, never the page body', async ({ page, app }) => {
+  const next = await firstUpcoming(app)
+  test.skip(next === null, 'on a Saturday there is one pane and nothing to scroll')
+  app.seed.task({ name: 'A very long errand name that would overflow a narrow pane', cadence: 'week', planned_date: next! })
+
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Next day' }).click()
+  await expect(paneFor(page, next!)).toBeInViewport({ ratio: 0.5 })
+
+  const body = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth)
+})
+
+test('a daily task says so, like every other cadence', async ({ page, app }) => {
+  app.seed.task({ name: 'Feed Barney', cadence: 'day' })
+  app.seed.task({ name: 'Fix the gate', cadence: null, planned_date: app.today })
+
+  await page.goto(app.url)
+  await expect(row(page, 'Feed Barney')).toContainText('daily')
+  // A one-off carries no cadence word at all — that is the pair the label
+  // separates, and why 'daily' had to stop being the silent case.
+  await expect(row(page, 'Fix the gate')).not.toContainText(/daily|weekly|monthly/)
+})
+
+// ===========================================================================
+// Bulk capture — the sheet's Many mode
+// ===========================================================================
+
+async function openCapture(page: Page, mode: 'One' | 'Many') {
+  await page.getByRole('button', { name: 'Capture a new item' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+  await sheet.getByRole('button', { name: mode, exact: true }).click()
+  return sheet
+}
+
+test('Many creates one backlog item per line, in a single write', async ({ page, app }) => {
+  await page.goto(app.url)
+  const sheet = await openCapture(page, 'Many')
+
+  const posts: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST') posts.push(new URL(r.url()).pathname)
+  })
+
+  await sheet
+    .getByRole('textbox', { name: 'One task per line' })
+    .fill('Milk\nBin day\nRing the dentist')
+  // The button counts what it will do, off the same parse the command runs.
+  await expect(sheet.getByRole('button', { name: 'Add 3 tasks' })).toBeEnabled()
+  await sheet.getByRole('button', { name: 'Add 3 tasks' }).click()
+
+  await expect(sheet).toHaveCount(0)
+  expect(posts).toEqual(['/api/commands/create_tasks'])
+
+  const todo = await todoView(app)
+  for (const name of ['Milk', 'Bin day', 'Ring the dentist']) {
+    const made = inventory(todo, name)
+    expect(made, name).toBeDefined()
+    // Exactly a backlog item: no cadence, no date, not baseline.
+    expect(made!.cadence).toBeNull()
+    expect(made!.effective_date).toBeNull()
+    expect(made!.is_baseline).toBe(false)
+  }
+  // None of them reaches today's list, having no date.
+  await expect.poll(() => activeNames(page)).toEqual([])
+})
+
+test('Many drops blank lines and collapses repeats within the paste', async ({ page, app }) => {
+  await page.goto(app.url)
+  const sheet = await openCapture(page, 'Many')
+
+  await sheet
+    .getByRole('textbox', { name: 'One task per line' })
+    .fill('  Milk  \n\n   \nMilk\nBin day\n')
+
+  // Two survive: the blank lines are nothing, and one paste that says Milk twice
+  // meant it once.
+  await sheet.getByRole('button', { name: 'Add 2 tasks' }).click()
+  await expect(sheet).toHaveCount(0)
+
+  const names = (await todoView(app)).groups.flatMap((g) => g.tasks).map((t) => t.name).sort()
+  expect(names).toEqual(['Bin day', 'Milk'])
+})
+
+test('Many will not submit nothing', async ({ page, app }) => {
+  await page.goto(app.url)
+  const sheet = await openCapture(page, 'Many')
+
+  await expect(sheet.getByRole('button', { name: /^add$/i })).toBeDisabled()
+  await sheet.getByRole('textbox', { name: 'One task per line' }).fill('   \n\n  ')
+  await expect(sheet.getByRole('button', { name: /^add$/i })).toBeDisabled()
+
+  // And the server refuses it too, so the button is a courtesy rather than the rule.
+  const res = await fetch(`${app.url}/api/commands/create_tasks`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ names: ['  ', ''] }),
+  })
+  expect(res.status).toBe(400)
+  expect((await todoView(app)).groups.flatMap((g) => g.tasks)).toEqual([])
+})
+
+test('One is still the default, and still takes a single task', async ({ page, app }) => {
+  await page.goto(app.url)
+  await page.getByRole('button', { name: 'Capture a new item' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+
+  // The fast path is untouched: the sheet opens on One with the name focused.
+  await expect(sheet.getByRole('button', { name: 'One', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await sheet.getByRole('textbox', { name: 'Task name' }).fill('Just the one')
+  await sheet.getByRole('button', { name: /^add$/i }).click()
+
+  await expect(sheet).toHaveCount(0)
+  expect(inventory(await todoView(app), 'Just the one')).toBeDefined()
 })

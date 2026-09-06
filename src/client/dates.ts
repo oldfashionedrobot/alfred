@@ -38,6 +38,11 @@ export function shortDate(iso: ISODate): string {
   return `${DOW[weekday(iso)]} ${d} ${MON[m - 1]}`
 }
 
+/** `Sat` — the day strip's buttons, where seven labels share a phone's width. */
+export function weekdayShort(iso: ISODate): string {
+  return DOW[weekday(iso)]!
+}
+
 /** `Sat 5` — a day column heading. */
 export function dayLabel(iso: ISODate): string {
   return `${DOW[weekday(iso)]} ${parts(iso).d}`

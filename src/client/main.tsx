@@ -2,10 +2,9 @@ import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 import Day from './views/Day.tsx'
-import Week from './views/Week.tsx'
 import History from './views/History.tsx'
 
-type Tab = 'day' | 'week' | 'history'
+type Tab = 'day' | 'history'
 
 function App() {
   const [tab, setTab] = useState<Tab>('day')
@@ -14,11 +13,10 @@ function App() {
     <>
       <main className="app">
         {tab === 'day' && <Day />}
-        {tab === 'week' && <Week />}
         {tab === 'history' && <History />}
       </main>
       <nav className="nav">
-        {(['day', 'week', 'history'] as const).map((t) => (
+        {(['day', 'history'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}

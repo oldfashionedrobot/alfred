@@ -17,8 +17,8 @@ import { loadCurrentCompletions, placeableDates } from './views/completions.ts'
  * This is the only place untrusted data enters the system, so every field is
  * checked for presence AND type before it reaches a statement.
  *
- * Day and Week: complete, uncomplete, place, unplan, reset_overdue
- * Tasks:        create_task, update_task, archive_task
+ * Day:          complete, uncomplete, place, unplan, reset_overdue
+ * Tasks:        create_task, create_tasks, update_task, archive_task
  * Day record:   set_mood, set_log, set_task_order
  *
  * There are no mood-management commands. The mood set is seeded on first run and
@@ -29,7 +29,7 @@ export async function runCommand(db: DB, name: string, body: unknown): Promise<v
   const b = asObject(body)
 
   switch (name) {
-    // --- Day and Week -----------------------------------------------------
+    // --- Day --------------------------------------------------------------
     case 'complete':
       return complete(db, b)
     case 'uncomplete':
@@ -44,6 +44,8 @@ export async function runCommand(db: DB, name: string, body: unknown): Promise<v
     // --- Tasks ------------------------------------------------------------
     case 'create_task':
       return createTask(db, b)
+    case 'create_tasks':
+      return createTasks(db, b)
     case 'update_task':
       return updateTask(db, b)
     case 'archive_task':
@@ -163,7 +165,7 @@ async function loadMoodSlug(db: DB, slug: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Day and Week
+// Day
 // ---------------------------------------------------------------------------
 
 async function complete(db: DB, b: Record<string, unknown>): Promise<void> {
@@ -287,6 +289,59 @@ async function createTask(db: DB, b: Record<string, unknown>): Promise<void> {
       category,
       active: true,
     })
+    .run()
+}
+
+/** One paste of names creates at most this many tasks. */
+const MAX_BULK = 100
+
+/**
+ * The capture sheet's *Many* mode: one task per line, created in a single write.
+ *
+ * Names only. Everything else defaults, which is exactly a backlog item — no
+ * cadence, no date, not baseline — because cadence, category, baseline and
+ * colour are per-task judgements and one answer applied to eight pasted lines
+ * would be wrong more often than right. They are set afterwards, in the editor.
+ *
+ * NOT a loop over `create_task` on the client. That would be N round trips
+ * against a machine that under scale-to-zero may have just woken, and a failure
+ * at item seven would leave four created, three not, and nothing sensible to say
+ * about it. This is one statement.
+ *
+ * This is also not `capture` coming back — v4 deleted that because `create_task`
+ * with a name and nothing else already did the same thing. This does something
+ * `create_task` cannot express at all.
+ */
+async function createTasks(db: DB, b: Record<string, unknown>): Promise<void> {
+  onlyFields(b, ['names'])
+  const raw = b['names']
+  if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
+    throw new BadRequest('names must be an array of strings')
+  }
+
+  // Trim, drop the blanks, and collapse repeats WITHIN the batch: one paste that
+  // lists a thing twice meant it once. Duplicates against tasks that already
+  // exist are deliberately not checked — nothing else in the model treats a name
+  // as unique, and adding that here would be a rule with one enforcement point.
+  const names = [...new Set(raw.map((n) => (n as string).trim()).filter((n) => n !== ''))]
+
+  // Creating nothing and reporting success is worse than saying so. This is the
+  // same answer `create_task` gives an empty name.
+  if (names.length === 0) throw new BadRequest('names must hold at least one name')
+  if (names.length > MAX_BULK) throw new BadRequest(`names must hold at most ${MAX_BULK} names`)
+
+  await db.insert(tasks)
+    .values(
+      names.map((name) => ({
+        name,
+        is_baseline: false,
+        cadence: null,
+        planned_date: null,
+        color: null,
+        category: null,
+        active: true,
+      })),
+    )
     .run()
 }
 

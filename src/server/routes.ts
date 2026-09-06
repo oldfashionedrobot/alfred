@@ -6,15 +6,14 @@ import { today } from './today.ts'
 import { buildDayView } from './views/day.ts'
 import { buildHistoryView } from './views/history.ts'
 import { buildTodoView } from './views/todo.ts'
-import { buildWeekView } from './views/week.ts'
 
 /** History pages back at most a year at a time. The only ceiling, and it is here. */
 const MAX_LIMIT = 365
 
 /**
  * The /api router. Two endpoint kinds and nothing else:
- *   GET  /api/day | /api/week | /api/todo | /api/history  -> a view model
- *   POST /api/commands/<name>                             -> { ok: true }
+ *   GET  /api/day | /api/todo | /api/history  -> a view model
+ *   POST /api/commands/<name>                  -> { ok: true }
  *
  * There is no general-purpose CRUD. If a client needs data it is because a view
  * renders it, and it arrives in that view's model.
@@ -44,8 +43,6 @@ export async function handleApi(req: Request): Promise<Response> {
       switch (path) {
         case '/api/day':
           return json(await buildDayView(db))
-        case '/api/week':
-          return json(await buildWeekView(db))
         case '/api/todo':
           return json(await buildTodoView(db))
         case '/api/history':

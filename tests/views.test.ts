@@ -13,7 +13,6 @@ import type { DB } from '../src/server/db.ts'
 import * as schema from '../src/server/schema.ts'
 import { today } from '../src/server/today.ts'
 import { buildDayView } from '../src/server/views/day.ts'
-import { buildWeekView } from '../src/server/views/week.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
 
@@ -233,14 +232,13 @@ describe('buildDayView', () => {
     },
   )
 
-  test('an overdue task not yet done is active, marked overdue, and sets has_overdue', async () => {
+  test('an overdue task not yet done is active and marked overdue', async () => {
     const id = await addTask({ name: 'Call the vet', cadence: null, planned_date: shift(TODAY, -3) })
 
     const view = await buildDayView(db)
 
     expect(ids(view.active)).toContain(id)
     expect(view.active.find((t) => t.id === id)!.state).toBe('overdue')
-    expect(view.has_overdue).toBe(true)
   })
 
   test('a daily task is active when not completed and completed when it is', async () => {
@@ -253,7 +251,6 @@ describe('buildDayView', () => {
     expect(await names(view.completed)).toEqual(['Sleep'])
     expect(view.active[0]!.state).toBe('daily')
     expect(view.completed[0]!.state).toBe('daily')
-    expect(view.has_overdue).toBe(false)
   })
 
   test.skipIf(NO_EARLIER_DAY)(
@@ -317,10 +314,8 @@ describe('buildDayView', () => {
 
     const day = await buildDayView(db)
     expect(day.active.concat(day.completed)).toEqual([])
-    expect(day.has_overdue).toBe(false)
 
-    const week = await buildWeekView(db)
-    expect(week.days.flatMap((d) => d.tasks)).toEqual([])
+    expect(day.upcoming.flatMap((u) => u.tasks)).toEqual([])
 
     const todo = await buildTodoView(db)
     expect(todo.groups.flatMap((g) => g.tasks)).toEqual([])
@@ -377,94 +372,138 @@ describe('buildDayView', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Week
+// Upcoming — the future panes, which replaced the Week view in v8
 // ---------------------------------------------------------------------------
 
-describe('buildWeekView', () => {
-  test('exactly seven days, Sunday first, Saturday last', async () => {
-    const view = await buildWeekView(db)
+/** On a Saturday there is no later day in this week at all. */
+const NO_FUTURE_DAY = dow(TODAY) === 6
+/** The first pane after today, or null on a Saturday. */
+const NEXT_DAY: ISODate | null = NO_FUTURE_DAY ? null : shift(TODAY, 1)
 
-    expect(view.days.length).toBe(7)
-    expect(view.week_start).toBe(SUNDAY)
-    expect(view.week_end).toBe(SATURDAY)
-    expect(view.today).toBe(TODAY)
-    expect(view.days.map((d) => d.date)).toEqual(
-      Array.from({ length: 7 }, (_, i) => shift(SUNDAY, i)),
-    )
-    expect(view.days.filter((d) => d.is_today).map((d) => d.date)).toEqual([TODAY])
-    expect(view.days.filter((d) => d.is_past).length).toBe(dow(TODAY))
+/**
+ * A future day of this week in a DIFFERENT calendar month, or null when the week
+ * does not straddle one. Only such a day can prove that doneness is asked about
+ * the pane's own period rather than today's.
+ */
+const FUTURE_NEXT_MONTH: ISODate | null =
+  PLACEABLE.slice(1).find((d) => d.slice(0, 7) !== TODAY.slice(0, 7)) ?? null
+
+describe('DayView.upcoming', () => {
+  test('one entry per day from tomorrow through Saturday', async () => {
+    const view = await buildDayView(db)
+    expect(view.upcoming.map((u) => u.date)).toEqual(PLACEABLE.slice(1))
   })
 
-  test('placeable_dates is today through Saturday', async () => {
-    expect((await buildWeekView(db)).placeable_dates).toEqual(PLACEABLE)
+  test('the panes and the day picker are the same list', async () => {
+    // One derivation, so what you can swipe to and what you can place on cannot
+    // drift apart. This is why `placeable_dates` rides on this model.
+    const view = await buildDayView(db)
+    expect([view.date, ...view.upcoming.map((u) => u.date)]).toEqual(view.placeable_dates)
   })
 
-  test('daily tasks never appear anywhere in the model', async () => {
-    await addTask({ name: 'Meds', cadence: 'day' })
-    await addTask({ name: 'Baseline', cadence: 'day', is_baseline: true, done_on: [TODAY] })
-
-    expect((await buildWeekView(db)).days.flatMap((d) => d.tasks)).toEqual([])
+  test.skipIf(!NO_FUTURE_DAY)('is empty on a Saturday', async () => {
+    expect((await buildDayView(db)).upcoming).toEqual([])
   })
 
-  test('a task placed on a day appears on that day and nowhere else', async () => {
-    await addTask({ name: 'Grocery run', cadence: 'week', planned_date: SATURDAY })
+  test.skipIf(NO_FUTURE_DAY)('a task placed on a future day is on that day, and not on today', async () => {
+    await addTask({ name: 'Grocery run', cadence: 'week', planned_date: NEXT_DAY! })
 
-    const view = await buildWeekView(db)
-    const saturday = view.days.find((d) => d.date === SATURDAY)!
-
-    expect(await names(saturday.tasks)).toEqual(['Grocery run'])
-    expect(view.days.filter((d) => d.tasks.length > 0).length).toBe(1)
+    const view = await buildDayView(db)
+    const pane = view.upcoming.find((u) => u.date === NEXT_DAY)!
+    expect(pane.tasks.map((t) => t.name)).toEqual(['Grocery run'])
+    // Tomorrow's plan is not today's business.
+    expect(view.active.concat(view.completed)).toEqual([])
   })
 
-  test('an unplaced task is on no day — the panel holds it', async () => {
-    await addTask({ name: 'Grocery run', cadence: 'week' })
-    await addTask({ name: 'Fix the gate', cadence: null })
+  test.skipIf(NO_FUTURE_DAY)('a future row is planned, and dated the pane it is on', async () => {
+    await addTask({ name: 'Grocery run', cadence: 'week', planned_date: NEXT_DAY! })
 
-    expect((await buildWeekView(db)).days.flatMap((d) => d.tasks)).toEqual([])
+    const [task] = (await buildDayView(db)).upcoming.find((u) => u.date === NEXT_DAY)!.tasks
+    expect(task!.state).toBe('planned')
+    expect(task!.effective_date).toBe(NEXT_DAY)
+    expect(task!.planned_date).toBe(NEXT_DAY)
   })
 
-  test('can_complete is false on past days and true from today on', async () => {
-    for (const d of Array.from({ length: 7 }, (_, i) => shift(SUNDAY, i))) {
-      await addTask({ name: `Task ${d}`, cadence: 'week', planned_date: d })
-    }
+  test('daily tasks never appear on a future pane', async () => {
+    await addTask({ name: 'Feed Barney', cadence: 'day' })
+    await addTask({ name: 'Take pills', cadence: 'day', is_baseline: true })
 
-    for (const day of (await buildWeekView(db)).days) {
-      expect(day.tasks.length).toBe(1)
-      expect(day.tasks[0]!.can_complete).toBe(!day.is_past)
-      expect(day.is_past).toBe(day.date < TODAY)
-    }
+    const view = await buildDayView(db)
+    // Not by a filter: a daily task can never hold a planned_date, so no pane
+    // can match one. Asserted anyway, because that is the load-bearing bit.
+    expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
+    expect(view.active.map((t) => t.name).sort()).toEqual(['Feed Barney', 'Take pills'])
   })
 
-  test.skipIf(NO_EARLIER_DAY)(
-    'a completed task still renders on the day it was placed, struck through',
+  test('a task with no day appears on no pane', async () => {
+    await addTask({ name: 'Call the vet', cadence: null })
+    expect((await buildDayView(db)).upcoming.flatMap((u) => u.tasks)).toEqual([])
+  })
+
+  test.skipIf(NO_EARLIER_DAY)('a task placed earlier this week appears on no pane', async () => {
+    await addTask({ name: 'Call the vet', cadence: null, planned_date: EARLIER_THIS_WEEK! })
+    // It is overdue, so it is on TODAY's pane — the panes start at today and a
+    // past day is not one of them.
+    const view = await buildDayView(db)
+    expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
+    expect(view.active.map((t) => t.state)).toEqual(['overdue'])
+  })
+
+  test.skipIf(NO_FUTURE_DAY)('a task already satisfied for its period is dropped, not struck through', async () => {
+    // Placed tomorrow, ticked today: the week's obligation is met, so tomorrow
+    // carries no load and the row is simply not there.
+    await addTask({
+      name: 'Grocery run',
+      cadence: 'week',
+      planned_date: NEXT_DAY!,
+      done_on: [TODAY],
+    })
+
+    const view = await buildDayView(db)
+    expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
+  })
+
+  test.skipIf(FUTURE_NEXT_MONTH === null)(
+    'doneness is asked about the pane period, not today\'s',
     async () => {
-      // D2's sibling: doneness marks a row, it never removes one.
-      const past = EARLIER_THIS_WEEK!
-      await addTask({ name: 'Vacuum', cadence: 'week', planned_date: past, done_on: [TODAY] })
+      // A monthly task placed in NEXT month and completed in THIS one. It is done
+      // for today's period and NOT for the pane's, so it must still be shown:
+      // asking with today's date would hide an obligation that is unmet.
+      await addTask({
+        name: 'Change the filter',
+        cadence: 'month',
+        planned_date: FUTURE_NEXT_MONTH!,
+        done_on: [TODAY],
+      })
 
-      const day = (await buildWeekView(db)).days.find((d) => d.date === past)!
-      expect(await names(day.tasks)).toEqual(['Vacuum'])
-      expect(day.tasks[0]!.is_done).toBe(true)
-      expect(day.tasks[0]!.can_complete).toBe(false)
+      const view = await buildDayView(db)
+      const pane = view.upcoming.find((u) => u.date === FUTURE_NEXT_MONTH)!
+      expect(pane.tasks.map((t) => t.name)).toEqual(['Change the filter'])
     },
   )
 
-  test('is_done is period satisfaction, not same-day', async () => {
-    await addTask({ name: 'Vacuum', cadence: 'week', planned_date: SATURDAY, done_on: [SUNDAY] })
+  test.skipIf(NO_FUTURE_DAY)('a pane is sorted baseline first, then by name', async () => {
+    await addTask({ name: 'Zebra', cadence: 'week', planned_date: NEXT_DAY! })
+    await addTask({ name: 'Apple', cadence: 'week', planned_date: NEXT_DAY! })
+    await addTask({ name: 'Middle', cadence: 'week', planned_date: NEXT_DAY!, is_baseline: true })
 
-    const saturday = (await buildWeekView(db)).days.find((d) => d.date === SATURDAY)!
-    expect(saturday.tasks[0]!.is_done).toBe(true)
+    const pane = (await buildDayView(db)).upcoming.find((u) => u.date === NEXT_DAY)!
+    expect(pane.tasks.map((t) => t.name)).toEqual(['Middle', 'Apple', 'Zebra'])
   })
 
-  test('overdue, unplaced and backlog are gone — they moved to the To do panel', async () => {
-    await addTask({ name: 'Grocery run', cadence: 'week' })
-    await addTask({ name: 'Fix the gate', cadence: null, planned_date: shift(TODAY, -3) })
+  test.skipIf(NO_FUTURE_DAY)('colour is carried on a future row, baseline only', async () => {
+    await addTask({
+      name: 'Painted', cadence: 'week', planned_date: NEXT_DAY!, is_baseline: true, color: '#aabbcc',
+    })
+    await addTask({
+      name: 'Unpainted', cadence: 'week', planned_date: NEXT_DAY!, color: '#ddeeff',
+    })
 
-    const view: object = await buildWeekView(db)
-
-    expect(Object.keys(view).sort()).toEqual(
-      ['days', 'placeable_dates', 'today', 'week_end', 'week_start'].sort(),
-    )
+    const pane = (await buildDayView(db)).upcoming.find((u) => u.date === NEXT_DAY)!
+    expect(pane.tasks.map((t) => [t.name, t.color])).toEqual([
+      ['Painted', '#aabbcc'],
+      ['Unpainted', null],
+    ])
   })
 })
 
@@ -659,11 +698,10 @@ describe('buildTodoView', () => {
     expect(groupFor(view, 'week').tasks[0]!.is_overdue).toBe(true)
   })
 
-  test('placeable_dates matches Day and Week exactly', async () => {
+  test('placeable_dates matches Day exactly', async () => {
     const todo = await buildTodoView(db)
     expect(todo.placeable_dates).toEqual(PLACEABLE)
     expect(todo.placeable_dates).toEqual((await buildDayView(db)).placeable_dates)
-    expect(todo.placeable_dates).toEqual((await buildWeekView(db)).placeable_dates)
   })
 })
 

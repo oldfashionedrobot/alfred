@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from 'react'
 import type { ReactNode } from 'react'
 import {
   DndContext,
@@ -19,10 +19,10 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { TaskFields, draftIsValid, draftToPatch, emptyDraft, type TaskDraft } from '../TaskFields.tsx'
 import './day.css'
-import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../shared/types.ts'
+import type { Cadence, DayTask, DayView, ISODate, TodoView, UpcomingDay } from '../../shared/types.ts'
 import { CADENCES } from '../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../api.ts'
-import { longDate, shortDate } from '../dates.ts'
+import { dayLabel, longDate, shortDate, weekdayShort } from '../dates.ts'
 import { Confirm, DayPicker, NoticeBar, Sheet, Tick, type Notice } from '../ui.tsx'
 import Todo from './Todo.tsx'
 
@@ -36,9 +36,15 @@ import Todo from './Todo.tsx'
  * the reorder edit state, which holds a locally rearranged id list until the
  * toggle closes.
  *
- * Day fetches TWO models: its own and the To do panel's. It never fetches
- * WeekView: `placeable_dates` rides on DayView exactly so that the picker and
- * the server's 409 on `place` cannot disagree (D3 in review-findings.md).
+ * Day fetches TWO models: its own and the To do panel's. `placeable_dates` rides
+ * on DayView exactly so that the picker and the server's 409 on `place` cannot
+ * disagree (D3 in review-findings.md) — and since v8 it is also the list of PANES,
+ * so the days you can swipe to and the days you can place on are one derivation.
+ *
+ * Since v8 this is the only task surface: Week is deleted and its seven day
+ * sections are the panes of the track here. Today's pane is the whole Day view;
+ * the rest show what is placed on that date and cannot be ticked. See
+ * `.plan/changes-v8.md`.
  */
 
 const CADENCE_WORD: Record<Cadence, string> = {
@@ -64,6 +70,33 @@ export default function Day() {
 
   // The reorder edit state — the one locally held arrangement in the client.
   const [orderIds, setOrderIds] = useState<number[] | null>(null)
+
+  // Which pane is showing. NOT the source of truth for the scroll position —
+  // the track is, and this is read back off it. A swipe and a button press then
+  // agree by construction rather than by being kept in step.
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [paneIndex, setPaneIndex] = useState(0)
+
+  /** The distance between two panes: their width plus the flex gap. */
+  const paneStep = (track: HTMLDivElement): number => {
+    const kids = track.children
+    if (kids.length < 2) return 0
+    return (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft
+  }
+
+  const goTo = (i: number) => {
+    const track = trackRef.current
+    if (!track || i < 0 || i >= track.children.length) return
+    track.scrollTo({ left: i * paneStep(track), behavior: 'smooth' })
+  }
+
+  const onTrackScroll = (e: UIEvent<HTMLDivElement>) => {
+    const track = e.currentTarget
+    const step = paneStep(track)
+    if (step <= 0) return
+    const i = Math.round(track.scrollLeft / step)
+    setPaneIndex(Math.min(track.children.length - 1, Math.max(0, i)))
+  }
 
   useEffect(() => {
     let alive = true
@@ -176,89 +209,140 @@ export default function Day() {
         <h1 className="day-date">{longDate(view.date)}</h1>
       </header>
 
-      <section className="day-section" aria-label="Active tasks">
-        <div className="day-section-bar">
-          <h2 className="day-h2">Today</h2>
-          <button
-            className="btn btn--small btn--quiet"
-            aria-pressed={reordering}
-            onClick={toggleReorder}
-            disabled={busy || view.active.length === 0}
-          >
-            {reordering ? 'Done reordering' : 'Reorder'}
-          </button>
+      {/* The week, as panes: today first, then one per day through Saturday.
+          A snapping scroll container — the browser's own gesture, no library and
+          no handler of ours. The strip above drives it and reads back from it.
+
+          data-locked freezes it during a reorder: that edit state is today-only,
+          so there is nowhere to swipe to, and a dnd-kit context inside a snapping
+          scroller is the interaction that cost two wrong fixes in v4. */}
+      {/* Only when there is somewhere to go. On a Saturday there is one pane and
+          the screen is exactly what it was before v8. */}
+      {view.upcoming.length > 0 && (
+        <DayStrip
+          dates={view.week_dates}
+          today={view.date}
+          panes={view.placeable_dates}
+          index={paneIndex}
+          onGo={goTo}
+          disabled={busy || reordering}
+        />
+      )}
+
+      <div
+        className="day-track"
+        ref={trackRef}
+        onScroll={onTrackScroll}
+        tabIndex={0}
+        role="region"
+        aria-label="This week, day by day"
+        data-locked={reordering || undefined}
+      >
+        <div className="day-pane day-pane--today">
+          <section className="day-section" aria-label="Active tasks">
+            <div className="day-section-bar">
+              <h2 className="day-h2">Today</h2>
+              <button
+                className="btn btn--small btn--quiet"
+                aria-pressed={reordering}
+                onClick={toggleReorder}
+                disabled={busy || view.active.length === 0}
+              >
+                {reordering ? 'Done reordering' : 'Reorder'}
+              </button>
+            </div>
+
+            {rows.length === 0 ? (
+              <p className="day-empty">Nothing on today's list.</p>
+            ) : reordering ? (
+              <>
+                <p className="day-hint">Drag to rearrange. Baseline tasks stay above the rest.</p>
+                {(['baseline', 'rest'] as const).map((band) =>
+                  bands[band].length === 0 ? null : (
+                    <DragBand
+                      key={band}
+                      tasks={bands[band]}
+                      onReorder={(from, to) => reorderBand(band, from, to)}
+                    />
+                  ),
+                )}
+              </>
+            ) : (
+              <ul className="day-list">
+                {rows.map((task, i) => {
+                  const prev = i > 0 ? rows[i - 1] : undefined
+                  return (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      today={view.date}
+                      bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
+                      busy={busy}
+                      onComplete={() => run('complete', { task_id: task.id })}
+                      onUnplan={() => run('unplan', { task_id: task.id })}
+                      placeable={view.placeable_dates}
+                      pickerOpen={pickerFor === task.id}
+                      onTogglePicker={() =>
+                        setPickerFor((cur) => (cur === task.id ? null : task.id))
+                      }
+                      onPlace={async (date) => {
+                        if (await run('place', { task_id: task.id, date })) setPickerFor(null)
+                      }}
+                    />
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
+              belongs here all week, and a task placed today can arrive here already
+              satisfied by an earlier completion in the same period. */}
+          {view.completed.length > 0 && (
+            <section className="day-section" aria-label="Completed tasks">
+              <h2 className="day-h2">Completed</h2>
+              <ul className="day-list">
+                {view.completed.map((task) => (
+                  <li
+                    key={task.id}
+                    className="day-row day-row--done"
+                    data-colour={task.color ? '' : undefined}
+                    style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}
+                  >
+                    <div className="day-row-main">
+                      <Tick
+                        done
+                        label={`Untick ${task.name}`}
+                        onToggle={() => run('uncomplete', { task_id: task.id })}
+                      />
+                      <TaskName task={task} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
 
-        {rows.length === 0 ? (
-          <p className="day-empty">Nothing on today's list.</p>
-        ) : reordering ? (
-          <>
-            <p className="day-hint">Drag to rearrange. Baseline tasks stay above the rest.</p>
-            {(['baseline', 'rest'] as const).map((band) =>
-              bands[band].length === 0 ? null : (
-                <DragBand
-                  key={band}
-                  tasks={bands[band]}
-                  onReorder={(from, to) => reorderBand(band, from, to)}
-                />
-              ),
-            )}
-          </>
-        ) : (
-          <ul className="day-list">
-            {rows.map((task, i) => {
-              const prev = i > 0 ? rows[i - 1] : undefined
-              return (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  today={view.date}
-                  bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
-                  busy={busy}
-                  onComplete={() => run('complete', { task_id: task.id })}
-                  onUnplan={() => run('unplan', { task_id: task.id })}
-                  placeable={view.placeable_dates}
-                  pickerOpen={pickerFor === task.id}
-                  onTogglePicker={() =>
-                    setPickerFor((cur) => (cur === task.id ? null : task.id))
-                  }
-                  onPlace={async (date) => {
-                    if (await run('place', { task_id: task.id, date })) setPickerFor(null)
-                  }}
-                />
-              )
-            })}
-          </ul>
-        )}
-      </section>
-
-      {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
-          belongs here all week, and a task placed today can arrive here already
-          satisfied by an earlier completion in the same period. */}
-      {view.completed.length > 0 && (
-        <section className="day-section" aria-label="Completed tasks">
-          <h2 className="day-h2">Completed</h2>
-          <ul className="day-list">
-            {view.completed.map((task) => (
-              <li
-                key={task.id}
-                className="day-row day-row--done"
-                data-colour={task.color ? '' : undefined}
-                style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}
-              >
-                <div className="day-row-main">
-                  <Tick
-                    done
-                    label={`Untick ${task.name}`}
-                    onToggle={() => run('uncomplete', { task_id: task.id })}
-                  />
-                  <TaskName task={task} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+        {/* Placed tasks only, and only those still outstanding — a done task adds
+            no load to Thursday. Dailies are absent because one can never hold a
+            planned_date. The server decides all of this; this maps what it sent. */}
+        {view.upcoming.map((day) => (
+          <UpcomingPane
+            key={day.date}
+            day={day}
+            today={view.date}
+            placeable={view.placeable_dates}
+            busy={busy}
+            pickerFor={pickerFor}
+            onTogglePicker={(id) => setPickerFor((cur) => (cur === id ? null : id))}
+            onUnplan={(id) => run('unplan', { task_id: id })}
+            onPlace={async (id, date) => {
+              if (await run('place', { task_id: id, date })) setPickerFor(null)
+            }}
+          />
+        ))}
+      </div>
 
       {/* Collapsed here: the list above is arranged for doing, and the panel is
           for the moment you ask "what else is there?" */}
@@ -266,14 +350,12 @@ export default function Day() {
         view={todo}
         onChanged={refresh}
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
-        defaultOpen={false}
         busy={busy || reordering}
       />
       <Todo kind="backlog"
         view={todo}
         onChanged={refresh}
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
-        defaultOpen={false}
         busy={busy || reordering}
       />
 
@@ -305,6 +387,10 @@ export default function Day() {
             if (await run('create_task', patch, `Captured “${String(patch.name)}”.`)) {
               setCapturing(false)
             }
+          }}
+          onCreateMany={async (names) => {
+            const said = names.length === 1 ? 'Captured 1 item.' : `Captured ${names.length} items.`
+            if (await run('create_tasks', { names }, said)) setCapturing(false)
           }}
         />
       )}
@@ -405,7 +491,9 @@ function TaskName({ task }: { task: DayTask }) {
   const meta: ReactNode =
     task.state === 'overdue' && task.effective_date ? (
       <span className="day-badge">needs a day · {shortDate(task.effective_date)}</span>
-    ) : task.cadence && task.cadence !== 'day' ? (
+    ) : task.cadence ? (
+      // Daily included: without it a daily task and a one-off read identically,
+      // and those are the two ends of the model.
       CADENCE_WORD[task.cadence]
     ) : null
 
@@ -430,6 +518,7 @@ function TaskRow({
   pickerOpen,
   onTogglePicker,
   onPlace,
+  future = false,
 }: {
   task: DayTask
   today: ISODate
@@ -441,8 +530,14 @@ function TaskRow({
   pickerOpen: boolean
   onTogglePicker: () => void
   onPlace: (date: ISODate) => void
+  /** On a future pane. Nothing writes to a date that is not today. */
+  future?: boolean
 }) {
   const overdue = task.state === 'overdue'
+  // Overdue and future ask the SAME question — which day does this belong on? —
+  // so they share the picker and the Unplan beside it. Only the verb differs:
+  // an overdue task has lost its day, a future one merely has a different one.
+  const asksForADay = overdue || future
   // Baseline colour, when one is set. The server already nulls it for anything
   // that is not baseline, so there is no condition to re-check here.
   const colour = task.color
@@ -463,29 +558,43 @@ function TaskRow({
       style={colour ? ({ '--task-colour': colour } as CSSProperties) : undefined}
     >
       <div className="day-row-main">
-        <Tick done={false} label={`Complete ${task.name}`} onToggle={onComplete} />
+        {/* Disabled on a future pane, where `Tick` renders a static box with no
+            checkbox role at all — so it is not merely unclickable, it is not a
+            control. Same shape, no affordance. */}
+        <Tick
+          done={false}
+          disabled={future}
+          label={`Complete ${task.name}`}
+          onToggle={onComplete}
+        />
         <TaskName task={task} />
       </div>
 
       {/* Overdue asks for a decision, in the same flat list: complete it above,
-          or one of these two. */}
-      {overdue && (
+          or one of these two. A future row offers the same two, minus the urgency. */}
+      {asksForADay && (
         <div className="day-row-actions">
           <button
             className="btn btn--small"
             onClick={onTogglePicker}
             aria-expanded={pickerOpen}
+            aria-label={overdue ? `Give it a day — ${task.name}` : `Move ${task.name}`}
             disabled={busy}
           >
-            Give it a day
+            {overdue ? 'Give it a day' : 'Move'}
           </button>
-          <button className="btn btn--small" onClick={onUnplan} disabled={busy}>
+          <button
+            className="btn btn--small"
+            onClick={onUnplan}
+            aria-label={`Unplan ${task.name}`}
+            disabled={busy}
+          >
             Unplan
           </button>
         </div>
       )}
 
-      {overdue && pickerOpen && (
+      {asksForADay && pickerOpen && (
         <div className="day-row-picker">
           <DayPicker
             dates={placeable}
@@ -500,43 +609,264 @@ function TaskRow({
   )
 }
 
+// --- the day strip ----------------------------------------------------------
+
+/**
+ * Previous, one button per day of the week, next.
+ *
+ * ALL SEVEN days are shown so the week reads as a week, but only today onward
+ * are panes — the earlier ones are rendered disabled rather than omitted, which
+ * keeps the strip the same width all week and says plainly that a past day is
+ * not somewhere you can go.
+ *
+ * `panes` is `placeable_dates`, so a day's button and its pane are matched by
+ * position in the one list the server derived. `index` comes from the track's
+ * scroll position, so this highlights where the panes actually are.
+ */
+function DayStrip({
+  dates,
+  today,
+  panes,
+  index,
+  onGo,
+  disabled,
+}: {
+  dates: ISODate[]
+  today: ISODate
+  panes: ISODate[]
+  index: number
+  onGo: (i: number) => void
+  disabled: boolean
+}) {
+  const showing = panes[index]
+
+  return (
+    <nav className="day-strip" aria-label="Days of this week">
+      <button
+        className="day-strip__step"
+        aria-label="Previous day"
+        disabled={disabled || index <= 0}
+        onClick={() => onGo(index - 1)}
+      >
+        <span aria-hidden="true">‹</span>
+      </button>
+
+      <ul className="day-strip__days">
+        {dates.map((d) => {
+          // Not a pane: it is behind today. -1 from indexOf is the whole test.
+          const pane = panes.indexOf(d)
+          return (
+            <li key={d}>
+              <button
+                className="day-strip__day"
+                aria-label={d === today ? `${longDate(d)} — today` : longDate(d)}
+                aria-current={d === showing ? 'true' : undefined}
+                data-today={d === today ? '' : undefined}
+                disabled={disabled || pane < 0}
+                onClick={() => onGo(pane)}
+              >
+                {weekdayShort(d)}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+
+      <button
+        className="day-strip__step"
+        aria-label="Next day"
+        disabled={disabled || index >= panes.length - 1}
+        onClick={() => onGo(index + 1)}
+      >
+        <span aria-hidden="true">›</span>
+      </button>
+    </nav>
+  )
+}
+
+// --- upcoming panes ---------------------------------------------------------
+
+/**
+ * One day of this week that is not today.
+ *
+ * Placed tasks only, and only those still outstanding — the server decides both
+ * and this renders what it sent. Daily tasks are absent because one can never
+ * hold a planned_date; a task already satisfied for its period is absent because
+ * a done task adds no load to the day. See `.plan/changes-v8.md`.
+ *
+ * The rows are `TaskRow` with `future` set — the same component today's pane
+ * uses, which is why `UpcomingDay.tasks` is `DayTask[]` and not a narrower type.
+ */
+function UpcomingPane({
+  day,
+  today,
+  placeable,
+  busy,
+  pickerFor,
+  onTogglePicker,
+  onPlace,
+  onUnplan,
+}: {
+  day: UpcomingDay
+  today: ISODate
+  placeable: ISODate[]
+  busy: boolean
+  pickerFor: number | null
+  onTogglePicker: (id: number) => void
+  onPlace: (id: number, date: ISODate) => void
+  onUnplan: (id: number) => void
+}) {
+  return (
+    <div className="day-pane">
+      <section className="day-section" aria-label={longDate(day.date)}>
+        <div className="day-section-bar">
+          <h2 className="day-h2">{dayLabel(day.date)}</h2>
+        </div>
+
+        {day.tasks.length === 0 ? (
+          <p className="day-empty">Nothing placed.</p>
+        ) : (
+          <ul className="day-list">
+            {day.tasks.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                today={today}
+                bandStart={false}
+                busy={busy}
+                future
+                // Unreachable: a future pane's tick is not a control.
+                onComplete={() => undefined}
+                onUnplan={() => onUnplan(task.id)}
+                placeable={placeable}
+                pickerOpen={pickerFor === task.id}
+                onTogglePicker={() => onTogglePicker(task.id)}
+                onPlace={(date) => onPlace(task.id, date)}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  )
+}
+
 // --- sheet shell ------------------------------------------------------------
 
 // --- capture ----------------------------------------------------------------
 // One field, nothing else. Deliberately not extensible: a form on the fast path
 // is a form you stop bothering with.
 
+/**
+ * One task per line: trimmed, blanks dropped, repeats within the paste collapsed.
+ *
+ * The same parse `create_tasks` runs on the server, so the count on the button is
+ * the number that will actually be created rather than the number of lines typed.
+ */
+function parseNames(text: string): string[] {
+  return [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
+}
+
 function CaptureSheet({
   busy,
   onClose,
   onCreate,
+  onCreateMany,
 }: {
   busy: boolean
   onClose: () => void
   onCreate: (patch: Record<string, unknown>) => void
+  onCreateMany: (names: string[]) => void
 }) {
+  const [many, setMany] = useState(false)
   const [draft, setDraft] = useState<TaskDraft>(emptyDraft())
+  const [lines, setLines] = useState('')
+
+  const names = parseNames(lines)
 
   return (
     <Sheet title="Capture" onClose={onClose}>
-      <form
-        className="form form--stack"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (draftIsValid(draft)) onCreate(draftToPatch(draft))
-        }}
-      >
-        {/* Name is the fast path; everything else is behind a disclosure that
-            costs nothing closed. See "Input" in `.plan/views.md`. */}
-        <TaskFields draft={draft} onChange={setDraft} collapseExtras autoFocusName />
-
-        <button className="btn btn--primary" type="submit" disabled={!draftIsValid(draft) || busy}>
-          Add
+      {/* Getting a list out of your head is a different activity from defining a
+          task. One stays the fast path; Many is for emptying your pockets. */}
+      <div className="capture-mode" role="group" aria-label="How many">
+        <button
+          type="button"
+          className="capture-mode__btn"
+          aria-pressed={!many}
+          onClick={() => setMany(false)}
+        >
+          One
         </button>
-      </form>
-      <p className="hint">
-        A name alone goes to the backlog with no date — it won’t appear on today’s list.
-      </p>
+        <button
+          type="button"
+          className="capture-mode__btn"
+          aria-pressed={many}
+          onClick={() => setMany(true)}
+        >
+          Many
+        </button>
+      </div>
+
+      {many ? (
+        <>
+          <form
+            className="form form--stack"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (names.length > 0) onCreateMany(names)
+            }}
+          >
+            {/* No More section. Cadence, category, baseline and colour are
+                per-task judgements, and one answer applied to eight pasted lines
+                would be wrong more often than right. */}
+            <label className="field">
+              <span className="field-label">Names</span>
+              <textarea
+                className="input capture-lines"
+                rows={7}
+                autoFocus
+                value={lines}
+                aria-label="One task per line"
+                placeholder={'Milk\nBin day\nRing the dentist'}
+                onChange={(e) => setLines(e.target.value)}
+              />
+            </label>
+
+            <button className="btn btn--primary" type="submit" disabled={names.length === 0 || busy}>
+              {names.length === 0
+                ? 'Add'
+                : names.length === 1
+                  ? 'Add 1 task'
+                  : `Add ${names.length} tasks`}
+            </button>
+          </form>
+          <p className="hint">
+            They all go to the backlog with no date. Give them a cadence or a day
+            afterwards, in the Routine or Backlog panel.
+          </p>
+        </>
+      ) : (
+        <>
+          <form
+            className="form form--stack"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (draftIsValid(draft)) onCreate(draftToPatch(draft))
+            }}
+          >
+            {/* Name is the fast path; everything else is behind a disclosure that
+                costs nothing closed. See "Input" in `.plan/views.md`. */}
+            <TaskFields draft={draft} onChange={setDraft} collapseExtras autoFocusName />
+
+            <button className="btn btn--primary" type="submit" disabled={!draftIsValid(draft) || busy}>
+              Add
+            </button>
+          </form>
+          <p className="hint">
+            A name alone goes to the backlog with no date — it won’t appear on today’s list.
+          </p>
+        </>
+      )}
     </Sheet>
   )
 }

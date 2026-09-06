@@ -326,3 +326,167 @@
   justify-content: center;
   color: var(--text-faint);
 }
+
+/* --- the week track ------------------------------------------------------
+   Today first, then one pane per day through Saturday. A snapping scroll
+   container and nothing else: no library, no gesture handling, no active-index
+   state. Which day you are looking at is answered by the pane's own heading,
+   which is why there is no strip of chips above it — see `.plan/changes-v8.md`.
+
+   The page body must never scroll sideways. The track scrolls inside itself,
+   the same arrangement `.hist-scroll` uses for the history grid, and it is
+   focusable for the same reason: arrow keys scroll it directly. `.day-strip`
+   above it drives it and reads its position back. */
+
+.day-track {
+  display: flex;
+  gap: var(--gap-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--gap-2);
+}
+
+.day-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+
+/* During a reorder there is nowhere to swipe to — that edit state is today-only
+   — and a dnd-kit drag inside a snapping scroller is the interaction that cost
+   two wrong fixes in v4. The scrolling is removed rather than debugged. */
+.day-track[data-locked] {
+  overflow-x: hidden;
+  scroll-snap-type: none;
+}
+
+.day-pane {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  /* Not decorative. `.sr` (the visually-hidden label inside a static tick) is
+     position:absolute, and with no positioned ancestor its containing block is
+     the initial one — so on a scrolled-away pane it lands at the pane's document
+     x, OUTSIDE the track's clip, and stretches the page body sideways by its own
+     width. Making the pane its containing block puts it back inside the scroller,
+     where overflow can clip it. Caught by the body-never-scrolls-sideways test on
+     the narrow viewport, at 410px against a 390px window. */
+  position: relative;
+}
+
+/* Today is the surface you act on; the rest are context. That distinction is
+   carried by the pane itself rather than by a highlight somewhere else — the
+   heading reads "Today" against a date, and a future pane's ticks are static
+   boxes rather than controls. */
+.day-pane:not(.day-pane--today) .day-h2 {
+  color: var(--text-dim);
+}
+
+/* --- the day strip -------------------------------------------------------
+   Previous, seven days, next. One pane is visible at any width: several side by
+   side was tried and is too much to read at once.
+
+   All seven days are always rendered, the past ones disabled, so the strip does
+   not change width as the week goes on and a greyed button says plainly that
+   there is nothing to go back to. */
+
+.day-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-1);
+  padding: var(--gap-1) 0 var(--gap-2);
+}
+
+.day-strip__days {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.day-strip__days > li {
+  flex: 1;
+  min-width: 0;
+}
+
+.day-strip__step,
+.day-strip__day {
+  min-height: 34px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.day-strip__day {
+  width: 100%;
+  padding: 0;
+}
+
+.day-strip__step {
+  flex: none;
+  width: 32px;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* Today keeps full colour even when you are looking at another day — the strip
+   has to answer "where am I" and "where is today" at the same time. */
+.day-strip__day[data-today] {
+  color: var(--text);
+}
+
+.day-strip__day[aria-current] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.day-strip__step:disabled,
+.day-strip__day:disabled {
+  opacity: 0.3;
+}
+
+/* --- capture: one or many ------------------------------------------------
+   A paste of names is a different gesture from defining a task, so the sheet
+   says which one it is doing rather than growing a field that means both. */
+
+.capture-mode {
+  display: flex;
+  gap: 2px;
+  margin-bottom: var(--gap-3);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.capture-mode__btn {
+  flex: 1;
+  min-height: 34px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.capture-mode__btn[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.capture-lines {
+  resize: vertical;
+  line-height: 1.5;
+}

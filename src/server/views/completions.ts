@@ -7,15 +7,15 @@ import type { CompletionRow, TaskRow } from '../schema.ts'
 import { addDays, periodStart } from '../period.ts'
 
 /**
- * The two things every view builder needs and none of them may derive twice:
- * this week's dates, and the current period's completions grouped by task.
+ * The two things a view builder needs and must not derive twice: the dates it may
+ * offer, and the current period's completions grouped by task.
  *
- * Day, Week and Todo all ship `placeable_dates` and all read completions per
- * task. `.plan/review-findings.md` records both as duplication that produced
- * real defects — the picker and the 409 on `place` agreed only by coincidence of
- * two separate derivations, and two copies of the grouping disagreed on scope.
- * There is exactly one implementation of each here, and no builder computes a
- * week boundary inline.
+ * Day and Todo both ship `placeable_dates` and both read completions per task.
+ * `.plan/review-findings.md` records both as duplication that produced real
+ * defects — the picker and the 409 on `place` agreed only by coincidence of two
+ * separate derivations, and two copies of the grouping disagreed on scope. There
+ * is exactly one implementation of each here, and no builder computes a week
+ * boundary inline.
  */
 
 /**
@@ -23,6 +23,9 @@ import { addDays, periodStart } from '../period.ts'
  *
  * `periodStart` owns the week boundary — it returns null only for the unbounded
  * one-off period, never for 'week'.
+ *
+ * Shipped as `DayView.week_dates` so the day strip can show all seven and grey
+ * out the ones already past. `placeableDates` is the same week, filtered.
  */
 export function weekDates(date: ISODate): ISODate[] {
   const start = periodStart(date, 'week')!

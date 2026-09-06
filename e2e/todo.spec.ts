@@ -3,7 +3,7 @@ import type { Locator, Page } from '@playwright/test'
 import type { TodoTask, TodoGroup, TodoView } from '../src/shared/types.ts'
 
 /**
- * The Routine panel — the complete inventory, hosted by Day and by Week.
+ * The Routine panel — the complete inventory, hosted by Day.
  *
  * Since v5 it is rendered TWICE from the one `GET /api/todo`: a panel labelled
  * **Routine** drawing the five period groups, and one labelled **Backlog**
@@ -187,7 +187,7 @@ function panelToggle(panel: Locator, name: PanelName): Locator {
   return panel.getByRole('button', { name: new RegExp(`^${name}`, 'i') })
 }
 
-/** Day hosts both panels collapsed, Week both expanded. Either way, open one. */
+/** Day hosts both panels collapsed. Open one. */
 async function openPanel(page: Page, name: PanelName = 'Routine'): Promise<Locator> {
   const panel = panelOf(page, name)
   const toggle = panelToggle(panel, name)
@@ -322,7 +322,7 @@ test('a one-off is drawn in Backlog and never in Routine, a weekly task the othe
   await expect(backlog.getByRole('region', { name: 'This week', exact: true })).toHaveCount(0)
 })
 
-test('both panels are hosted by Day (collapsed) and by Week (expanded)', async ({ page, app }) => {
+test('both panels are hosted by Day, collapsed', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
   app.seed.task({ name: 'Call the vet', cadence: null })
 
@@ -353,15 +353,7 @@ test('both panels are hosted by Day (collapsed) and by Week (expanded)', async (
     headings(todo, 'Backlog'),
   )
 
-  // On Week the panels ARE the planning surface, so both open expanded.
-  await page.getByRole('button', { name: 'Week', exact: true }).click()
-  for (const name of PANELS) {
-    const panel = panelOf(page, name)
-    await expect(panelToggle(panel, name)).toHaveAttribute('aria-expanded', 'true')
-    await expect(panel.getByRole('heading', { level: 3 })).toHaveText(headings(todo, name))
-  }
-
-  // Identical in both hosts: same groups, same rows.
+  // Same groups, same rows, from the one host there now is.
   await expect(
     group(panelOf(page, 'Routine'), 'This week').getByText('Vacuum downstairs', { exact: true }),
   ).toBeVisible()
@@ -401,16 +393,6 @@ test('the two panels collapse independently', async ({ page, app }) => {
   await expect(backlogToggle).toHaveAttribute('aria-expanded', 'true')
   await expect(group(backlog, 'One-off').getByText('Call the vet', { exact: true })).toBeVisible()
   await expect(page.getByText('Vacuum downstairs')).toHaveCount(0)
-
-  // Same on Week, from the other starting state: both open, one closes alone.
-  await page.getByRole('button', { name: 'Week', exact: true }).click()
-  await expect(panelToggle(panelOf(page, 'Routine'), 'Routine')).toHaveAttribute('aria-expanded', 'true')
-  await panelToggle(panelOf(page, 'Backlog'), 'Backlog').click()
-  await expect(panelToggle(panelOf(page, 'Backlog'), 'Backlog')).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
-  await expect(panelToggle(panelOf(page, 'Routine'), 'Routine')).toHaveAttribute('aria-expanded', 'true')
 })
 
 // ---------------------------------------------------------------------------
@@ -850,15 +832,14 @@ test('there is no reset control when nothing is overdue', async ({ page, app }) 
 })
 
 // ---------------------------------------------------------------------------
-// Both hosts
+// The panel and its host
 // ---------------------------------------------------------------------------
 
-test('a command fired from the panel on Week refreshes the host too', async ({ page, app }) => {
-  // Placed on today, so it is on today's section of Week as well as in the panel.
+test('a command fired from the panel refreshes the host too', async ({ page, app }) => {
+  // Placed on today, so it is on today's pane as well as in the panel.
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week', planned_date: app.today })
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: 'Week', exact: true }).click()
   const panel = await openPanel(page)
 
   await panel
@@ -870,7 +851,7 @@ test('a command fired from the panel on Week refreshes the host too', async ({ p
 
   // The host's own copy of the row moved with it — one command, both models.
   // Matched on the task name alone, so this asserts the refresh and not the
-  // wording Week happens to give its ticks.
+  // wording either surface happens to give its ticks.
   const everywhere = page.getByRole('checkbox', { name: /Vacuum downstairs/ })
   await expect(everywhere).toHaveCount(2)
   await expect
@@ -935,7 +916,6 @@ test('no console errors opening both panels and working them', async ({ page, ap
   await backlog.getByRole('button', { name: 'Move Grocery run' }).click()
   await expect(backlog.getByRole('group', { name: 'Pick a day' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Week', exact: true }).click()
   const todo = await fetchTodo(app.url)
   await expect(panelOf(page, 'Routine').getByRole('heading', { level: 3 })).toHaveCount(
     headings(todo, 'Routine').length,
@@ -953,8 +933,7 @@ test('no console errors opening both panels and working them', async ({ page, ap
 //
 // This panel is the ONLY place a task is edited. Day's list is for doing — a tap
 // there completes something and never opens a form — so the definition surface
-// lives here, and comes free on Week because the panel is hosted there too. It
-// opens from either instance: same component, same actions.
+// lives here. Both panels open the same editor: same component, same actions.
 // ---------------------------------------------------------------------------
 
 test('tapping a name in the panel opens the editor, and a rename persists', async ({ page, app }) => {
@@ -1056,17 +1035,6 @@ test('archiving from the editor removes the task but keeps its completions', asy
   // has left the grid with the task.
   const rows = await (await fetch(`${app.url}/api/todo`)).json()
   expect(JSON.stringify(rows)).not.toContain('Old habit')
-})
-
-test('the editor is reachable from Week too, since the panel is hosted there', async ({ page, app }) => {
-  app.seed.task({ name: 'Grocery run', cadence: 'week' })
-
-  await page.goto(app.url)
-  await page.getByRole('button', { name: /^week$/i }).click()
-
-  const panel = await openPanel(page)
-  await panel.getByRole('button', { name: 'Edit Grocery run' }).click()
-  await expect(page.getByRole('dialog', { name: 'Edit task' })).toBeVisible()
 })
 
 test('a colour stripe does not indent the row, and baseline reads heavier', async ({

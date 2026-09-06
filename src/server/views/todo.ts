@@ -10,7 +10,7 @@ import { loadCurrentCompletions, placeableDates } from './completions.ts'
 import { today } from '../today.ts'
 
 /**
- * The To do panel — the complete inventory, hosted by Day and by Week and
+ * The To do panel — the complete inventory, hosted by Day and
  * identical in both. See "To do" in `.plan/views.md` and "GET /api/todo" in
  * `.plan/api.md`.
  *
