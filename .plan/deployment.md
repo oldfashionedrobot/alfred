@@ -1,7 +1,7 @@
 # alfred — Deployment
 
 Status: **auth is built; the container, `fly.toml` and CI are not.** Nothing is deployed.
-Companion to [`changes.md`](changes.md) and [`changes-v8.md`](changes-v8.md). The frozen originals are in [`design/`](design/).
+Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md) and [`changes-v9.md`](changes-v9.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
 
