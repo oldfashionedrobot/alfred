@@ -374,7 +374,7 @@ label back inside the scroller where overflow can clip it.
 
 Worth recording because the bug is invisible in every obvious sense — a 1px
 element with `clip-path: inset(50%)`, in a pane you cannot see, moving a scrollbar
-by twenty pixels. The rule that caught it is the one `views.md` has carried since
+by twenty pixels. The rule that caught it is the one `design/views.md` has carried since
 the first build: **the page body never scrolls sideways.** It was asserted for
 the new track for exactly that reason and found this on the first run.
 
