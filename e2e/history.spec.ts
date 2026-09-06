@@ -78,13 +78,22 @@ function rowFor(page: Page, date: string): Locator {
 }
 
 /**
- * A row's cells, left to right: the mood cell then one per task column.
+ * A row's cells from the MOOD column on: the mood cell, then one per task column.
  * '' is an empty cell, 'done' a filled one (the visually-hidden label), and an
  * emoji in the mood cell. Reading the whole row at once asserts the filled and
  * the unfilled cells in the same breath.
+ *
+ * The leading LOG cell is dropped. It holds a control rather than a value, and
+ * it has its own tests further down; counting it here would put a meaningless
+ * empty string in front of every expectation in this file. Its absence from
+ * this helper is why every one of them said `['', 'done']` and got `['', '',
+ * 'done']` from the moment v6 added the column — this suite has been red since,
+ * and nothing else noticed.
  */
 function cells(row: Locator): Promise<string[]> {
-  return row.getByRole('cell').evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+  return row
+    .getByRole('cell')
+    .evaluateAll((els) => els.slice(1).map((e) => (e.textContent ?? '').trim()))
 }
 
 const scroller = (page: Page): Locator => page.getByRole('region', { name: 'History grid' })
@@ -110,7 +119,7 @@ test('columns are the active daily tasks only, in sort order', async ({ page, ap
 
   // Baseline is band 1; alphabetical within a band. Weekly, one-off and
   // archived tasks are not columns at all.
-  expect(headers).toEqual(['Date', 'Mood', 'Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
+  expect(headers).toEqual(['Log', 'Date', 'Mood', 'Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
 
   const h = await getHistory(app)
   expect(h.columns.map((c) => c.name)).toEqual([
@@ -235,8 +244,9 @@ test('the grid is read-only: clicking cells changes nothing', async ({ page, app
   const before = await completionCount(app)
   expect(before).toBe(2)
 
-  const filled = rowFor(page, app.today).getByRole('cell').nth(1)
-  const empty = rowFor(page, addDays(app.today, -1)).getByRole('cell').nth(1)
+  // Cell 0 is the log, cell 1 the mood; the single task column is cell 2.
+  const filled = rowFor(page, app.today).getByRole('cell').nth(2)
+  const empty = rowFor(page, addDays(app.today, -1)).getByRole('cell').nth(2)
   await expect(filled).toHaveText('done')
   await expect(empty).toHaveText('')
 
@@ -266,7 +276,7 @@ test('the grid scrolls sideways in its own box, never the page body', async ({ p
   app.seed.completion(first, app.today)
 
   await openHistory(page, app)
-  await expect(page.getByRole('columnheader')).toHaveCount(26) // Date + Mood + 24
+  await expect(page.getByRole('columnheader')).toHaveCount(27) // Log + Date + Mood + 24
 
   const box = await scroller(page).evaluate((el) => ({
     scrollWidth: el.scrollWidth,
