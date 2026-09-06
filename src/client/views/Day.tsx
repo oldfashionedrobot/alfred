@@ -192,6 +192,16 @@ export default function Day() {
     setOrderIds(band === 'baseline' ? [...moved, ...other] : [...other, ...moved])
   }
 
+  /**
+   * The far edge for a cadence, from the server's `placement`. Falls back to the
+   * last chip — this week, the rule before this change and the more restrictive
+   * of the two answers — rather than to null, which would read as unbounded.
+   */
+  const maxFor = (cadence: Cadence | null): ISODate | null => {
+    const found = view.placement.find((p) => p.cadence === cadence)
+    return found ? found.max : (view.placeable_dates[view.placeable_dates.length - 1] ?? null)
+  }
+
   const toggleReorder = async () => {
     if (!reordering) {
       setPickerFor(null)
@@ -285,6 +295,7 @@ export default function Day() {
                       onComplete={() => run('complete', { task_id: task.id })}
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
+                      placeableMax={maxFor(task.cadence)}
                       pickerOpen={pickerFor === task.id}
                       onTogglePicker={() =>
                         setPickerFor((cur) => (cur === task.id ? null : task.id))
@@ -337,6 +348,7 @@ export default function Day() {
             day={day}
             today={view.date}
             placeable={view.placeable_dates}
+            placeableMax={maxFor}
             busy={busy}
             pickerFor={pickerFor}
             onTogglePicker={(id) => setPickerFor((cur) => (cur === id ? null : id))}
@@ -519,6 +531,7 @@ function TaskRow({
   onComplete,
   onUnplan,
   placeable,
+  placeableMax,
   pickerOpen,
   onTogglePicker,
   onPlace,
@@ -531,6 +544,8 @@ function TaskRow({
   onComplete: () => void
   onUnplan: () => void
   placeable: ISODate[]
+  /** Far edge of this task's placeable range; null is unbounded (a one-off). */
+  placeableMax: ISODate | null
   pickerOpen: boolean
   onTogglePicker: () => void
   onPlace: (date: ISODate) => void
@@ -602,6 +617,7 @@ function TaskRow({
         <div className="day-row-picker">
           <DayPicker
             dates={placeable}
+            max={placeableMax}
             today={today}
             selected={task.planned_date}
             onPick={onPlace}
@@ -725,6 +741,7 @@ function UpcomingPane({
   day,
   today,
   placeable,
+  placeableMax,
   busy,
   pickerFor,
   onTogglePicker,
@@ -734,6 +751,8 @@ function UpcomingPane({
   day: UpcomingDay
   today: ISODate
   placeable: ISODate[]
+  /** Looked up per row: the range depends on the task's cadence, not the pane. */
+  placeableMax: (cadence: Cadence | null) => ISODate | null
   busy: boolean
   pickerFor: number | null
   onTogglePicker: (id: number) => void
@@ -763,6 +782,7 @@ function UpcomingPane({
                 onComplete={() => undefined}
                 onUnplan={() => onUnplan(task.id)}
                 placeable={placeable}
+                placeableMax={placeableMax(task.cadence)}
                 pickerOpen={pickerFor === task.id}
                 onTogglePicker={() => onTogglePicker(task.id)}
                 onPlace={(date) => onPlace(task.id, date)}

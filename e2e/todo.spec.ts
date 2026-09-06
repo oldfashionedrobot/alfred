@@ -1160,3 +1160,94 @@ test('a completed baseline task keeps its colour in the tick and the name', asyn
   // Still legibly done — the colour is in addition to the strike, not instead.
   expect(painted.strike).toContain('line-through')
 })
+
+// ===========================================================================
+// How far ahead a task may be placed
+//
+// The rule is THIS WEEK UNION THE TASK'S OWN CURRENT PERIOD. The picker offers
+// this week as chips either way; a cadence whose period outruns Saturday also
+// gets a date field, and a weekly task — whose period IS the week — does not.
+// ===========================================================================
+
+/** POST place directly, for the cases the picker is meant to make unreachable. */
+async function placeVia(url: string, taskId: number, date: string): Promise<number> {
+  const res = await fetch(`${url}/api/commands/place`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId, date }),
+  })
+  return res.status
+}
+
+const laterField = (panel: Locator) => panel.getByLabel('Or a later date')
+
+test('a weekly task is placeable inside its week and nowhere else', async ({ page, app }) => {
+  const id = app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
+  const todo = await fetchTodo(app.url)
+  const saturday = todo.placeable_dates[todo.placeable_dates.length - 1]!
+
+  await page.goto(app.url)
+  const panel = await openPanel(page)
+  await panel.getByRole('button', { name: 'Place Vacuum downstairs' }).click()
+  await expect(panel.getByRole('group', { name: 'Pick a day' })).toBeVisible()
+
+  // Its period IS the week, so the chips are the whole range and no field opens.
+  await expect(laterField(panel)).toHaveCount(0)
+
+  // And the server says the same to a client that asks anyway.
+  expect(await placeVia(app.url, id, addDays(saturday, 1))).toBe(409)
+  expect(await placeVia(app.url, id, saturday)).toBe(200)
+})
+
+test('a monthly task reaches the end of its month', async ({ page, app }) => {
+  app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
+  const todo = await fetchTodo(app.url)
+  const range = todo.placement.find((p) => p.cadence === 'month')!
+
+  await page.goto(app.url)
+  const panel = await openPanel(page)
+  await panel.getByRole('button', { name: 'Place Descale the kettle' }).click()
+
+  // The chips are still this week; the field is what reaches past it.
+  await expect(laterField(panel)).toHaveAttribute('min', todo.today)
+  await expect(laterField(panel)).toHaveAttribute('max', range.max!)
+  expect(range.max! >= todo.placeable_dates[todo.placeable_dates.length - 1]!).toBe(true)
+})
+
+test('a one-off has no far edge, and can be placed months out', async ({ page, app }) => {
+  const id = app.seed.task({ name: 'Renew the passport', cadence: null })
+  const todo = await fetchTodo(app.url)
+  expect(todo.placement.find((p) => p.cadence === null)!.max).toBeNull()
+
+  await page.goto(app.url)
+  const panel = await openPanel(page, 'Backlog')
+  await panel.getByRole('button', { name: 'Place Renew the passport' }).click()
+
+  // Unbounded, so the field carries no max attribute at all.
+  await expect(laterField(panel)).toHaveAttribute('min', todo.today)
+  await expect(laterField(panel)).not.toHaveAttribute('max', /./)
+
+  const far = addDays(todo.today, 120)
+  await laterField(panel).fill(far)
+
+  // It lands, and the row shows the date — which is why none of this needed a
+  // new surface: the panel already displays the day against a placed task.
+  await expect
+    .poll(() => fetchTodo(app.url).then((t) => taskOf(t, 'Renew the passport').effective_date))
+    .toBe(far)
+  expect(await placeVia(app.url, id, addDays(todo.today, 900))).toBe(200)
+})
+
+test('a placement beyond the period is refused, not silently swallowed', async ({ app }) => {
+  const weekly = app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
+  const monthly = app.seed.task({ name: 'Descale the kettle', cadence: 'month' })
+  const todo = await fetchTodo(app.url)
+  const monthMax = todo.placement.find((p) => p.cadence === 'month')!.max!
+
+  // The far side of each cadence's own edge. A recurring task placed past its
+  // period would be neither overdue nor unplaced nor done — its obligation would
+  // go unmet with nothing on any screen saying so, which is what the bound stops.
+  expect(await placeVia(app.url, monthly, addDays(monthMax, 1))).toBe(409)
+  expect(await placeVia(app.url, monthly, monthMax)).toBe(200)
+  expect(await placeVia(app.url, weekly, addDays(todo.today, -1))).toBe(409)
+})

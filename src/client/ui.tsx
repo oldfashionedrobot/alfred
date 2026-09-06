@@ -72,10 +72,16 @@ export function Tick({
 // --- day picker -----------------------------------------------------------
 
 /**
- * Offers exactly the dates the server supplied and nothing else. It never
- * computes, filters or extends them: `place` rejects anything outside
- * placeable_dates with a 409, and the whole point of the server shipping the
- * list is that the picker and that rule cannot disagree.
+ * This week as chips, plus a date field for anything further.
+ *
+ * It never computes, filters or extends either half. `dates` is the server's
+ * `placeable_dates` — today through Saturday — and `max` is the far edge of that
+ * cadence's `placement`, so the picker and the 409 from `place` cannot disagree.
+ *
+ * The chips stay because the common case is this week and a chip is one tap. The
+ * field appears only when the cadence can actually reach past Saturday: a weekly
+ * task's period IS this week, so it never grows one, while a monthly task gets
+ * the rest of its month and a one-off gets no far edge at all.
  */
 export function DayPicker({
   dates,
@@ -83,14 +89,20 @@ export function DayPicker({
   selected,
   onPick,
   disabled,
+  max = null,
 }: {
   dates: ISODate[]
   today: ISODate
   selected: ISODate | null
   onPick: (date: ISODate) => void
   disabled?: boolean
+  /** Far edge of the placeable range; null means unbounded (a one-off). */
+  max?: ISODate | null
 }) {
-  if (dates.length === 0) {
+  const last = dates[dates.length - 1]
+  const reachesPastThisWeek = max === null || (last !== undefined && max > last)
+
+  if (dates.length === 0 && !reachesPastThisWeek) {
     return <p className="picker__empty">No days left this week.</p>
   }
   return (
@@ -106,6 +118,23 @@ export function DayPicker({
           {d === today ? 'Today' : shortDate(d)}
         </button>
       ))}
+
+      {reachesPastThisWeek && (
+        <input
+          type="date"
+          className="input picker__date"
+          aria-label="Or a later date"
+          min={today}
+          // Omitted entirely when unbounded — max="" would bound it to nothing.
+          {...(max !== null ? { max } : {})}
+          // Held only while the choice is past the chips; a chip shows it otherwise.
+          value={selected !== null && last !== undefined && selected > last ? selected : ''}
+          disabled={disabled}
+          onChange={(e) => {
+            if (e.target.value !== '') onPick(e.target.value)
+          }}
+        />
+      )}
     </div>
   )
 }

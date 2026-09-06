@@ -1,10 +1,13 @@
 import { gte, inArray, or } from 'drizzle-orm'
 import { CADENCES } from '../../shared/types.ts'
-import type { ISODate } from '../../shared/types.ts'
+import type { Cadence, ISODate, Placement } from '../../shared/types.ts'
 import type { DB } from '../db.ts'
 import { completions } from '../schema.ts'
 import type { CompletionRow, TaskRow } from '../schema.ts'
-import { addDays, periodStart } from '../period.ts'
+import { addDays, periodEnd, periodStart } from '../period.ts'
+
+/** Every cadence that can hold a planned_date. 'day' cannot — it is never placed. */
+const PLACEABLE_CADENCES: ReadonlyArray<Cadence | null> = ['week', 'month', 'quarter', 'year', null]
 
 /**
  * The two things a view builder needs and must not derive twice: the dates it may
@@ -33,11 +36,40 @@ export function weekDates(date: ISODate): ISODate[] {
 }
 
 /**
- * Today through Saturday — exactly what the day picker may offer, and nothing
- * else. On a Saturday that is one date; on a Sunday, seven.
+ * Today through Saturday — the picker's chips, and the days Day gives a pane to.
+ * On a Saturday that is one date; on a Sunday, seven.
+ *
+ * Since v8 this is no longer the WHOLE placeable range: `placementMax` bounds
+ * what lies beyond this week, per cadence.
  */
 export function placeableDates(date: ISODate): ISODate[] {
   return weekDates(date).filter((d) => d >= date)
+}
+
+/**
+ * The last day a task of this cadence may be placed on, or null when its period
+ * is unbounded. THIS WEEK UNION THE TASK'S OWN PERIOD — see `Placement` in
+ * `shared/types.ts` for why it is a union and not either half.
+ *
+ * The union is a max, and it is doing real work in both directions: for a weekly
+ * task `periodEnd` IS Saturday, so the two agree; for a monthly task in a week
+ * that straddles into the next month, Saturday is the later of the two and the
+ * straddle `period.ts` documents survives.
+ */
+export function placementMax(date: ISODate, cadence: Cadence | null): ISODate | null {
+  const period = periodEnd(date, cadence)
+  if (period === null) return null // one-off: unbounded, and coherently so
+  const saturday = placeableDates(date)[placeableDates(date).length - 1]!
+  return period > saturday ? period : saturday
+}
+
+/** One `Placement` per cadence a task can actually hold a date in. */
+export function placementRanges(date: ISODate): Placement[] {
+  return PLACEABLE_CADENCES.map((cadence) => ({
+    cadence,
+    min: date,
+    max: placementMax(date, cadence),
+  }))
 }
 
 /**

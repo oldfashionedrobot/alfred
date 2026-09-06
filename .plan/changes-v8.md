@@ -343,6 +343,79 @@ one tap out.
 
 ---
 
+## A task can be placed as far ahead as its period reaches
+
+**What.** `place` was bounded by the current week: today through Saturday, for
+everything. It is now bounded by **this week UNION the task's own current
+period**. A one-off can be given any date at all, a yearly task any day this
+year, a monthly task any day this month; a weekly task is unchanged, because its
+period *is* the week.
+
+**Why the period, and not "the end of the year".** The question was whether a
+date could be picked further out — to December, say. The calendar year turns out
+to be the wrong boundary, because what makes a placement *mean* anything is
+whether the date sits inside the period the task is accountable for.
+`planned_date` says which day inside the current period you intend to do it on.
+
+**What placing outside the period actually does.** Checked before deciding, not
+reasoned about:
+
+```
+weekly, placed 3 weeks out      overdue=false unplaced=false done=false
+monthly, placed next month      overdue=false unplaced=false done=false
+one-off, placed in December     overdue=false unplaced=false done=false
+```
+
+A weekly task placed three weeks out is in **no band that asks for anything**.
+`effectiveDate` is backward-only, so the date is never rolled back; the task is
+not overdue, not unplaced, and not done. This week's obligation goes unmet, and
+next week's, and the one after — with nothing on any screen saying so. The same
+for a monthly task placed into next month.
+
+The one-off row is the same three values and is **correct**: a one-off's period
+is unbounded, so there is no recurring obligation to drop. That is the whole
+distinction, and it is why the bound is the period rather than a fixed horizon.
+
+### Why it is a union and not just the period
+
+`periodEnd` alone would have been a **regression**. `period.ts` documents the
+case: in the week of Sun 27 Sep – Sat 3 Oct, a monthly task may be placed on
+Friday 2 October while today is Tuesday 29 September. That is exactly why
+rollover is backward-only, and bounding by September's end would have taken it
+away. So the rule is `max(Saturday, periodEnd)`, and both halves do real work —
+for a weekly task the two are the same date, and for a monthly task in a
+straddling week Saturday is the later one.
+
+`placementMax` is fifteen lines over `periodEnd` and `placeableDates`, both of
+which already existed. Its tests use FIXED dates rather than `today()`, breaking
+this suite's usual rule deliberately: the union only shows its teeth on a week
+that straddles a month boundary, and that cannot be reached by deriving from an
+arbitrary today.
+
+### The interface does not grow
+
+**Nothing new is displayed.** The panes stay today through Saturday, the strip
+stays seven days, and neither knows this changed. A task placed in November
+simply appears on no pane — it sits in Routine or Backlog with its date against
+it, which is where a placed task's day has always been shown.
+
+The one visible change is inside the picker: this week stays as chips, and a
+date field appears beside them **only for a cadence whose period outruns
+Saturday**. A weekly task never grows one. The chips stay because the common
+case is this week and a chip is one tap; the field is there for the case that
+used to be impossible.
+
+**`placeable_dates` keeps its meaning and its job.** It is still today through
+Saturday, still one derivation shared by the picker's chips and the panes. What
+it stopped being is the *whole* placeable range — `placement` carries that, one
+entry per cadence, and `place` rejects against the same function that builds it
+so the two cannot disagree. That is the same reason the field existed at all
+(D3 in `design/review-findings.md`).
+
+`'day'` has no entry: a daily task is never placed.
+
+---
+
 ## A dead field goes too
 
 `DayView.has_overdue` is computed by `buildDayView` and read by nothing. The

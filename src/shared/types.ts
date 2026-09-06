@@ -42,6 +42,37 @@ export interface Mood {
 }
 
 // ---------------------------------------------------------------------------
+// Placement
+// ---------------------------------------------------------------------------
+
+/**
+ * How far ahead a task of this cadence may be placed.
+ *
+ * The bound is THIS WEEK UNION THE TASK'S OWN CURRENT PERIOD — not the calendar
+ * week alone, and not the period alone.
+ *
+ * The period half is what makes a placement coherent: `planned_date` says which
+ * day inside the current period you mean to do it on, so a monthly task may name
+ * any day this month and a one-off, whose period is unbounded, may name any day
+ * at all. Placing a recurring task OUTSIDE its period is what the union
+ * forbids — `effectiveDate` is backward-only, so such a task would never be
+ * overdue, never unplaced and never done, and its obligation would go unmet with
+ * nothing on any screen saying so.
+ *
+ * The week half preserves an exception `period.ts` already documents: when the
+ * current week straddles a month boundary, a monthly task may be placed on the
+ * far side of it. Bounding by the period alone would have taken that away.
+ */
+export interface Placement {
+  /** null = the one-off range. 'day' is absent: a daily task is never placed. */
+  cadence: Cadence | null
+  /** Today. Nothing is ever placed in the past. */
+  min: ISODate
+  /** The last placeable day, or null when the period is unbounded (one-off). */
+  max: ISODate | null
+}
+
+// ---------------------------------------------------------------------------
 // Day view
 // ---------------------------------------------------------------------------
 
@@ -97,8 +128,14 @@ export interface DayView {
    * each and disables those before `date`; the client never derives a week.
    */
   week_dates: ISODate[]
-  /** today through Saturday. Never computed on the client. */
+  /**
+   * Today through Saturday — the picker's chips, and the days that have panes.
+   * One derivation for both, so they cannot disagree. NOT the whole placeable
+   * range any more: `placement` bounds what lies beyond this week.
+   */
   placeable_dates: ISODate[]
+  /** One entry per placeable cadence. See `Placement`. */
+  placement: Placement[]
   /**
    * Tomorrow through Saturday — `placeable_dates` minus today. Empty on a
    * Saturday, which is what makes that day one pane and no special case.
@@ -146,7 +183,10 @@ export interface TodoView {
   today: ISODate
   /** Always 6, in cadence order: day, week, month, quarter, year, once. */
   groups: TodoGroup[]
+  /** Today through Saturday — the picker's chips. */
   placeable_dates: ISODate[]
+  /** One entry per placeable cadence. See `Placement`. */
+  placement: Placement[]
   has_overdue: boolean
   /** Distinct categories in use, sorted — the editor's suggestion list. */
   categories: string[]

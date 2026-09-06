@@ -13,6 +13,7 @@ import type { DB } from '../src/server/db.ts'
 import * as schema from '../src/server/schema.ts'
 import { today } from '../src/server/today.ts'
 import { buildDayView } from '../src/server/views/day.ts'
+import { placeableDates, placementMax, placementRanges } from '../src/server/views/completions.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
 
@@ -368,6 +369,90 @@ describe('buildDayView', () => {
 
   test('placeable_dates is today through Saturday, so Day never fetches the Week model', async () => {
     expect((await buildDayView(db)).placeable_dates).toEqual(PLACEABLE)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Placement — how far ahead each cadence may be placed
+//
+// `placementMax` is pure, so these use FIXED dates rather than today(). That is
+// the exception this file otherwise forbids, and it is the point: the union rule
+// only shows its teeth on a week that straddles a month boundary, which cannot
+// be reached by deriving from an arbitrary today.
+// ---------------------------------------------------------------------------
+
+describe('placementMax', () => {
+  // Tue 8 Sep 2026. Its week is Sun 6 Sep – Sat 12 Sep, wholly inside September.
+  const MIDMONTH: ISODate = '2026-09-08'
+  // Tue 29 Sep 2026. Its week is Sun 27 Sep – Sat 3 OCT: it straddles.
+  const STRADDLE: ISODate = '2026-09-29'
+
+  test('a weekly task may be placed to Saturday and no further', () => {
+    // Its period IS the week, so the two halves of the union agree exactly.
+    expect(placementMax(MIDMONTH, 'week')).toBe('2026-09-12')
+    expect(placementMax(STRADDLE, 'week')).toBe('2026-10-03')
+  })
+
+  test('a monthly task gets the rest of its month', () => {
+    expect(placementMax(MIDMONTH, 'month')).toBe('2026-09-30')
+  })
+
+  test('a quarterly task gets the rest of its quarter', () => {
+    expect(placementMax(MIDMONTH, 'quarter')).toBe('2026-09-30')
+  })
+
+  test('a yearly task gets the rest of its year', () => {
+    expect(placementMax(MIDMONTH, 'year')).toBe('2026-12-31')
+    expect(placementMax(STRADDLE, 'year')).toBe('2026-12-31')
+  })
+
+  test('a one-off has no far edge at all', () => {
+    // Its period is unbounded, so there is nothing to fall out of.
+    expect(placementMax(MIDMONTH, null)).toBeNull()
+    expect(placementMax(STRADDLE, null)).toBeNull()
+  })
+
+  test('the week half wins where it reaches past the period', () => {
+    // THE REASON THIS IS A UNION. In the week of Sun 27 Sep – Sat 3 Oct, a
+    // monthly task may still be placed on 2 October: `period.ts` documents that
+    // exact case as why rollover is backward-only, and bounding by the period
+    // alone (30 September) would have taken it away.
+    expect(placementMax(STRADDLE, 'month')).toBe('2026-10-03')
+    expect(placementMax(STRADDLE, 'quarter')).toBe('2026-10-03')
+  })
+
+  test('the max is never before the last day the picker offers a chip for', () => {
+    for (const day of ['2026-09-06', '2026-09-08', '2026-09-29', '2026-10-03', '2026-12-31']) {
+      const saturday = placeableDates(day).at(-1)!
+      for (const cadence of ['week', 'month', 'quarter', 'year'] as const) {
+        const max = placementMax(day, cadence)!
+        expect(max >= saturday, `${cadence} on ${day}: ${max} vs ${saturday}`).toBe(true)
+      }
+    }
+  })
+})
+
+describe('the placement ranges the views ship', () => {
+  test('one entry per placeable cadence, and never one for day', () => {
+    const ranges = placementRanges(TODAY)
+    expect(ranges.map((r) => r.cadence)).toEqual(['week', 'month', 'quarter', 'year', null])
+    // A daily task is never placed, so it has no range to offer.
+    expect(ranges.some((r) => r.cadence === 'day')).toBe(false)
+  })
+
+  test('every range starts today, and matches placementMax', () => {
+    for (const r of placementRanges(TODAY)) {
+      expect(r.min).toBe(TODAY)
+      expect(r.max).toBe(placementMax(TODAY, r.cadence))
+    }
+  })
+
+  test('Day and Todo ship the same ranges', async () => {
+    // Two screens, one picker, one rule. They come from one derivation, so this
+    // asserts the plumbing rather than the arithmetic.
+    const [day, todo] = [await buildDayView(db), await buildTodoView(db)]
+    expect(day.placement).toEqual(todo.placement)
+    expect(day.placement).toEqual(placementRanges(TODAY))
   })
 })
 

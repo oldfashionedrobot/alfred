@@ -5,7 +5,7 @@ import { BadRequest, NotFound, Rejected } from './errors.ts'
 import { completionForPeriod, isOverdue } from './period.ts'
 import { completions, days, moods, tasks, type TaskRow } from './schema.ts'
 import { today } from './today.ts'
-import { loadCurrentCompletions, placeableDates } from './views/completions.ts'
+import { loadCurrentCompletions, placementMax } from './views/completions.ts'
 
 /**
  * Every named command from `.plan/api.md`. Commands map 1:1 to gestures in views.md.
@@ -205,15 +205,21 @@ async function place(db: DB, b: Record<string, unknown>): Promise<void> {
   if (!task.active) throw new Rejected('that task is archived')
   if (task.cadence === 'day') throw new Rejected('daily tasks are never placed')
 
-  // The same list the views ship as `placeable_dates`. One derivation, so the
-  // picker and this rejection cannot disagree — which is the whole reason the
-  // server ships the field at all. See `.plan/api.md`.
+  // The same derivation the views ship as `placement`, so the picker and this
+  // rejection cannot disagree — which is the whole reason the server ships the
+  // bound at all. See `.plan/api.md`.
+  //
+  // THIS WEEK UNION THE TASK'S OWN PERIOD. The period half is what makes a
+  // placement mean anything: `planned_date` names a day INSIDE the current
+  // period. Outside it, `effectiveDate` (backward-only) would never roll the
+  // date back, so the task would sit un-overdue, un-unplaced and un-done while
+  // its obligation went unmet, invisibly, every period until the date arrived.
   const now = today()
-  const placeable = placeableDates(now)
-  const saturday = placeable[placeable.length - 1]!
+  const max = placementMax(now, task.cadence)
 
   if (date < now) throw new Rejected('cannot place before today')
-  if (date > saturday) throw new Rejected(`cannot place beyond ${saturday}`)
+  // null is a one-off: its period never ends, so there is no far edge to hit.
+  if (max !== null && date > max) throw new Rejected(`cannot place beyond ${max}`)
 
   await db.update(tasks).set({ planned_date: date }).where(eq(tasks.id, task.id)).run()
 }

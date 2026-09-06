@@ -11,7 +11,7 @@ import type { DB } from '../db.ts'
 import { days, moods, tasks } from '../schema.ts'
 import type { CompletionRow, TaskRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue } from '../period.ts'
-import { loadCurrentCompletions, placeableDates, weekDates } from './completions.ts'
+import { loadCurrentCompletions, placeableDates, placementRanges, weekDates } from './completions.ts'
 import { sortTasks } from '../sort.ts'
 import { today } from '../today.ts'
 
@@ -113,6 +113,9 @@ export async function buildDayView(db: DB): Promise<DayView> {
     // row on this screen.
     week_dates: weekDates(date),
     placeable_dates: placeable,
+    // How far past this week each cadence may reach. The chips above are the
+    // week; this is what the date field beyond them is bounded by.
+    placement: placementRanges(date),
     upcoming: buildUpcoming(taskRows, byTask, placeable),
   }
 }

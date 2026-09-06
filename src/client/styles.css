@@ -561,3 +561,13 @@ select {
   gap: var(--gap-2);
   padding-bottom: var(--gap-2);
 }
+
+/* The picker's far half: this week is chips, anything beyond it is a date field.
+   It only appears for a cadence whose period outruns Saturday, so a weekly task
+   never grows one. */
+.picker__date {
+  flex: 1 1 10rem;
+  min-width: 0;
+  min-height: var(--tap);
+  font-size: 0.85rem;
+}

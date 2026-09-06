@@ -1,5 +1,5 @@
 import { useId, useState, type CSSProperties } from 'react';
-import type { ISODate, TodoTask, TodoView } from '../../shared/types.ts';
+import type { Cadence, ISODate, TodoTask, TodoView } from '../../shared/types.ts';
 import { TODO_GROUPS } from '../../shared/types.ts';
 import { ApiError, command } from '../api.ts';
 import { periodLabel, shortDate } from '../dates.ts';
@@ -33,6 +33,7 @@ function TodoRow({
   task,
   today,
   placeable,
+  placeableMax,
   picking,
   onPicking,
   onEdit,
@@ -43,6 +44,8 @@ function TodoRow({
   today: ISODate;
   /** Straight from the server. Never computed, filtered or extended here. */
   placeable: ISODate[];
+  /** Far edge of THIS task's range — it depends on its cadence. Null is unbounded. */
+  placeableMax: ISODate | null;
   picking: boolean;
   onPicking: (open: boolean) => void;
   onEdit: () => void;
@@ -133,6 +136,7 @@ function TodoRow({
         <div className="todo-row__pick">
           <DayPicker
             dates={placeable}
+            max={placeableMax}
             today={today}
             selected={task.effective_date}
             disabled={locked}
@@ -232,6 +236,17 @@ export default function Todo({
 
   // The header count labels THIS panel, so it counts this panel's groups.
   const remaining = tally((t) => !t.is_done, 'panel');
+
+  /**
+   * The far edge for a cadence, from the server's `placement`. Falls back to the
+   * last chip — this week, the more restrictive of the two answers — rather than
+   * to null, which would read as unbounded.
+   */
+  const maxFor = (cadence: Cadence | null): ISODate | null => {
+    if (view === null) return null;
+    const found = view.placement.find((p) => p.cadence === cadence);
+    return found ? found.max : (view.placeable_dates[view.placeable_dates.length - 1] ?? null);
+  };
 
   // The overdue count labels a command that clears the WHOLE view, so it counts
   // the whole view — as `has_overdue`, which decides whether the control shows
@@ -333,6 +348,7 @@ export default function Todo({
                             task={task}
                             today={view.today}
                             placeable={view.placeable_dates}
+                            placeableMax={maxFor(task.cadence)}
                             picking={picking === task.id}
                             onPicking={(o) => setPicking(o ? task.id : null)}
                             onEdit={() => setEditingId(task.id)}

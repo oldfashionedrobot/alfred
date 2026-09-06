@@ -6,7 +6,7 @@ import { tasks } from '../schema.ts'
 import type { CompletionRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue, periodEnd, periodStart } from '../period.ts'
 import { byBaselineCategoryName } from '../sort.ts'
-import { loadCurrentCompletions, placeableDates } from './completions.ts'
+import { loadCurrentCompletions, placeableDates, placementRanges } from './completions.ts'
 import { today } from '../today.ts'
 
 /**
@@ -83,6 +83,7 @@ export async function buildTodoView(db: DB): Promise<TodoView> {
     categories,
     groups,
     placeable_dates: placeableDates(date),
+    placement: placementRanges(date),
     has_overdue: groups.some((g) => g.tasks.some((t) => t.is_overdue)),
   }
 }
