@@ -23,7 +23,7 @@ import type { Cadence, DayTask, DayView, ISODate, TodoView, UpcomingDay } from '
 import { CADENCES } from '../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../api.ts'
 import { dayLabel, longDate, shortDate, weekdayShort } from '../dates.ts'
-import { Confirm, DayPicker, NoticeBar, Sheet, Tick, type Notice } from '../ui.tsx'
+import { Confirm, DayPicker, NoticeBar, Popover, Sheet, Tick, type Notice } from '../ui.tsx'
 import Todo from './Todo.tsx'
 
 /*
@@ -297,9 +297,8 @@ export default function Day() {
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
                       pickerOpen={pickerFor === task.id}
-                      onTogglePicker={() =>
-                        setPickerFor((cur) => (cur === task.id ? null : task.id))
-                      }
+                      onOpenPicker={() => setPickerFor(task.id)}
+                      onClosePicker={() => setPickerFor(null)}
                       onPlace={async (date) => {
                         if (await run('place', { task_id: task.id, date })) setPickerFor(null)
                       }}
@@ -351,7 +350,8 @@ export default function Day() {
             placeableMax={maxFor}
             busy={busy}
             pickerFor={pickerFor}
-            onTogglePicker={(id) => setPickerFor((cur) => (cur === id ? null : id))}
+            onOpenPicker={(id) => setPickerFor(id)}
+            onClosePicker={() => setPickerFor(null)}
             onUnplan={(id) => run('unplan', { task_id: id })}
             onPlace={async (id, date) => {
               if (await run('place', { task_id: id, date })) setPickerFor(null)
@@ -533,7 +533,8 @@ function TaskRow({
   placeable,
   placeableMax,
   pickerOpen,
-  onTogglePicker,
+  onOpenPicker,
+  onClosePicker,
   onPlace,
   future = false,
 }: {
@@ -547,7 +548,13 @@ function TaskRow({
   /** Far edge of this task's placeable range; null is unbounded (a one-off). */
   placeableMax: ISODate | null
   pickerOpen: boolean
-  onTogglePicker: () => void
+  /**
+   * OPENS, never toggles. The popover light-dismisses on any pointerdown
+   * outside itself — the trigger included — so a toggling handler would race
+   * its own dismissal and land on whichever won.
+   */
+  onOpenPicker: () => void
+  onClosePicker: () => void
   onPlace: (date: ISODate) => void
   /** On a future pane. Nothing writes to a date that is not today. */
   future?: boolean
@@ -594,8 +601,9 @@ function TaskRow({
       {asksForADay && (
         <div className="day-row-actions">
           <button
-            className="btn btn--small"
-            onClick={onTogglePicker}
+            className="btn btn--small pop-anchor"
+            style={{ '--pop-anchor': `--pick-${task.id}` } as CSSProperties}
+            onClick={onOpenPicker}
             aria-expanded={pickerOpen}
             aria-label={overdue ? `Give it a day — ${task.name}` : `Move ${task.name}`}
             disabled={busy}
@@ -613,8 +621,10 @@ function TaskRow({
         </div>
       )}
 
+      {/* In the top layer, so it neither pushes the row's neighbours down nor
+          gets clipped by the pane's horizontal scroll box. */}
       {asksForADay && pickerOpen && (
-        <div className="day-row-picker">
+        <Popover anchor={`--pick-${task.id}`} onClose={onClosePicker}>
           <DayPicker
             dates={placeable}
             max={placeableMax}
@@ -623,7 +633,7 @@ function TaskRow({
             onPick={onPlace}
             disabled={busy}
           />
-        </div>
+        </Popover>
       )}
     </li>
   )
@@ -744,7 +754,8 @@ function UpcomingPane({
   placeableMax,
   busy,
   pickerFor,
-  onTogglePicker,
+  onOpenPicker,
+  onClosePicker,
   onPlace,
   onUnplan,
 }: {
@@ -755,7 +766,8 @@ function UpcomingPane({
   placeableMax: (cadence: Cadence | null) => ISODate | null
   busy: boolean
   pickerFor: number | null
-  onTogglePicker: (id: number) => void
+  onOpenPicker: (id: number) => void
+  onClosePicker: () => void
   onPlace: (id: number, date: ISODate) => void
   onUnplan: (id: number) => void
 }) {
@@ -784,7 +796,8 @@ function UpcomingPane({
                 placeable={placeable}
                 placeableMax={placeableMax(task.cadence)}
                 pickerOpen={pickerFor === task.id}
-                onTogglePicker={() => onTogglePicker(task.id)}
+                onOpenPicker={() => onOpenPicker(task.id)}
+                onClosePicker={onClosePicker}
                 onPlace={(date) => onPlace(task.id, date)}
               />
             ))}

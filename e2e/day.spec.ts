@@ -1016,6 +1016,10 @@ test('no console errors while exercising the main gestures', async ({ page, app 
 
   await row(page, 'Gesture overdue').getByRole('button', { name: /give it a day/i }).click()
   await expect(picker(page, 'Gesture overdue')).toBeVisible()
+  // The picker is in the top layer now, so it covers whatever is beneath it
+  // until it is dismissed — including the panel toggle clicked next.
+  await page.keyboard.press('Escape')
+  await expect(picker(page, 'Gesture overdue')).toHaveCount(0)
 
   await panelToggle(page).click()
   await expect(panel(page).getByRole('region', { name: 'This week' })).toBeVisible()
@@ -1457,4 +1461,128 @@ test('One is still the default, and still takes a single task', async ({ page, a
 
   await expect(sheet).toHaveCount(0)
   expect(inventory(await todoView(app), 'Just the one')).toBeDefined()
+})
+
+// ===========================================================================
+// The day picker is a popover
+//
+// It moved into the top layer so that opening it stops shoving the page around,
+// and so that it is not clipped by the day track — a horizontal scroll box —
+// when it opens from a future pane. Light dismiss, Escape and one-at-a-time all
+// come from the platform rather than from us, so these cover that they are
+// actually wired up rather than re-testing the browser.
+// ===========================================================================
+
+test('opening the picker does not move anything else on the page', async ({ page, app }) => {
+  app.seed.task(overdueSeed(app.today, 'Fix the fence', 2))
+  app.seed.task({ name: 'Feed Barney', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toContain('Fix the fence')
+
+  const panelBox = () => panel(page, 'Routine').boundingBox()
+  const before = await panelBox()
+
+  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await expect(picker(page, 'Fix the fence')).toBeVisible()
+
+  // The whole reason for the move: the picker used to expand inside the row and
+  // push everything below it down the screen.
+  expect((await panelBox())!.y).toBe(before!.y)
+})
+
+test('the picker closes on Escape, and on a click outside it', async ({ page, app }) => {
+  app.seed.task(overdueSeed(app.today, 'Fix the fence', 2))
+
+  await page.goto(app.url)
+  const open = () =>
+    row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+
+  await open()
+  await expect(picker(page, 'Fix the fence')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(picker(page, 'Fix the fence')).toHaveCount(0)
+
+  await open()
+  await expect(picker(page, 'Fix the fence')).toBeVisible()
+  // Light dismiss. The trigger reports the state, so this also proves React
+  // heard the browser close it rather than only the element hiding itself.
+  await page.getByRole('heading', { level: 1 }).click()
+  await expect(picker(page, 'Fix the fence')).toHaveCount(0)
+  await expect(
+    row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }),
+  ).toHaveAttribute('aria-expanded', 'false')
+})
+
+test('only one picker is open at a time', async ({ page, app }) => {
+  app.seed.task(overdueSeed(app.today, 'Fix the fence', 2))
+  app.seed.task(overdueSeed(app.today, 'Ring the plumber', 3))
+
+  await page.goto(app.url)
+  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await expect(picker(page, 'Fix the fence')).toBeVisible()
+
+  // Reached by keyboard rather than by click, because the open picker is sitting
+  // over this row — which is what a popover does, and is why light dismiss and
+  // Escape both had to work. Focus is not blocked by an overlay, and a keyboard
+  // user arrives here exactly this way.
+  await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).focus()
+  await page.keyboard.press('Enter')
+
+  // `popover="auto"` closes the other one itself; this asserts we let it.
+  await expect(picker(page, 'Ring the plumber')).toBeVisible()
+  await expect(picker(page, 'Fix the fence')).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Pick a day' })).toHaveCount(1)
+})
+
+test('a picker opened from a future pane is usable, not clipped by the track', async ({
+  page,
+  app,
+}) => {
+  const day = await dayView(app)
+  test.skip(day.upcoming.length < 2, 'needs two days ahead to move between')
+  const [from, to] = [day.upcoming[0]!.date, day.upcoming[1]!.date]
+  const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: from })
+
+  await page.goto(app.url)
+  await paneFor(page, from).getByRole('button', { name: 'Move Grocery run' }).click()
+
+  // `.day-track` is a horizontal scroll box. An absolutely positioned dropdown
+  // would be clipped at the pane's edge; the top layer is in neither the track's
+  // overflow nor its stacking context, so the chips are reachable.
+  const chip = page.getByRole('group', { name: 'Pick a day' }).getByRole('button', {
+    name: shortDayChip(to),
+  })
+  await expect(chip).toBeVisible()
+  await chip.click()
+
+  await expect.poll(() => plannedDate(app, id)).toBe(to)
+  // Picking closes it: a menu left floating over the row it just changed reads
+  // as stuck.
+  await expect(page.getByRole('group', { name: 'Pick a day' })).toHaveCount(0)
+})
+
+test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }) => {
+  const post = (names: string[]) =>
+    fetch(`${app.url}/api/commands/create_tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ names }),
+    }).then((r) => r.status)
+
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `Item ${i}`)
+
+  expect(await post(names(101))).toBe(400)
+  expect(await post(names(100))).toBe(200)
+  expect((await todoView(app)).groups.flatMap((g) => g.tasks)).toHaveLength(100)
+
+  // Shape, not just size: the only field is a list of strings.
+  expect(await post(['fine', 7 as unknown as string])).toBe(400)
+  expect(
+    await fetch(`${app.url}/api/commands/create_tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
+    }).then((r) => r.status),
+  ).toBe(400)
 })

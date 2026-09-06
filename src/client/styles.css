@@ -571,3 +571,44 @@ select {
   min-height: var(--tap);
   font-size: 0.85rem;
 }
+
+/* --- popover -------------------------------------------------------------
+   A menu in the top layer. `Popover` in ui.tsx says why that is load-bearing:
+   the day picker opens from inside a horizontal scroll container and from
+   inside the panel, and an absolutely positioned dropdown would be clipped by
+   whichever ancestor got there first.
+
+   With no anchor-positioning support the rules below simply do not apply and
+   the popover keeps the UA's own placement — inset:0 with margin:auto, i.e.
+   centred in the viewport. That is a perfectly good menu, so there is no
+   fallback to write and none to keep working. */
+
+.pop {
+  padding: var(--gap-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.22);
+  max-width: min(340px, calc(100vw - 2 * var(--gap-3)));
+}
+
+/* The page behind stays visible and untinted: this is a menu, not a modal. */
+.pop::backdrop {
+  background: transparent;
+}
+
+.pop-anchor {
+  anchor-name: var(--pop-anchor);
+}
+
+@supports (position-area: block-end) {
+  .pop {
+    position-anchor: var(--pop-anchor);
+    position-area: block-end span-inline-start;
+    inset: auto;
+    margin: var(--gap-1) 0 0;
+    /* Near the bottom of the screen, flip above the trigger rather than off it. */
+    position-try-fallbacks: block-start span-inline-start, block-end span-inline-end,
+      block-start span-inline-end;
+  }
+}

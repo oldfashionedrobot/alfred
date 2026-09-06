@@ -181,10 +181,6 @@
   flex: none;
 }
 
-.todo-row__pick {
-  padding: 0 0 var(--gap-1) var(--tap);
-}
-
 /* --- marks -------------------------------------------------------------- */
 
 .todo-mark {

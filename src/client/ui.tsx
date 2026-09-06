@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ISODate } from '../shared/types.ts'
 import { shortDate } from './dates.ts'
 
@@ -66,6 +66,69 @@ export function Tick({
     >
       <span className="tick__box" data-done={done || undefined} aria-hidden="true" />
     </button>
+  )
+}
+
+// --- popover --------------------------------------------------------------
+
+/**
+ * A small menu in the TOP LAYER, anchored under whatever opened it.
+ *
+ * The top layer is the point, not a flourish. The day picker opens from rows
+ * inside `.day-track`, which is a horizontal scroll container, and from inside
+ * the To do panel — an absolutely positioned dropdown would be clipped by the
+ * first ancestor with `overflow` and would have to fight for a z-index besides.
+ * A popover is in neither's coordinate system.
+ *
+ * It also stops the picker shoving the page around: opening one used to expand
+ * a block inside the row and push everything below it down the screen.
+ *
+ * POSITION IS PROGRESSIVE. Where CSS anchor positioning is supported the menu
+ * sits under its trigger and follows it on scroll, with no measuring code of our
+ * own; where it is not, the popover keeps the UA's own placement — centred in
+ * the viewport — which is a reasonable menu rather than a broken one. There is
+ * no fallback branch to maintain and nothing reads a bounding box.
+ *
+ * React owns whether it is open; the element owns light dismiss. A click outside
+ * or Escape closes it in the browser, and `onClose` is how that gets back.
+ *
+ * No role and no label of its own: it is a layer, and whatever it wraps keeps
+ * its own semantics. The day picker inside is still the group it always was.
+ */
+export function Popover({
+  onClose,
+  anchor,
+  children,
+}: {
+  onClose: () => void
+  /** A CSS anchor name unique to the trigger, e.g. `--pick-12`. */
+  anchor: string
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Mounted only while open, so showing it is a mount effect. Rendering every
+  // row's picker permanently and toggling visibility would put a hundred hidden
+  // buttons in the document for a menu that is open one at a time.
+  useEffect(() => {
+    const el = ref.current
+    if (el && !el.matches(':popover-open')) el.showPopover()
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      popover="auto"
+      className="pop"
+      style={{ '--pop-anchor': anchor } as CSSProperties}
+      onToggle={(e) => {
+        // Fires for the browser's own light dismiss as well as ours. Closing
+        // something React already closed is a no-op, so this needs no guard.
+        if ((e as unknown as { newState: string }).newState === 'closed') onClose()
+      }}
+    >
+      {children}
+    </div>
   )
 }
 

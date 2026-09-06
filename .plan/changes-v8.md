@@ -416,6 +416,87 @@ so the two cannot disagree. That is the same reason the field existed at all
 
 ---
 
+## The day picker is a popover
+
+**What.** Opening the picker no longer expands a block inside the task row. It
+opens as a menu in the **top layer**, anchored under the button that opened it.
+
+**Why the top layer, and not an absolutely positioned dropdown.** Two ancestors
+would have clipped one. The picker opens from rows inside `.day-track`, a
+horizontal scroll container, and from inside the To do panel; a dropdown would be
+cut off at the first ancestor with `overflow` and would then have to win a
+z-index argument as well. A popover is in neither's overflow nor its stacking
+context, so there is nothing to fight.
+
+The layout shift was the request; the clipping is what made a popover the only
+simple answer rather than one of several.
+
+**Position is progressive, and there is no fallback to maintain.** Where CSS
+anchor positioning is supported the menu sits under its trigger and follows it on
+scroll, with nothing of ours measuring a bounding box. Where it is not, the rules
+inside `@supports` do not apply and the popover keeps the UA's own placement —
+`inset: 0` with `margin: auto`, centred in the viewport. That is a reasonable
+menu rather than a broken one, so the fallback is the absence of code.
+
+**The trigger opens; it does not toggle.** A popover light-dismisses on any
+pointerdown outside itself, and the trigger counts as outside. A toggling handler
+would therefore race its own dismissal — dismiss-then-toggle and toggle-then-
+dismiss give opposite results, and which one wins depends on React's batching.
+Opening only is deterministic. Escape, a click outside, or picking a date all
+close it.
+
+**It covers the rows beneath it while open.** That is what a popover does, and it
+is the reason light dismiss and Escape both had to be wired through rather than
+left to the element. It showed up as a test failing to click a panel toggle that
+the open picker was sitting over — a real consequence, found by a test that was
+not looking for it.
+
+`.day-row-picker` and `.todo-row__pick` are deleted: the two blocks that used to
+make room in the row.
+
+---
+
+## Where the tests are, after all this
+
+Counted rather than asserted, because "well tested" is not a number.
+
+**156 unit tests** over the view builders and the pure rules, **226 browser
+tests** across two viewports. Everything added in v8 carries its own: the panes
+and the strip, the count badges, bulk capture, the placement range, the popover.
+
+**Two holes were found and closed while writing this section.**
+
+The first is the one worth recording. `buildUpcoming` asks `isDone` about **the
+pane's own date** rather than about today, which matters only at a period
+boundary — and the integration test for it is guarded by "does this week straddle
+a month", so it runs about twelve weeks a year and skips the rest. The subtlest
+rule in the change was covered roughly one run in four. It now has a companion
+test at fixed dates that proves the two questions give opposite answers, so the
+distinction is guarded on every run whatever the calendar is doing.
+
+The second was ordinary: `create_tasks` had its cap and its type checks written
+and not exercised. A 101-name batch, a non-string in the list and an extra field
+are now all asserted to be 400s.
+
+**What is still not covered, honestly.**
+
+The popover's no-anchor-positioning fallback is never exercised: Playwright runs
+`channel: 'chrome'`, so the `@supports` block always applies and the centred
+placement is only reasoned about. The same goes for what a native date picker
+does to an open popover on iOS — tapping the date field opens browser chrome, and
+whether that counts as a dismissing click outside is a question this suite cannot
+ask. Both want a second browser in the matrix, which `design/tech-stack.md`
+deliberately does not have.
+
+**A flakiness note.** Two different tests have each failed once under a full
+parallel run and then passed everywhere else: 3/3 in isolation, 40/40 and 51/51
+in their own suites, 40/40 under concentrated load, and green on the next full
+run. Each test spawns its own server and database, so contention is the likely
+cause. Recorded because a suite that fails one in two hundred runs is a thing to
+know before CI starts gating deploys on it.
+
+---
+
 ## A dead field goes too
 
 `DayView.has_overdue` is computed by `buildDayView` and read by nothing. The

@@ -3,7 +3,7 @@ import type { Cadence, ISODate, TodoTask, TodoView } from '../../shared/types.ts
 import { TODO_GROUPS } from '../../shared/types.ts';
 import { ApiError, command } from '../api.ts';
 import { periodLabel, shortDate } from '../dates.ts';
-import { Confirm, DayPicker, Sheet, Tick } from '../ui.tsx';
+import { Confirm, DayPicker, Popover, Sheet, Tick } from '../ui.tsx';
 import {
   TaskFields,
   draftIsValid,
@@ -109,11 +109,12 @@ function TodoRow({
           {canPlace && (
             <button
               type="button"
-              className="btn btn--small btn--quiet"
+              className="btn btn--small btn--quiet pop-anchor"
+              style={{ '--pop-anchor': `--pick-${task.id}` } as CSSProperties}
               aria-expanded={picking}
               aria-label={`${placed ? 'Move' : 'Place'} ${task.name}`}
               disabled={locked}
-              onClick={() => onPicking(!picking)}
+              onClick={() => onPicking(true)}
             >
               {placed ? 'Move' : 'Place'}
             </button>
@@ -132,17 +133,24 @@ function TodoRow({
         </span>
       </div>
 
+      {/* In the top layer: it neither pushes the rows below it down the panel
+          nor gets clipped by anything the panel scrolls inside. */}
       {picking && canPlace && (
-        <div className="todo-row__pick">
+        <Popover anchor={`--pick-${task.id}`} onClose={() => onPicking(false)}>
           <DayPicker
             dates={placeable}
             max={placeableMax}
             today={today}
             selected={task.effective_date}
             disabled={locked}
-            onPick={(date) => run('place', { task_id: task.id, date })}
+            onPick={(date) => {
+              // Closed here rather than left to the refetch: a menu floating over
+              // the row it has just changed is a menu that looks stuck.
+              onPicking(false);
+              run('place', { task_id: task.id, date });
+            }}
           />
-        </div>
+        </Popover>
       )}
     </li>
   );

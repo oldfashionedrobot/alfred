@@ -14,6 +14,7 @@ import * as schema from '../src/server/schema.ts'
 import { today } from '../src/server/today.ts'
 import { buildDayView } from '../src/server/views/day.ts'
 import { placeableDates, placementMax, placementRanges } from '../src/server/views/completions.ts'
+import { isDone } from '../src/server/period.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
 
@@ -472,6 +473,39 @@ const NEXT_DAY: ISODate | null = NO_FUTURE_DAY ? null : shift(TODAY, 1)
  */
 const FUTURE_NEXT_MONTH: ISODate | null =
   PLACEABLE.slice(1).find((d) => d.slice(0, 7) !== TODAY.slice(0, 7)) ?? null
+
+/**
+ * The rule `buildUpcoming` turns on: doneness is asked about THE PANE'S OWN
+ * DATE, not about today.
+ *
+ * Its integration test below can only run in a week that straddles a month
+ * boundary — about twelve weeks a year, so roughly three runs in four never
+ * execute it. This pins the distinction with fixed dates on every run, which is
+ * the difference between a rule that is guarded and one that is merely written
+ * down in a comment.
+ */
+describe('doneness at a period boundary', () => {
+  const monthly = {
+    id: 1, name: 'Change the filter', is_baseline: false, cadence: 'month' as const,
+    planned_date: '2026-10-01', color: null, category: null, active: true,
+  }
+  const doneInSeptember = [{ task_id: 1, completed_on: '2026-09-15' }]
+
+  test('a monthly task done in September is not done for an October pane', () => {
+    // Today is Tue 29 Sep; the pane is Thu 1 Oct, inside the same WEEK and a
+    // different MONTH. The two questions give opposite answers.
+    expect(isDone(monthly, doneInSeptember, '2026-09-29')).toBe(true)
+    expect(isDone(monthly, doneInSeptember, '2026-10-01')).toBe(false)
+  })
+
+  test('so asking about today would hide an obligation that is unmet', () => {
+    // If buildUpcoming passed `today` here, October's pane would filter the task
+    // out as already done — and October's turn would never be asked for.
+    const asToday = isDone(monthly, doneInSeptember, '2026-09-29')
+    const asPane = isDone(monthly, doneInSeptember, '2026-10-01')
+    expect(asToday).not.toBe(asPane)
+  })
+})
 
 describe('DayView.upcoming', () => {
   test('one entry per day from tomorrow through Saturday', async () => {
