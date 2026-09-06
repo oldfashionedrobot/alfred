@@ -87,7 +87,11 @@ export const test = base.extend<{ app: App }>({
      */
     const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
       cwd: ROOT,
-      env: { ...process.env, DB_PATH: dbPath, PORT: '0' },
+      // APP_PASSWORD is cleared deliberately. Bun auto-loads `.env` for the
+      // spawned server, so a developer's local password would switch auth on
+      // for the whole browser suite and fail every test on a 401, for a reason
+      // nowhere near the failure. `.env.example` promises this; here it is.
+      env: { ...process.env, DB_PATH: dbPath, PORT: '0', APP_PASSWORD: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

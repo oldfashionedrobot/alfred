@@ -1,7 +1,7 @@
 # alfred — Deployment
 
 Status: design, not yet built
-Companion to [`changes.md`](changes.md). The frozen originals are in [`design/`](design/).
+Companion to [`changes.md`](changes.md) and [`changes-v8.md`](changes-v8.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
 
@@ -95,18 +95,43 @@ It does not cover *"I deleted something last week."* If that matters, the answer
 
 The cost, measured rather than estimated:
 
+Re-measured after v8, three runs, on this machine:
+
 | | |
 |---|---|
-| Bundling the client at startup | **~35 ms** |
-| Boot → first page served (local) | **~150 ms** |
+| Boot → answering `/api/day` | **~80 ms** |
+| First HTML request, which bundles the client | **~42 ms** |
 | Fly machine start | ~0.5–1 s |
 | Replica delta sync (with the volume) | negligible |
 
-So roughly **one to two seconds on the first tap after idle**, then instant until it sleeps again. In exchange the machine bills only for the minutes it is awake.
+So roughly **one to two seconds of server time on the first tap after idle**, then instant until it sleeps again. In exchange the machine bills only for the minutes it is awake.
+
+**That table is only the server's half, and the other half is bigger.** See the next section.
 
 ### The client still bundles at startup
 
-`Bun.serve` builds it from `index.html` when the process starts. Pre-building into the image was considered and rejected: it would save the 35 ms measured above, at the cost of a build step that `design/tech-stack.md` deliberately avoided. The measurement is recorded here so nobody reopens it on a hunch.
+`Bun.serve` builds it from `index.html` on the first request. Pre-building into the image was considered and rejected: it would save the ~42 ms measured above, at the cost of a build step that `design/tech-stack.md` deliberately avoided. The measurement is recorded here so nobody reopens it on a hunch.
+
+### The bundle is 269 KB and is not compressed
+
+Measured against `NODE_ENV=production`:
+
+| | |
+|---|---|
+| Client JS, as served | **269 KB** |
+| The same bytes, gzipped | **85 KB** |
+| `Content-Encoding` on the response | **none**, even when the request asks for gzip |
+| CSS, four files | ~22 KB total |
+
+`Bun.serve`'s HTML bundler does not negotiate compression, so a cold visitor downloads about three times more than they need to. On a phone that is very likely the **largest single term in the first tap after idle** — larger than the machine start this document has been treating as the headline number — and it is absent from the table above because that table only measures the server.
+
+Three things are unresolved and are worth settling before the first deploy rather than after:
+
+1. **Whether Fly Proxy compresses on the way out.** If it does, this costs nothing and the note stands only as a record. Not assumed either way here.
+2. **If it does not**, the fix is a response wrapper that gzips text assets — real code, against `design/tech-stack.md`'s standing objection to build steps and middleware, but 184 KB per cold visit is a real number to weigh it against.
+3. **Caching.** Bun fingerprints the asset paths (`index-00000000ab17d8e9.js`), so they are safe to cache forever — but only if something sets `Cache-Control`. Nothing does. A returning visitor re-downloads the bundle on every cold start, which makes item 2 worse in proportion.
+
+None of this blocks a deploy. It is recorded because "one to two seconds" is the claim this document makes about the experience, and on a phone that claim is currently wrong by the download.
 
 ### No health check
 
@@ -184,7 +209,7 @@ Compared in constant time, not stored as a hash. Hashing would mean generating a
 
 ### Off when `APP_PASSWORD` is unset
 
-The same pattern as `TURSO_URL`: development and all 251 tests run unchanged, with no login step threaded through every fixture.
+The same pattern as `TURSO_URL`: development and all 392 tests run unchanged, with no login step threaded through every fixture.
 
 With one guard: **the server refuses to start when `NODE_ENV=production` and `APP_PASSWORD` is unset.** A misconfigured deploy should fail loudly rather than quietly serve a household journal to the internet.
 
@@ -192,7 +217,9 @@ With one guard: **the server refuses to start when `NODE_ENV=production` and `AP
 
 **Bun auto-loads `.env`, for `bun test` as well as for the app.** Verified. So an `APP_PASSWORD` in a developer's local `.env` would silently switch auth on for the browser suite, and every test would fail on a `401` — for a reason nowhere near the failure.
 
-The fix belongs in the harness, not in a convention nobody will remember: `e2e/fixtures.ts` passes `APP_PASSWORD: ''` explicitly when spawning each server, and takes an option to set it for the tests that exercise the login flow.
+The fix belongs in the harness, not in a convention nobody will remember: `e2e/fixtures.ts` passes `APP_PASSWORD: ''` explicitly when spawning each server — **already done**, ahead of the auth code — and will take an option to set it for the tests that exercise the login flow.
+
+A second harness hazard was found and fixed the same way, and is worth recording here because CI is where it would have bitten hardest. The fixture used to ask the OS for a free port, close the socket, and hand the number to bun: a race that four parallel workers lose occasionally, and whose bad outcome is silent — the readiness probe gets a 200 from *another test's* server and the test runs against a foreign database. A shared CI runner is busier than a laptop. `PORT=0` now lets bun choose and the fixture reads the port back off the line the server prints.
 
 `.env` and `.env.*` are gitignored; `.env.example` is tracked as the template.
 
@@ -221,8 +248,8 @@ One workflow, on every push and pull request:
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | includes `e2e/`, which is how the CSS declaration gap surfaced |
-| `bun test` | 141 unit tests over the period logic, ordering and view builders |
-| `bunx playwright test` | 110 browser tests across mobile and desktop viewports |
+| `bun test` | 156 unit tests over the period logic, ordering, placement and view builders |
+| `bunx playwright test` | 236 browser tests across mobile and desktop viewports |
 | `flyctl deploy` | `main` only, after the above are green |
 | smoke test | request the public URL, assert the deployed SHA |
 
@@ -230,9 +257,25 @@ Two details this suite needs:
 
 **Chrome.** `playwright.config.ts` pins `channel: 'chrome'` — real Google Chrome, chosen locally to avoid downloading Playwright's browsers. A runner needs `bunx playwright install --with-deps chrome`.
 
+**WebKit, and this is now a real gap rather than a nicety.** v8 put the day picker in a `popover`, positioned with CSS anchor positioning where it exists and falling back to the UA's centred placement where it does not. Two paths cannot be tested Chrome-only: that fallback, and what iOS's native date picker does to an open popover. The second is not hypothetical — the equivalent bug on desktop Chrome was real, shipped, and found by hand: `popover="auto"` treated the browser's own calendar chrome as a click outside, so changing month dismissed the picker and placed a task. Safari is the browser this app will actually be used in. Adding `webkit` to the matrix is cheap on a runner and expensive to keep deferring.
+
 **The weekday matrix, weekly rather than per-push.** The suite's behaviour depends on the day: a Saturday offers one placeable date, a Sunday seven, and different tests skip on each. A `TZ` matrix on every push doubles browser minutes for a property that only changes when the scheduling rules change. A weekly scheduled run across both is the better trade — and is where the fixture bugs that bit twice during the build would have been caught.
 
 Actions is free on a public repository.
+
+---
+
+## Browsers this has to work in
+
+Not stated anywhere before, and it should be, because a public URL is opened by whatever is to hand.
+
+| | |
+|---|---|
+| **Required** | the Popover API — Chrome 114+, Safari 17+, Firefox 125+ |
+| **Enhancement** | CSS anchor positioning; without it the picker centres in the viewport, which is a fine menu |
+| **Assumed throughout** | `color-mix()`, `dvh`, CSS nesting-free modern syntax, `scroll-snap` |
+
+The floor is the Popover API, which the day picker depends on for correctness rather than polish: it is what keeps the menu out of the day track's overflow. Everything on that list has been baseline for a year or more, so the floor is not a constraint in practice — but it is a thing to have decided rather than discovered from a phone that renders nothing.
 
 ---
 

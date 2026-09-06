@@ -100,7 +100,7 @@ src/
     api.ts             typed fetch, the client's only I/O
     dates.ts           the one date formatter
     ui.tsx             shared primitives: button, tick, day picker, notice
-    views/             Day, Week, History, and the Routine panel they host
+    views/             Day, History, and the Routine and Backlog panels Day hosts
 assets/                source art, not bundled
 tests/                 period logic and view builders
 e2e/                   Playwright, one server + one database per test
@@ -109,9 +109,9 @@ drizzle/               generated migrations
 
 **The server derives everything.** The client renders arrays that arrive already ordered and sectioned, and posts named commands back. It holds no model logic: it does not know what a period is, does not compute overdue, and does not sort. If you find yourself deriving something in a component, it belongs in a view builder.
 
-**Two endpoint kinds, no CRUD.** `GET /api/{day,week,todo,history}` returns a view model. `POST /api/commands/<name>` returns `{ ok: true }` and the client refetches. There is no `GET /api/tasks`.
+**Two endpoint kinds, no CRUD.** `GET /api/{day,todo,history}` returns a view model. `POST /api/commands/<name>` returns `{ ok: true }` and the client refetches. There is no `GET /api/tasks`.
 
-**The Routine and Backlog panels are one view, hosted by two screens.** Day and Week each fetch their own model plus `/api/todo`. Together they are the complete inventory — every active task, grouped by cadence, each group labelled with its current period. **Routine** draws the five recurring groups and **Backlog** the one-offs; it is one component rendered twice, and the endpoint knows nothing about the split. It exists because a period task you never placed used to appear on no screen you look at daily.
+**The Routine and Backlog panels are one view, drawn twice.** Day fetches its own model plus `/api/todo`. Together they are the complete inventory — every active task, grouped by cadence, each group labelled with its current period. **Routine** draws the five recurring groups and **Backlog** the one-offs; it is one component rendered twice, and the endpoint knows nothing about the split. It exists because a period task you never placed used to appear on no screen you look at daily.
 
 **A row's left stripe says whose row it is** — the border grey by default, the overdue colour when a task needs a new day, and a baseline task's own colour when it has one. It briefly encoded the cadence as a dash count too; that was removed, because a pattern has to be counted before it means anything.
 
@@ -121,7 +121,7 @@ drizzle/               generated migrations
 
 Each of these is deliberate and argued in `.plan/`. Read before "fixing".
 
-- **Day is today. Week is this week.** No date navigation anywhere, because nothing writes to a past date.
+- **Day is today, and the rest of this week beside it.** Swipe or use the strip to see what is placed on a later day; only today can be ticked, because nothing writes to a past or future date.
 - **A missed daily task can never be caught up.** Daily tasks are never placed, so they are never overdue, so there is nothing to resolve. The gap in the History grid is permanent and correct.
 - **A task done Tuesday but ticked Thursday is recorded on Thursday.** The history records when things were *marked*.
 - **"Done" means the period is satisfied, not that it happened today.** A weekly task placed today but ticked on Monday still shows as completed. It leaves the Day screen the next day; the Routine panel carries it for the rest of its period.
