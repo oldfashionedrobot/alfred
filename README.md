@@ -4,6 +4,8 @@ A household task tracker. Replaces a spreadsheet that lost its history every wee
 
 Two kinds of document live in [`.plan/`](.plan/).
 
+**[`deployment.md`](.plan/deployment.md)** is the plan for putting this somewhere a phone can reach — design, not yet built.
+
 **[`changes.md`](.plan/changes.md) is the running log and the authoritative one.** Every change since the first build is recorded there in order, including the decisions that were reversed and why.
 
 **[`.plan/design/`](.plan/design/) holds the original design, frozen.** It was checked against the code and corrected before being frozen, so it is an accurate snapshot rather than a stale one — but it is no longer maintained, and `changes.md` wins where they differ. Its value is the reasoning: why the model is period-based, why nothing writes to a past date, what was rejected and on what grounds.
