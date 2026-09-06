@@ -1,6 +1,6 @@
 # alfred — Deployment
 
-Status: design, not yet built
+Status: **auth is built; the container, `fly.toml` and CI are not.** Nothing is deployed.
 Companion to [`changes.md`](changes.md) and [`changes-v8.md`](changes-v8.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
@@ -22,7 +22,7 @@ An earlier draft of this document targeted AWS Lightsail. It was replaced becaus
      │
   Fly Machine (sleeps when idle)
      ├─ TLS terminated by Fly at <app>.fly.dev
-     └─ alfred ── bun src/server/index.ts
+     └─ alfred ── bun src/server/index.ts   (oven/bun:1.3.14-slim, 256 MB)
              ├─ /data/alfred.db   replica, on a Fly volume
              └─ Turso ─────────── the durable copy
 ```
@@ -137,11 +137,145 @@ None of this blocks a deploy. It is recorded because "one to two seconds" is the
 
 `fly.toml` has no `[checks]` section.
 
-A check would not buy crash recovery — Fly restarts a machine whose process exits regardless — and it does nothing while the machine is stopped. Its one real value would be **deploy gating**: catching a release that boots but cannot serve, which for this app means `initDb()` throwing on a bad Turso token, a failed migration, or the missing-`APP_PASSWORD` guard.
+A check would not buy crash recovery — Fly restarts a machine whose process exits regardless — and it does nothing while the machine is stopped. Its one real value would be **deploy gating**: catching a release that boots but cannot serve, which for this app means `initDb()` throwing on a bad Turso token or a failed migration.
 
 The CI smoke test below does that job better, and removes a question the Fly documentation does not answer: whether health-check traffic counts as traffic for autostop. It is run over the private network rather than through Fly Proxy, which suggests it does not — but "suggests" is not a foundation, and deleting the check deletes the question.
 
 ---
+
+## The container
+
+### One constraint decides the shape of it
+
+**libSQL ships a native binary per platform.** A development machine has
+`@libsql/darwin-arm64`; a Linux container needs `@libsql/linux-x64-gnu`. So
+`node_modules` is installed *inside* the image and never copied in from
+anywhere. Everything else about the Dockerfile follows from that and from there
+being no build step to run.
+
+```dockerfile
+FROM oven/bun:1.3.14-slim
+WORKDIR /app
+
+# Dependencies first, so editing a view does not reinstall them.
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+# Everything read at runtime. `drizzle/` is not optional: initDb() runs the
+# migrations from './drizzle', relative to the working directory.
+COPY src ./src
+COPY drizzle ./drizzle
+
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=$BUILD_SHA NODE_ENV=production
+CMD ["bun", "src/server/index.ts"]
+```
+
+**No build stage**, because the client is bundled on the first request rather
+than compiled ahead of time — the same decision `design/tech-stack.md` made and
+the cold-start measurements above re-confirmed.
+
+**`-slim` rather than `-alpine` or `-distroless`.** All three exist for 1.3.14
+on amd64 and arm64 (checked against the registry, not remembered). Alpine is
+musl, which libSQL does ship for, so it would work; distroless is smaller still.
+Slim keeps glibc and, more usefully, keeps a shell — `fly ssh console` on a
+machine with no shell is a bad evening.
+
+A `.dockerignore` excludes `node_modules`, `data`, `.git`, `test-results` and
+`e2e-report`. The first entry is the one that matters: copying a host
+`node_modules` in would put the wrong platform's binary on top of the right one.
+
+### Running it locally is optional, and CI is where it belongs
+
+The platform-binary constraint does not force local Docker — Fly's remote builder
+handles the architecture. But that is a different question from whether the image
+should be tested, and it should be.
+
+**The image builds in CI**, on every push. That catches the mistakes a Dockerfile
+actually makes — a forgotten `COPY`, a runtime dependency that `--production`
+drops — before a deploy is attempted, and needs nothing installed on anybody's
+laptop. GitHub Actions has Docker and is free on a public repository.
+
+**Locally it is convenience, not necessity.** It shortens the loop from a
+minutes-long deploy to seconds, and on an Apple Silicon machine it builds and
+runs `linux/arm64` natively — which tests the Dockerfile's logic even though Fly
+runs amd64 by default. `colima` is the light way to get it on macOS; Docker
+Desktop is not required.
+
+## fly.toml
+
+```toml
+app = "alfred-XXXX"          # must be globally unique under fly.dev
+primary_region = "iad"       # the same region as the Turso database
+
+[env]
+  PORT = "8080"
+  DB_PATH = "/data/alfred.db"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[mounts]
+  source = "alfred_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+```
+
+**`auto_stop_machines` is a string**, not the boolean it used to be. Checked
+against Fly's current configuration reference rather than written from memory,
+because the failure mode of getting it wrong is a machine that never sleeps and
+a bill that says so.
+
+**256 MB is measured, not guessed**: 67 MB at boot, 101 MB once the client has
+been bundled, flat thereafter. That is the smallest size Fly offers and it leaves
+about 2.5× headroom.
+
+**No `[checks]`** — see *No health check* above.
+
+## Getting there
+
+Turso first, because Fly needs its credentials as secrets:
+
+```sh
+turso db create alfred --location iad
+turso db show alfred --url          # -> TURSO_URL
+turso db tokens create alfred       # -> TURSO_AUTH_TOKEN
+```
+
+Then Fly:
+
+```sh
+fly auth login
+fly apps create alfred-XXXX
+fly volumes create alfred_data --size 1 --region iad
+fly secrets set TURSO_URL=... TURSO_AUTH_TOKEN=...
+fly deploy --build-arg BUILD_SHA=$(git rev-parse HEAD)
+```
+
+**The first boot runs the migrations against Turso** and creates the `owner`
+account with no password, so the app comes up locked: the login form is there and
+nothing verifies against it. Setting that password is the last step, and it is
+easier from a laptop than over SSH:
+
+```sh
+TURSO_URL=... TURSO_AUTH_TOKEN=... DB_PATH=/tmp/alfred-admin.db \
+  bun run user:add owner
+```
+
+That opens a throwaway local replica, writes through to Turso, and the machine
+picks it up inside its sixty-second sync.
+
+**Region is the one thing to get right before any of it.** Every write is a round
+trip to Turso: colocated that is single-digit milliseconds, mismatched it is
+100 ms+ on every tick. Both use the same three-letter codes. Free to get right
+now, annoying to change later.
 
 ## Deploying
 
@@ -155,7 +289,13 @@ The distinction is real: a deploy token grants no shell and opens no inbound por
 
 ## Knowing what is deployed
 
-**The app reports the commit SHA it was built from.** Passed in at image build time, served on a trivial endpoint.
+**The app reports the commit SHA it was built from.** `GET /api/status` returns
+`{ ok, date, sha }` and is **already built** — it arrived with accounts, because
+the browser fixture needed something answerable without a session. It is one of
+three endpoints before the auth gate, and the only one that reads.
+
+The `sha` is `BUILD_SHA`, baked in by the Dockerfile's `ARG`; it reads `dev` when
+nothing sets it, which is what a laptop sees.
 
 **CI smoke-tests the deploy**: after `flyctl deploy`, request the public URL and assert the app answers *and* reports the SHA just deployed.
 
@@ -163,71 +303,37 @@ Three lines that fold in three things — deploy verification, version confirmat
 
 ---
 
-## Auth
+## Auth — built, and not as designed here
 
-A **shared password and a session cookie**. `design/tech-stack.md` asked for *"a single shared password in an env var, checked in middleware"*; this is that, with a cookie so a phone is not re-prompted.
+**[`changes-v9.md`](changes-v9.md) replaced this section wholesale.** What is
+built is accounts, not the shared password this document specified: a `users`
+table, `user_id` on `tasks` and `days`, argon2id via `Bun.password`, and a
+stateless cookie keyed off the user's own password hash. Signing in is always
+required — there is no flag, so there is no misconfigured deploy to guard
+against and the production startup check this document called for does not exist.
 
-### The cookie is stateless
+Three things from the original design survived and still hold:
 
-```
-value   <expiry-ms>.<hmac>
-hmac    HMAC-SHA256(key, expiry-ms)
-key     derived from APP_PASSWORD
-```
+- **The cookie is stateless.** No sessions table, nothing to clean up, and it
+  survives the restarts scale-to-zero causes several times a day.
+- **`SameSite=Lax`** withholds it from cross-site POSTs, and every mutation here
+  is a POST — CSRF protection without a token scheme.
+- **A lockout after repeated failures**, though it is now the second of two
+  defences rather than the only one: argon2id costs ~55 ms a verify, which caps
+  online guessing at about eighteen attempts a second before any counting.
 
-Verifying means recomputing the HMAC, comparing in constant time, and checking the expiry. **No sessions table, no in-memory map, no cleanup, and it survives a restart** — which matters more now that the machine restarts several times a day. A session table would have been a fifth table in a model that argued its way down to four, and the only one holding something that is not an observation about the household.
+Two did not:
 
-Deriving the key from the password gives revocation for nothing: change `APP_PASSWORD` and every existing cookie stops verifying.
+- **The `/*` gate is impossible.** A Bun route handler can return a `Response`
+  but not an `HTMLBundle`, so the app cannot be served conditionally. Verified,
+  not assumed. An unauthenticated visitor loads the bundle and the client
+  replaces it with the login view on the first 401.
+- **The login page is a React view**, not server-rendered HTML. The reasoning
+  here — that a password should not pass through the bundle — did not survive
+  examination; what the HTML string actually cost was a second style system.
 
-### Two insertion points
-
-- `/api/*` → `401` without a valid cookie, except `POST /api/login`.
-- `/*` → serve the login page *instead of* the app.
-
-The second is easy to omit and worth doing. Without it an unauthenticated visitor downloads the whole client bundle and then watches it fail on `/api/day`; with it they get a form and nothing else.
-
-### Cookie flags
-
-`HttpOnly` so script cannot read it. `Secure` in production only, since local development is plain `http://localhost`. `Path=/`. `Max-Age` of 90 days — being logged out weekly on the screen you tick seventeen times a day is exactly the friction this design keeps refusing.
-
-**`SameSite=Lax` is the one doing quiet work.** It withholds the cookie from cross-site POSTs, and since every mutation here is a POST, that is CSRF protection without a token scheme.
-
-### Brute force
-
-The password is the only thing between a stranger and the journal, on a public URL. Two guards:
-
-- **The server refuses to start if `APP_PASSWORD` is shorter than 16 characters.** The same fail-loudly pattern as the production guard below; it makes guessing impractical by construction rather than by policy.
-- **The login endpoint rate-limits** — a short delay and a lockout after a handful of failures. One machine, so an in-memory counter is sufficient and needs no storage.
-
-### The login page is server-rendered
-
-About thirty lines of HTML returned as a `Response`, with its own inline styles. Not a React view: that would ship the bundle to unauthenticated visitors, which is what gating `/*` exists to prevent. It does not need to look like the app.
-
-### The password stays plaintext in the env var
-
-Compared in constant time, not stored as a hash. Hashing would mean generating a hash to configure the app — ceremony against a threat that does not exist for one shared password on a host only you can reach.
-
-### Off when `APP_PASSWORD` is unset
-
-The same pattern as `TURSO_URL`: development and all 392 tests run unchanged, with no login step threaded through every fixture.
-
-With one guard: **the server refuses to start when `NODE_ENV=production` and `APP_PASSWORD` is unset.** A misconfigured deploy should fail loudly rather than quietly serve a household journal to the internet.
-
-### A footgun this creates, and its fix
-
-**Bun auto-loads `.env`, for `bun test` as well as for the app.** Verified. So an `APP_PASSWORD` in a developer's local `.env` would silently switch auth on for the browser suite, and every test would fail on a `401` — for a reason nowhere near the failure.
-
-The fix belongs in the harness, not in a convention nobody will remember: `e2e/fixtures.ts` passes `APP_PASSWORD: ''` explicitly when spawning each server — **already done**, ahead of the auth code — and will take an option to set it for the tests that exercise the login flow.
-
-A second harness hazard was found and fixed the same way, and is worth recording here because CI is where it would have bitten hardest. The fixture used to ask the OS for a free port, close the socket, and hand the number to bun: a race that four parallel workers lose occasionally, and whose bad outcome is silent — the readiness probe gets a 200 from *another test's* server and the test runs against a foreign database. A shared CI runner is busier than a laptop. `PORT=0` now lets bun choose and the fixture reads the port back off the line the server prints.
-
-`.env` and `.env.*` are gitignored; `.env.example` is tracked as the template.
-
-### What it costs
-
-Roughly sixty lines of server code — sign, verify, the login route, the gate, the page — five in `api.ts` to send a `401` to the login page, and tests for no cookie, wrong password, right password, expired cookie, and lockout.
-
-Rejected: **HTTP Basic**, at about fifteen lines. Same protection, but the browser's own dialog is the login screen, Safari re-prompts, and there is no logout.
+**There is no auth environment variable.** Creating the first account is a
+one-off `user:add` against the deployed database — see *Getting there* below.
 
 ---
 
@@ -248,8 +354,9 @@ One workflow, on every push and pull request:
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | includes `e2e/`, which is how the CSS declaration gap surfaced |
-| `bun test` | 156 unit tests over the period logic, ordering, placement and view builders |
-| `bunx playwright test` | 236 browser tests across mobile and desktop viewports |
+| `bun test` | 171 unit tests over the period logic, ordering, placement, view builders and cross-user isolation |
+| `bunx playwright test` | 256 browser tests across mobile and desktop viewports |
+| `docker build` | the image, so a Dockerfile mistake fails here rather than on deploy |
 | `flyctl deploy` | `main` only, after the above are green |
 | smoke test | request the public URL, assert the deployed SHA |
 
@@ -317,7 +424,7 @@ Locally the same variables go in a gitignored `.env`, which Bun loads automatica
 
 | | |
 |---|---|
-| Fly machine | pennies — it bills for the minutes it is awake |
+| Fly machine, 256 MB shared-cpu-1x | pennies — it bills for the minutes it is awake |
 | Fly volume, 1 GB | ~$0.15/month |
 | `<app>.fly.dev` and TLS | free |
 | Turso | free tier: 500M row reads, 10M writes, 5 GB storage, 3 GB syncs, 1-day PITR |
@@ -329,7 +436,22 @@ Call it **under a dollar a month**, dominated by the volume. Verify Fly's curren
 
 ## Open decisions
 
+**Does Fly Proxy compress on the way out?** This is the one worth answering
+first, because it is the only thing standing between the current state and a
+decision about a build step. `Bun.serve` cannot be configured to compress, so
+the 269 KB client bundle goes out uncompressed from the app; whether the proxy
+in front of it gzips is not knowable from a laptop. One `curl -H 'Accept-Encoding:
+gzip'` against the deployed URL settles it. If it does, the note above is just a
+record. If it does not, 184 KB a cold visit is the number to weigh a
+`Bun.build`-and-serve-it-ourselves step against — and that number should be
+measured before the code is written, not after.
+
 **A custom domain, eventually.** Fly issues `<app>.fly.dev` with a working certificate, so nothing is blocked. Adding one later is `fly certs add` plus two DNS records, and changes nothing else here.
+
+**Where `user:add` is run from, long term.** The bootstrap is documented above.
+Adding a second person later is the same command against Turso, which is fine
+but is a laptop with a write token — worth revisiting if that ever stops feeling
+proportionate.
 
 ---
 
