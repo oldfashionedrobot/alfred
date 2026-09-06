@@ -23,20 +23,20 @@ import { today } from '../today.ts'
  *
  * can_complete is false on past days: nothing writes to a past date.
  */
-export function buildWeekView(db: DB): WeekView {
+export async function buildWeekView(db: DB): Promise<WeekView> {
   const date = today()
 
   const dates = weekDates(date)
   const week_start = dates[0]!
 
   // `cadence != 'day'` is NULL for a one-off, so the null arm is not optional.
-  const taskRows = db
+  const taskRows = await db
     .select()
     .from(tasks)
     .where(and(eq(tasks.active, true), or(isNull(tasks.cadence), ne(tasks.cadence, 'day'))))
     .all()
 
-  const byTask = loadCurrentCompletions(db, taskRows, date)
+  const byTask = await loadCurrentCompletions(db, taskRows, date)
 
   const view = (task: TaskRow, can_complete: boolean): WeekTask => ({
     id: task.id,

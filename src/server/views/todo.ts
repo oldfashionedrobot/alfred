@@ -29,11 +29,12 @@ import { today } from '../today.ts'
  * Both are null for the one-off group: its period is unbounded. There is no week
  * number in this model, deliberately — the client renders a range.
  */
-export function buildTodoView(db: DB): TodoView {
+export async function buildTodoView(db: DB): Promise<TodoView> {
   const date = today()
 
-  const taskRows = db.select().from(tasks).where(eq(tasks.active, true)).all()
-  const byTask = loadCurrentCompletions(db, taskRows, date)
+  const taskRows = await db
+    .select().from(tasks).where(eq(tasks.active, true)).all()
+  const byTask = await loadCurrentCompletions(db, taskRows, date)
 
   // The one-off group's cutoff. periodStart owns the week boundary — no builder
   // derives one inline.

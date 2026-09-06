@@ -1,28 +1,63 @@
-import { Database } from 'bun:sqlite'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import { createClient, type Client } from '@libsql/client'
+import { drizzle } from 'drizzle-orm/libsql'
+import { migrate } from 'drizzle-orm/libsql/migrator'
 import { sql } from 'drizzle-orm'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import * as schema from './schema.ts'
 
 /**
- * Local-only for now. Deployment will decide where this lives — `.plan/tech-stack.md`
- * calls the ephemeral-filesystem failure mode out as silent, so the path is a single
- * constant with exactly one place for that decision to land.
+ * libSQL, in one of two modes depending on the environment.
+ *
+ *   TURSO_URL unset  →  a plain local SQLite file at DB_PATH.
+ *                       Development and the whole test suite run this way, so
+ *                       neither needs a network or a Turso account.
+ *
+ *   TURSO_URL set    →  an EMBEDDED REPLICA: the same local file, kept in sync
+ *                       with Turso. Reads are served from local disk at the
+ *                       microsecond speeds `design/tech-stack.md` assumed;
+ *                       writes go to Turso and come back down. The durable copy
+ *                       lives in Turso, which is what retires that document's
+ *                       "silent failure mode" — losing the instance now loses
+ *                       a cache, not a month of history.
+ *
+ * The schema is unchanged by any of this. libSQL is SQLite, so `schema.ts`
+ * stays on drizzle's `sqlite-core` and the existing migrations still apply.
  */
+
 export const DB_PATH = process.env.DB_PATH ?? './data/alfred.db'
+
+const TURSO_URL = process.env.TURSO_URL
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN
 
 mkdirSync(dirname(DB_PATH), { recursive: true })
 
-const sqlite = new Database(DB_PATH, { create: true })
-sqlite.exec('PRAGMA journal_mode = WAL;')
-sqlite.exec('PRAGMA foreign_keys = ON;')
+/** How often the replica pulls from Turso, in seconds. */
+const SYNC_INTERVAL = 60
 
-export const db = drizzle(sqlite, { schema })
+function connect(): Client {
+  const url = `file:${DB_PATH}`
+  if (TURSO_URL === undefined) return createClient({ url })
+
+  if (TURSO_AUTH_TOKEN === undefined) {
+    throw new Error('TURSO_URL is set but TURSO_AUTH_TOKEN is not')
+  }
+  return createClient({
+    url,
+    syncUrl: TURSO_URL,
+    authToken: TURSO_AUTH_TOKEN,
+    syncInterval: SYNC_INTERVAL,
+  })
+}
+
+export const client = connect()
+export const db = drizzle(client, { schema })
 export type DB = typeof db
 
-/** The eight starting states from `.plan/data-model.md`. The only seeded data. */
+/** True when this process is talking to Turso rather than a bare local file. */
+export const isReplica = TURSO_URL !== undefined
+
+/** The eight starting states from `design/data-model.md`. The only seeded data. */
 const STARTING_MOODS: ReadonlyArray<{ slug: string; emoji: string; label: string }> = [
   { slug: 'angry', emoji: '🤬', label: 'angry' },
   { slug: 'scattered', emoji: '🤯', label: 'scattered' },
@@ -34,15 +69,29 @@ const STARTING_MOODS: ReadonlyArray<{ slug: string; emoji: string; label: string
   { slug: 'happy', emoji: '😊', label: 'happy' },
 ]
 
-export function initDb(): void {
-  migrate(db, { migrationsFolder: './drizzle' })
+export async function initDb(): Promise<void> {
+  if (isReplica) {
+    // Pull before migrating: a replica that has not synced yet would be migrated
+    // from an empty local file and then collide with the primary.
+    await client.sync()
+  } else {
+    // libSQL defaults to `delete`; design/tech-stack.md asks for WAL so a read
+    // never blocks the writer. A replica's storage is Turso's to manage.
+    await client.execute('PRAGMA journal_mode = WAL')
+  }
 
-  // Seed only when empty. Never overwrites — the mood set is editable in-app,
-  // so a restart must not resurrect a retired mood or undo a rename.
-  const [existing] = db.select({ n: sql<number>`count(*)` }).from(schema.moods).all()
+  // Already ON by default in libSQL, unlike stock SQLite — set explicitly so the
+  // guarantee does not rest on that default.
+  await client.execute('PRAGMA foreign_keys = ON')
+
+  await migrate(db, { migrationsFolder: './drizzle' })
+
+  // Seed only when empty. Never overwrites — the mood set is edited in the
+  // database, so a restart must not resurrect a retired mood or undo a rename.
+  const [existing] = await db.select({ n: sql<number>`count(*)` }).from(schema.moods)
   if (existing && existing.n > 0) return
 
-  db.insert(schema.moods)
+  await db
+    .insert(schema.moods)
     .values(STARTING_MOODS.map((m, i) => ({ ...m, sort_order: i, active: true })))
-    .run()
 }

@@ -36,12 +36,13 @@ import { today } from '../today.ts'
  *
  * Both arrays sorted with sortTasks(), using today's days.task_order.
  */
-export function buildDayView(db: DB): DayView {
+export async function buildDayView(db: DB): Promise<DayView> {
   const date = today()
 
-  const taskRows = db.select().from(tasks).where(eq(tasks.active, true)).all()
+  const taskRows = await db
+    .select().from(tasks).where(eq(tasks.active, true)).all()
 
-  const byTask = loadCurrentCompletions(db, taskRows, date)
+  const byTask = await loadCurrentCompletions(db, taskRows, date)
 
   const active: DayTask[] = []
   const completed: DayTask[] = []
@@ -82,10 +83,10 @@ export function buildDayView(db: DB): DayView {
   }
 
   // days rows are sparse — no row means no mood, no log and no arrangement.
-  const dayRow = db.select().from(days).where(eq(days.date, date)).all()[0]
+  const [dayRow] = await db.select().from(days).where(eq(days.date, date))
   const order = parseTaskOrder(dayRow?.task_order ?? null)
 
-  const picker: Mood[] = db
+  const picker: Mood[] = await db
     .select()
     .from(moods)
     .where(eq(moods.active, true))

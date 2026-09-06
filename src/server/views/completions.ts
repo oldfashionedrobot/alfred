@@ -48,17 +48,17 @@ export function placeableDates(date: ISODate): ISODate[] {
  * The returned arrays are narrowed to one task each, which is the contract
  * `isDone` and `completionForPeriod` expect: they do not filter by task_id.
  */
-export function loadCurrentCompletions(
+export async function loadCurrentCompletions(
   db: DB,
   taskRows: TaskRow[],
   date: ISODate,
-): Map<number, CompletionRow[]> {
+): Promise<Map<number, CompletionRow[]>> {
   const oneOffIds = taskRows.filter((t) => t.cadence === null).map((t) => t.id)
   const earliest = CADENCES.map((c) => periodStart(date, c))
     .filter((s): s is ISODate => s !== null)
     .reduce((a, b) => (a < b ? a : b))
 
-  const rows = db
+  const rows = await db
     .select()
     .from(completions)
     .where(or(gte(completions.completed_on, earliest), inArray(completions.task_id, oneOffIds)))

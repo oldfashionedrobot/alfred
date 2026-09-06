@@ -226,3 +226,43 @@ Nothing said so, because those are **side-effect imports** and TypeScript does n
 Fixed with `src/client/css.d.ts` declaring `*.css` with an empty body — Bun bundles the file and links it into the page, so there is no value to import, and an empty module makes `import styles from './day.css'` an error rather than silently `any`. The flag is now on in `tsconfig.json` so the CLI and the editor agree.
 
 Worth being precise about what that buys, because it is less than it sounds: the wildcard matches *any* `.css` path, so a mistyped filename still typechecks. Only an extension nothing declares is caught. A missing stylesheet surfaces as an unstyled screen, which the browser suite notices and the compiler cannot.
+
+---
+
+## v7 — SQLite to Turso (libSQL)
+
+The database moves from `bun:sqlite` to libSQL, in preparation for deploying somewhere that is not this laptop. Nothing about the model, the views or the client changed.
+
+### What it cost
+
+7 files touch the database, across 33 call sites. Those became `await`, and roughly thirty functions became `async` — the four view builders, `loadCurrentCompletions`, `runCommand` and its handlers, `initDb`. In the tests, 71 call sites gained `await`.
+
+**`schema.ts` did not change at all.** libSQL *is* SQLite, so drizzle keeps `sqlite-core` and the three existing migrations still apply. Had this been Postgres it would have been a dialect change — `integer({mode:'boolean'})` to `boolean()`, autoincrement to identity, migrations regenerated — for no benefit here.
+
+**`period.ts`, `sort.ts` and `today.ts` were untouched.** They hold every subtle rule in the system — period boundaries, the four-rule membership union, the ordering comparators — and none of them has ever known what a database is. That separation is what made this a mechanical change rather than a risky one.
+
+### Two modes, one driver
+
+With `TURSO_URL` unset the app opens a plain local libSQL file. Development and the whole test suite run that way, so neither needs a network or a Turso account.
+
+With it set, the same local file becomes an **embedded replica**: reads are served from local disk at the microsecond speeds `design/tech-stack.md` assumed, writes go to Turso, and the durable copy lives in the cloud. That retires the "silent failure mode" that document worried about — losing the instance now loses a cache, not a month of history.
+
+### The transaction that had to go
+
+`reset_overdue` was wrapped in `db.transaction(...)`, and its comment relied on `bun:sqlite` being one synchronous connection so that statements issued through `db` inside the callback joined the same `BEGIN`/`COMMIT`. That was verified experimentally when it was written. **Both halves are void on libSQL**: the driver is async, and a transaction hands back a handle that `db` statements would bypass entirely.
+
+The transaction was removed rather than reworked, because it was never what protected the board. The clearing is a **single** `UPDATE` over an id list, which is atomic by itself; the reads before it only choose the ids, and the app has one writer. Simpler and correct, rather than a transaction preserved out of habit.
+
+### Two bugs the compiler could not see
+
+`json()` took `unknown`. A `Promise` satisfies `unknown`, and `JSON.stringify` turns one into `{}` — so `json(buildDayView(db))` with a forgotten `await` would have returned **200 with an empty body**, and typechecked. Every builder became async in this migration, which is precisely when that mistake is easiest to make. `json` now takes a conditional type that excludes thenables, so a missing `await` is a compile error. Verified by removing one.
+
+`runCommand` was likewise called without `await`, which would have let a rejected command escape the route's error handler.
+
+### One surprise worth recording
+
+`bun test` sets `TZ=UTC` for determinism; the app and the Playwright suite run in the machine's local zone. West of Greenwich they therefore disagree about what day it is for the last hours of each evening, and the weekday-guarded tests skip on the UTC Sunday while the browser suite is still on the local Saturday. Nothing is wrong — both are real days and the guards handle either — but it explains a skip count that changes with the clock, and it is documented in `tests/views.test.ts` rather than left to be rediscovered.
+
+### Verified
+
+`tsc` clean, 141 unit tests, 200 Playwright tests across two viewports. WAL is re-enabled on the local file, which libSQL does not default to.

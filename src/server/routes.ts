@@ -35,7 +35,7 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)
       if (name !== '' && !name.includes('/')) {
-        runCommand(db, name, await readBody(req))
+        await runCommand(db, name, await readBody(req))
         return json({ ok: true })
       }
     }
@@ -43,13 +43,13 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'GET') {
       switch (path) {
         case '/api/day':
-          return json(buildDayView(db))
+          return json(await buildDayView(db))
         case '/api/week':
-          return json(buildWeekView(db))
+          return json(await buildWeekView(db))
         case '/api/todo':
-          return json(buildTodoView(db))
+          return json(await buildTodoView(db))
         case '/api/history':
-          return json(buildHistoryView(db, historyOptions(url.searchParams)))
+          return json(await buildHistoryView(db, historyOptions(url.searchParams)))
       }
     }
 
@@ -66,7 +66,17 @@ export async function handleApi(req: Request): Promise<Response> {
 
 // ---------------------------------------------------------------------------
 
-function json(data: unknown, status = 200): Response {
+/** Anything but a promise. See `json`. */
+type NotPromise<T> = T extends PromiseLike<unknown> ? never : T
+
+/**
+ * `data` is deliberately not `unknown`: a Promise satisfies `unknown`, and
+ * `JSON.stringify` turns one into `{}` — so a forgotten `await` on a view
+ * builder would ship an empty body with a 200 and typecheck cleanly. Every
+ * builder became async in the libSQL migration, which is exactly when that
+ * mistake is easiest to make, so the type rules it out instead.
+ */
+function json<T>(data: NotPromise<T>, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { 'content-type': 'application/json' },

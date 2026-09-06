@@ -25,18 +25,17 @@ const DEFAULT_LIMIT = 60
  *   History is the one place a mood no longer in the picker must still render.
  * next_before: null when exhausted.
  */
-export function buildHistoryView(
+export async function buildHistoryView(
   db: DB,
   opts: { limit?: number; before?: ISODate },
-): HistoryView {
+): Promise<HistoryView> {
   // routes.ts is the whole query-string boundary: it rejects a limit that is not
   // a positive integer and applies the only ceiling. Nothing is re-validated here.
   const limit = opts.limit ?? DEFAULT_LIMIT
   // `before` is exclusive.
   const newest = opts.before === undefined ? today() : addDays(opts.before, -1)
 
-  const daily = db
-    .select()
+  const daily = await db.select()
     .from(tasks)
     .where(and(eq(tasks.active, true), eq(tasks.cadence, 'day')))
     .all()
@@ -50,7 +49,7 @@ export function buildHistoryView(
   }))
 
   // Paging stops at the earliest recorded anything; there is no history before it.
-  const earliest = earliestRecord(db)
+  const earliest = await earliestRecord(db)
   if (earliest === null || newest < earliest) {
     return { columns, rows: [], next_before: null }
   }
@@ -59,16 +58,15 @@ export function buildHistoryView(
   const oldest = windowStart > earliest ? windowStart : earliest
 
   const taskIds = columns.map((c) => c.task_id)
-  const doneRows = db
-    .select()
+  const doneRows = await db.select()
     .from(completions)
     .where(
       and(between(completions.completed_on, oldest, newest), inArray(completions.task_id, taskIds)),
     )
     .all()
-  const dayRows = db.select().from(days).where(between(days.date, oldest, newest)).all()
+  const dayRows = await db.select().from(days).where(between(days.date, oldest, newest)).all()
   // All moods, retired included — a past day must still render its glyph.
-  const moodRows: Mood[] = db.select().from(moods).orderBy(asc(moods.sort_order)).all()
+  const moodRows: Mood[] = await db.select().from(moods).orderBy(asc(moods.sort_order)).all()
 
   const completedByDate = new Map<ISODate, Set<number>>()
   for (const c of doneRows) {
@@ -102,9 +100,9 @@ export function buildHistoryView(
 }
 
 /** The oldest date anything was recorded on, across completions and days. */
-function earliestRecord(db: DB): ISODate | null {
-  const [c] = db.select({ oldest: min(completions.completed_on) }).from(completions).all()
-  const [d] = db.select({ oldest: min(days.date) }).from(days).all()
+async function earliestRecord(db: DB): Promise<ISODate | null> {
+  const [c] = await db.select({ oldest: min(completions.completed_on) }).from(completions).all()
+  const [d] = await db.select({ oldest: min(days.date) }).from(days).all()
   const found = [c?.oldest ?? null, d?.oldest ?? null].filter((v): v is ISODate => v !== null)
   return found.length === 0 ? null : found.reduce((a, b) => (a < b ? a : b))
 }
