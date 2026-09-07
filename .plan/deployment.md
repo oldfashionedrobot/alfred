@@ -1,6 +1,6 @@
 # alfred — Deployment
 
-Status: **everything is written — auth, the container, `fly.toml`, CI — and nothing is deployed yet.** The app is `gg-alfred`, in `iad`, against a Turso database in AWS US East (N. Virginia).
+Status: **deployed and running** at https://gg-alfred.fly.dev — one machine in `iad`, against a Turso database in AWS US East (N. Virginia). CI deploys every push to `main` and smoke-tests the result.
 Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md) and [`changes-v9.md`](changes-v9.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
@@ -132,26 +132,40 @@ So roughly **one to two seconds of server time on the first tap after idle**, th
 
 `Bun.serve` builds it from `index.html` on the first request. Pre-building into the image was considered and rejected: it would save the ~42 ms measured above, at the cost of a build step that `design/tech-stack.md` deliberately avoided. The measurement is recorded here so nobody reopens it on a hunch.
 
-### The bundle is 269 KB and is not compressed
+### The bundle is 270 KB, and Fly compresses it
 
-Measured against `NODE_ENV=production`:
+Measured against `NODE_ENV=production`, then re-measured over the wire once
+deployed:
 
 | | |
 |---|---|
-| Client JS, as served | **269 KB** |
-| The same bytes, gzipped | **85 KB** |
-| `Content-Encoding` on the response | **none**, even when the request asks for gzip |
-| CSS, four files | ~22 KB total |
+| Client JS, as the app serves it | 270,714 bytes |
+| **Over the wire, `Accept-Encoding: gzip`** | **120,013 bytes** |
+| `Content-Encoding` from Fly Proxy | **gzip**, on JS and CSS alike |
+| Saved on a cold visit | ~150 KB, 56% |
 
-`Bun.serve`'s HTML bundler does not negotiate compression, so a cold visitor downloads about three times more than they need to. On a phone that is very likely the **largest single term in the first tap after idle** — larger than the machine start this document has been treating as the headline number — and it is absent from the table above because that table only measures the server.
+`Bun.serve`'s HTML bundler does not negotiate compression, so this document
+spent some time treating the uncompressed size as the largest term in the first
+tap after idle, and held open a decision about writing a `Bun.build` step to fix
+it. **Fly Proxy compresses on the way out, so that decision is closed and no
+build step is needed.** One `curl` settled what a fortnight of reasoning could
+not, which is the argument for deploying before optimising.
 
-Three things are unresolved and are worth settling before the first deploy rather than after:
+Note the local gzip measurement said 85 KB and the wire says 120 KB — the proxy
+is compressing at a lower level than a laptop's default `gzip`. Still 56% off.
 
-1. **Whether Fly Proxy compresses on the way out.** If it does, this costs nothing and the note stands only as a record. Not assumed either way here.
-2. **If it does not**, the fix is a response wrapper that gzips text assets — real code, against `design/tech-stack.md`'s standing objection to build steps and middleware, but 184 KB per cold visit is a real number to weigh it against.
-3. **Caching.** Bun fingerprints the asset paths (`index-00000000ab17d8e9.js`), so they are safe to cache forever — but only if something sets `Cache-Control`. Nothing does. A returning visitor re-downloads the bundle on every cold start, which makes item 2 worse in proportion.
+**Caching is the part that remains.** Bun fingerprints the asset paths, so they
+are safe to cache forever, but nothing sets `Cache-Control`. What Bun does send
+is an `ETag`, and it honours `If-None-Match` with a 304 — so a returning visitor
+pays one round trip rather than re-downloading 120 KB. That is cheap enough that
+it is not worth code, and it is recorded so nobody reopens it on a hunch.
 
-None of this blocks a deploy. It is recorded because "one to two seconds" is the claim this document makes about the experience, and on a phone that claim is currently wrong by the download.
+**The asset paths come out as `/../../chunk-y0m076hy.js`.** Browsers normalise
+that to `/chunk-y0m076hy.js` per the URL spec and it loads correctly — verified
+against the deployed app. Requested literally, without normalisation, that path
+falls through to the `/*` route and returns the HTML shell with a 200, which
+would be a confusing thing to debug. It is cosmetic today and worth knowing
+before it is not.
 
 ### No health check
 
@@ -571,15 +585,10 @@ providers' own pricing pages in September 2026 rather than carried forward.
 
 ## Open decisions
 
-**Does Fly Proxy compress on the way out?** This is the one worth answering
-first, because it is the only thing standing between the current state and a
-decision about a build step. `Bun.serve` cannot be configured to compress, so
-the 269 KB client bundle goes out uncompressed from the app; whether the proxy
-in front of it gzips is not knowable from a laptop. One `curl -H 'Accept-Encoding:
-gzip'` against the deployed URL settles it. If it does, the note above is just a
-record. If it does not, 184 KB a cold visit is the number to weigh a
-`Bun.build`-and-serve-it-ourselves step against — and that number should be
-measured before the code is written, not after.
+**Answered — Fly Proxy compresses.** This sat at the top of this list as the
+only thing standing between here and a decision about a build step. It gzips:
+270,714 bytes down to 120,013 over the wire, JS and CSS alike. No build step, no
+response wrapper, nothing to write. See *The bundle is 270 KB* above.
 
 **Turso now points new projects at "Turso Sync" rather than embedded replicas.**
 Embedded replicas remain documented and supported, with a Fly guide of their own,
