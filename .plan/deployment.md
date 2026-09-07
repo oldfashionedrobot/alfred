@@ -109,24 +109,60 @@ It does not cover *"I deleted something last week."* If that matters, the answer
 
 ## The app on Fly
 
-### It sleeps when idle
+### It sleeps when idle, and waking costs seven seconds
 
 `auto_stop_machines` on, `min_machines_running = 0`. The machine stops when no requests arrive and starts again on the next one.
 
-The cost, measured rather than estimated:
-
-Re-measured after v8, three runs, on this machine:
+**Measured against the deployed app** by stopping the machine, confirming it
+reached `stopped`, and timing the request that wakes it:
 
 | | |
 |---|---|
-| Boot → answering `/api/day` | **~80 ms** |
-| First HTML request, which bundles the client | **~42 ms** |
-| Fly machine start | ~0.5–1 s |
-| Replica delta sync (with the volume) | negligible |
+| Fly machine start — Firecracker, volume fsck and mount | ~1.4 s |
+| **Our own boot** — `Preparing to run` to `alfred → localhost:8080` | **~5.1 s** |
+| **Total, first tap after idle** | **~7 s** |
+| Every request after that | 80–190 ms |
 
-So roughly **one to two seconds of server time on the first tap after idle**, then instant until it sleeps again. In exchange the machine bills only for the minutes it is awake.
+An earlier version of this table said 80 ms of boot and "one to two seconds"
+overall. That was wrong, and the way it was wrong is the part worth keeping: 80 ms
+was measured by timing a request against a server that was *already running*,
+which measures the request and not the boot at all.
 
-**That table is only the server's half, and the other half is bigger.** See the next section.
+**It is not the Turso sync**, which was the obvious suspect. Timing `initDb()`
+directly gives ~1.3 s against a warm replica, ~1.4 s against a cold one, and
+~1.2 s with no Turso configured at all. The sync is not the term. What costs is
+module loading plus `migrate()`, and a shared vCPU turns a ~1.7 s laptop boot
+into ~5 s.
+
+**Left as it is, deliberately.** Seven seconds on the first tap of the day is
+worse than this document claimed and better than it sounds: it happens once, and
+everything after is under 200 ms. The fixes are known and none is free:
+
+- `min_machines_running = 1` removes the cold start outright, for roughly $2/month and the end of scale-to-zero.
+- Serving before `initDb()` completes only moves the wait, unless the first request is allowed to answer from an unmigrated file.
+- Trimming module load means giving up the no-build-step decision that the rest of this project rests on.
+
+Worth revisiting if the first tap of the morning starts to annoy. Not worth pre-empting.
+
+### Fly Doctor says the app is not listening, and it is wrong
+
+The dashboard reports *"App is not listening to the expected port... make sure
+your app is listening to 0.0.0.0 and not localhost"*. The app is fine, and the
+suggested fix would break it.
+
+`Bun.serve` binds the IPv6 wildcard `::`, which Linux serves for both address
+families. Checked from inside the machine: `127.0.0.1:8080` and `[::1]:8080`
+both answer 200, while `/proc/net/tcp` shows no IPv4 listener at all — normal
+dual-stack behaviour, and apparently not what Doctor looks for.
+
+**Setting `hostname: '0.0.0.0'` would bind IPv4 only**, and Fly's proxy reaches
+machines over the private IPv6 network. Taking Doctor's advice would turn a
+working app into a 502.
+
+What most likely triggered it: `auto_stop_machines` means a probe often arrives
+at a stopped machine, and the seven-second boot above widens the window in which
+one arrives before Bun has bound. A second, smaller reason to care about boot
+time eventually.
 
 ### The client still bundles at startup
 

@@ -4,7 +4,7 @@ A household task tracker. Replaces a spreadsheet that lost its history every wee
 
 Two kinds of document live in [`.plan/`](.plan/).
 
-**[`deployment.md`](.plan/deployment.md)** is the plan for putting this somewhere a phone can reach — design, not yet built.
+**[`deployment.md`](.plan/deployment.md)** is the deployment: how it is containerised, hosted and released, and what the measurements turned out to be once it was running.
 
 **[`changes.md`](.plan/changes.md) is the running log and the authoritative one.** Every change since the first build is recorded there in order, including the decisions that were reversed and why.
 
@@ -22,7 +22,7 @@ Two kinds of document live in [`.plan/`](.plan/).
 
 ## Running it
 
-Requires [Bun](https://bun.sh). Local only for now.
+Requires [Bun](https://bun.sh). This runs the app against a local file, with no network and no Turso account.
 
 ```sh
 bun install
@@ -76,8 +76,8 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 |---|---|
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
-| `bun test tests/` | period logic and view builders |
-| `bun run e2e` | the three screens, in a real browser |
+| `bun test` | 171 unit tests: periods, ordering, placement, view builders, per-user isolation |
+| `bun run e2e` | 256 browser tests, mobile and desktop viewports |
 | `bun run db:generate` | new migration from a schema change |
 | `bun run db:studio` | browse the database |
 
@@ -102,7 +102,8 @@ src/
   shared/types.ts      the wire contract, imported by both sides
   server/
     schema.ts          drizzle tables
-    db.ts              bun:sqlite (WAL), migrations, mood seed
+    db.ts              libSQL: a local file, or a Turso replica when TURSO_URL is set
+    auth.ts            argon2id, and a session cookie signed with the password hash
     period.ts          all period derivation
     sort.ts            the one ordering function
     today.ts           the only clock read in the codebase
@@ -114,7 +115,7 @@ src/
     api.ts             typed fetch, the client's only I/O
     dates.ts           the one date formatter
     ui.tsx             shared primitives: button, tick, day picker, notice
-    views/             Day, History, and the Routine and Backlog panels Day hosts
+    views/             Day, History, Login, and the Routine and Backlog panels Day hosts
 assets/                source art, not bundled
 tests/                 period logic and view builders
 e2e/                   Playwright, one server + one database per test
@@ -145,7 +146,7 @@ Each of these is deliberate and argued in `.plan/`. Read before "fixing".
 - **The moods are not editable in the app.** That is a decision, not an omission — see above.
 - **A category renders nothing.** It is a sort key: it clusters same-category tasks inside a group and shows no heading, chip or label. Baseline outranks it, so baseline tasks sort above their own category rather than with it.
 - **`Dog` and `dog` are two categories.** Category is free text matched exactly; the editor suggests existing ones so picking beats retyping, but nothing normalises them.
-- **`planned_date` can never be set beyond this Saturday.** Forward is bounded; backward is not.
+- **How far ahead a task can be placed depends on the task.** A one-off is unbounded — any future date. A recurring task reaches to the end of *its own period* or this Saturday, whichever is further, so a monthly task can be placed three weeks out and a daily one never leaves the week. Backward is never allowed. The Day screen still shows only this week; a placement beyond it is visible as a date stamp in the Routine and Backlog panels.
 
 ---
 
@@ -158,12 +159,22 @@ sqlite3 data/alfred.db .dump > backup.sql
 sqlite3 data/alfred.db "SELECT * FROM completions ORDER BY completed_on DESC LIMIT 20;"
 ```
 
-This assumes local SQLite and is the assumption that ruled out artifact-style deployment.
+That is the development database. In production the durable copy is Turso's and the file on the Fly volume is a replica, so a dump is taken either from Turso's dashboard or against a local replica with `TURSO_URL` set. Losing the volume loses nothing.
 
 ---
 
-## Not built yet
+## Deployed
 
-Deployment. [`deployment.md`](.plan/deployment.md) is the plan; nothing in it is built yet except auth, which landed with accounts. What remains is a Dockerfile, a `fly.toml`, and the GitHub Actions workflow that runs the suite and deploys.
+Live at **[gg-alfred.fly.dev](https://gg-alfred.fly.dev)** — one Fly machine in `iad` that sleeps when idle, against a Turso database in AWS US East. Every push to `main` runs the suite, builds the image, deploys, and then asks `/api/status` whether the running build reports the commit it just shipped.
 
-Both of the decisions this section used to defer are now made: `DB_PATH` points at a Fly volume holding a Turso replica, and auth is accounts rather than the shared password `tech-stack.md` originally sketched — see [`changes-v9.md`](.plan/changes-v9.md) for why that changed.
+[`deployment.md`](.plan/deployment.md) holds the whole of it, including the parts that did not go to plan: a seven-second cold start that the design predicted at one to two, a Fly Doctor warning that is a false positive whose suggested fix would break the app, and the CA certificates the container needed that the base image was assumed to have.
+
+Accounts are made against the deployed database from a laptop, with no SSH:
+
+```sh
+DB_PATH=/tmp/alfred-admin.db bun run user:add owner
+```
+
+With `TURSO_URL` in `.env` that opens a throwaway replica, writes through to Turso, and the running machine picks it up inside its sixty-second sync. The `DB_PATH` override matters — without it you would be setting a password in the development database.
+
+**Still not covered: Safari.** The browser suite runs Chrome only, and Safari is the browser this is actually used in.
