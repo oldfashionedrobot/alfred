@@ -365,8 +365,7 @@ one step in this plan that nothing local can stand in for, and it needs no
 container:
 
 ```sh
-TURSO_URL=libsql://... TURSO_AUTH_TOKEN=... DB_PATH=/tmp/alfred-check.db \
-  bun src/server/index.ts
+DB_PATH=/tmp/alfred-check.db bun --env-file=.env.turso src/server/index.ts
 ```
 
 That runs the production path — `client.sync()`, then `migrate()`, then the mood
@@ -417,7 +416,7 @@ step, and it is easier from a laptop than over SSH. Note the `DB_PATH` override 
 without it this opens the development database instead of a throwaway replica:
 
 ```sh
-DB_PATH=/tmp/alfred-admin.db bun run user:add owner
+DB_PATH=/tmp/alfred-admin.db bun --env-file=.env.turso run user:add owner
 ```
 
 That opens a throwaway local replica, writes through to Turso, and the machine
@@ -596,7 +595,7 @@ document's shared-password design. Creating the first account is a one-off
 
 `DB_PATH=/data/alfred.db` and `PORT` live in `fly.toml`, since they describe the machine's layout rather than a secret.
 
-Locally the same variables go in a gitignored `.env`, which Bun loads automatically. `.env.example` is the tracked template, and documents that every one of them is optional — with none set, the app runs against a local file with no authentication.
+Locally, `DB_PATH` and `PORT` may go in a gitignored `.env`, which Bun loads automatically. **The Turso credentials deliberately do not**: Bun loads `.env` in every process started in the directory, so anything there reaches the test suite and every throwaway script as well as the app — which is exactly how the browser suite came to write into production. They live in `.env.turso`, which nothing reads without `--env-file`. `.env.example` is the tracked template and explains the split.
 
 ---
 

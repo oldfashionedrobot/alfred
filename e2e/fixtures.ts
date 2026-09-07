@@ -19,7 +19,7 @@ export class Seed {
   constructor(private readonly dbPath: string) {}
 
   private run(op: Record<string, unknown>): Record<string, any> {
-    const out = execFileSync('bun', ['e2e/seed-cli.ts', this.dbPath, JSON.stringify(op)], {
+    const out = execFileSync('bun', ['--no-env-file', 'e2e/seed-cli.ts', this.dbPath, JSON.stringify(op)], {
       cwd: ROOT,
       encoding: 'utf8',
     })
@@ -144,8 +144,13 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
      * the child reads them back. An explicitly-passed variable does beat `.env`,
      * so an empty string is the only thing that reaches the child as "unset" —
      * and `db.ts` treats an empty URL as unset for exactly this reason.
+     *
+     * `--no-env-file` is the second, independent guard: the credentials now live
+     * in `.env.turso`, which nothing loads unless asked, and this keeps the suite
+     * correct no matter what anybody later puts back into `.env`. Two guards,
+     * because one of them was already believed to be working while it was not.
      */
-    const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
+    const proc: ChildProcess = spawn('bun', ['--no-env-file', 'src/server/index.ts'], {
       cwd: ROOT,
       env: { ...process.env, TURSO_URL: '', TURSO_AUTH_TOKEN: '', DB_PATH: dbPath, PORT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],

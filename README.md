@@ -91,6 +91,8 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 
 With `TURSO_URL` unset the app is a plain local libSQL file — which is how development and the whole test suite run, so neither needs a network or a Turso account. Set it and that same file becomes a replica synced from Turso: reads stay local and fast, writes go to Turso, and the durable copy is the one in the cloud.
 
+**The Turso credentials do not live in `.env`.** Bun loads `.env` in every process started here, so anything in it reaches the app, the test suite and every throwaway script alike — which is how the browser suite once wrote ~200 rows into production. They live in the gitignored `.env.turso`, and reaching the real database is an explicit `bun --env-file=.env.turso ...`. See [`changes-v10.md`](.plan/changes-v10.md).
+
 ---
 
 ## Shape
@@ -172,7 +174,7 @@ Live at **[alfred.goodghost.com](https://alfred.goodghost.com)** — one Fly mac
 Accounts are made against the deployed database from a laptop, with no SSH:
 
 ```sh
-DB_PATH=/tmp/alfred-admin.db bun run user:add owner
+DB_PATH=/tmp/alfred-admin.db bun --env-file=.env.turso run user:add owner
 ```
 
 With `TURSO_URL` in `.env` that opens a throwaway replica, writes through to Turso, and the running machine picks it up inside its sixty-second sync. The `DB_PATH` override matters — without it you would be setting a password in the development database.

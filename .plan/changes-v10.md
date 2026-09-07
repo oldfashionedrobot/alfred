@@ -140,10 +140,35 @@ was **not** the cause; it was very nearly removed on a plausible story. And the
 diagnostic scripts written to investigate the leak reproduced it, adding twenty
 more rows to production before they were deleted.
 
-**What would have caught it earlier.** Nothing in the suite asserts it is talking
-to a local file. A test that reads `/api/status` and fails if the server is a
-replica would have turned a silent hour into an immediate red line, and is worth
-adding.
+**What would have caught it earlier.** Nothing in the suite asserted it was
+talking to a local file. `harness.spec.ts` now does: a replica keeps a `-info`
+file beside its database and a plain local file does not, so the difference is
+one `existsSync`. The isolation tests beside it prove each test's database
+differs from the last, which is not the same claim and is why this ran silently.
+
+### The credentials moved out of `.env`
+
+Fixing the fixture fixes the suite and nothing else. Bun loads `.env` in **every**
+process started in this directory, so anything there reaches every throwaway
+script too — which is not hypothetical either: the diagnostics written to
+investigate this leak reproduced it, and put another twenty rows in production
+before they were deleted.
+
+So `.env` no longer holds them. `.env.turso` does, gitignored, and nothing loads
+it without being asked:
+
+```sh
+bun --env-file=.env.turso run user:add owner
+```
+
+The default in this directory is now a local file, and reaching the real database
+is a visible act in the command that does it. `.env` survives as comments saying
+so, because the place someone would paste credentials back is the place to
+explain why not to.
+
+The fixture also passes `--no-env-file` now. That is a second guard where one
+would do, and it is deliberate: the first guard was believed to be working while
+it was not, and this one holds no matter what anybody later puts in `.env`.
 
 ---
 
