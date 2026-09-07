@@ -17,3 +17,6 @@ test-results/
 
 # typescript incremental build cache
 *.tsbuildinfo
+
+# scratch file for `fly secrets import` — never commit one of these
+secrets.txt
