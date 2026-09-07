@@ -79,6 +79,26 @@ The earlier reasoning was not wrong about the database being small. It missed th
 
 **The volume is still an optimisation, not a safety measure.** Deleting it loses nothing at all — Turso holds the data, and a fresh machine rebuilds the file on boot.
 
+**Creating it prints a warning, and half of it applies.** Fly says to run two or
+more volumes per app, because "volumes don't have built-in replication between
+them, so your application must handle data synchronization". This one does — that
+is what Turso is — so the data-loss half does not apply, and two volumes is not
+available to us anyway: a volume attaches to one machine, and two machines is the
+arrangement *Exactly one machine* rules out.
+
+The availability half is real and was under-weighted here. If the drive fails the
+machine goes down and **Fly does not move it**; recovery is manual — destroy the
+machine and volume, create another, redeploy — and the replica rebuilds from
+Turso. Minutes of work, no data lost, but down until somebody notices. A
+single-machine app also has a brief outage on each deploy.
+
+Which leaves a fair question: is the volume worth having? Its only job is to stop
+each wake re-bootstrapping the database against a 3 GB monthly sync allowance.
+Measured, the replica is **131 KB**, so twenty wakes a day is about 78 MB a
+month — 2.6%. Keeping it, because the headroom is the term that only shrinks and
+a pinned host costs a rare afternoon rather than any data. Dropping it is
+deleting `[mounts]` and the `DB_PATH` line, if the pinning ever bites.
+
 ### Backups
 
 Turso's free tier includes **one day of point-in-time restore**. That covers the realistic accident: a bad bulk action or a mistaken archive, noticed the same day.
