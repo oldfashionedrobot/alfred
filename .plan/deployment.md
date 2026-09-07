@@ -345,8 +345,14 @@ picks it up inside its sixty-second sync.
 
 **Region is the one thing to get right before any of it.** Every write is a round
 trip to Turso: colocated that is single-digit milliseconds, mismatched it is
-100 ms+ on every tick. Both use the same three-letter codes. Free to get right
+100 ms+ on every tick. Free to get right
 now, annoying to change later.
+
+**The two providers no longer name regions the same way.** Fly uses its own
+three-letter codes; Turso Cloud now offers cloud-provider regions, so the pair
+that colocates is Fly `iad` with Turso's **AWS US East (N. Virginia)**. Confirmed
+by resolving the database's hostname rather than by reading the names: it
+answers from an Amazon address in Ashburn, Virginia, which is where `iad` is.
 
 **`iad`.** Fly no longer has Atlanta or Miami — the whole US list is `dfw`,
 `ewr`, `iad`, `lax`, `ord` and `sjc`, read out of the region table rather than

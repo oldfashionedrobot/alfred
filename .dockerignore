@@ -1,0 +1,30 @@
+# node_modules is the one that matters: copying the host's in would put macOS
+# libSQL binaries into a Linux image. The rest is build-context weight.
+node_modules
+
+# Secrets. Nothing COPYs these, and they are not going to start.
+.env
+.env.*
+!.env.example
+
+# The development database.
+data
+*.db
+*.db-shm
+*.db-wal
+
+# Tests, their output, and everything else the runtime never reads.
+e2e
+tests
+e2e-report
+test-results
+playwright.config.ts
+.plan
+.claude
+.github
+assets
+.git
+.gitignore
+*.tsbuildinfo
+.DS_Store
+README.md
