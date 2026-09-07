@@ -1,6 +1,6 @@
 # alfred — Deployment
 
-Status: **deployed and running** at https://gg-alfred.fly.dev — one machine in `iad`, against a Turso database in AWS US East (N. Virginia). CI deploys every push to `main` and smoke-tests the result.
+Status: **deployed and running** at **https://alfred.goodghost.com** (and at `gg-alfred.fly.dev`, which is the platform name underneath) — one machine in `iad`, against a Turso database in AWS US East (N. Virginia). CI deploys every push to `main` and smoke-tests the result.
 Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md) and [`changes-v9.md`](changes-v9.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
@@ -645,7 +645,24 @@ urgent and redesigning now would be building against a rumour. It is recorded
 because a recommendation like that tends to become a migration in a year, and the
 time to have noticed is before, not during.
 
-**A custom domain, eventually.** Fly issues `<app>.fly.dev` with a working certificate, so nothing is blocked. Adding one later is `fly certs add` plus two DNS records, and changes nothing else here.
+**Done — the app is at `alfred.goodghost.com`.** It needed `fly certs add`, an
+AAAA record to the app's dedicated IPv6, an A record to its shared IPv4, and a
+`_fly-ownership` TXT record; Fly wants at least one of the AAAA, the TXT, or an
+`_acme-challenge` CNAME, and two of the three is fine. **Nothing in the app
+changed** — there are no hardcoded hostnames, the session cookie is host-only, and
+`force_https` was already set.
+
+Two things to know if it is ever done again. `fly certs list` reporting *Issued*
+while `fly certs check` reports *Not verified* is not a contradiction: the list
+column means a certificate record exists, and the dashboard's "Issuing…" is the
+honest status. And issuance takes a while after the DNS is right — the way to
+tell a slow issue from a broken one is [Let's Debug](https://letsdebug.net/),
+which Fly's own documentation recommends and which answered `ok` here well before
+the certificate appeared.
+
+The CI smoke test still asks `gg-alfred.fly.dev`, deliberately: that name is
+guaranteed by the platform and does not depend on a registrar, so it tests the
+deploy rather than the DNS.
 
 **Where `user:add` is run from, long term.** The bootstrap is documented above.
 Adding a second person later is the same command against Turso, which is fine

@@ -165,7 +165,7 @@ That is the development database. In production the durable copy is Turso's and 
 
 ## Deployed
 
-Live at **[gg-alfred.fly.dev](https://gg-alfred.fly.dev)** — one Fly machine in `iad` that sleeps when idle, against a Turso database in AWS US East. Every push to `main` runs the suite, builds the image, deploys, and then asks `/api/status` whether the running build reports the commit it just shipped.
+Live at **[alfred.goodghost.com](https://alfred.goodghost.com)** — one Fly machine in `iad` that sleeps when idle, against a Turso database in AWS US East. `gg-alfred.fly.dev` is the platform name underneath and still answers. Every push to `main` runs the suite, builds the image, deploys, and then asks `/api/status` whether the running build reports the commit it just shipped.
 
 [`deployment.md`](.plan/deployment.md) holds the whole of it, including the parts that did not go to plan: a seven-second cold start that the design predicted at one to two, a Fly Doctor warning that is a false positive whose suggested fix would break the app, and the CA certificates the container needed that the base image was assumed to have.
 
