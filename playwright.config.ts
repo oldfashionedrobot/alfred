@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  // One retry in CI only. A retried pass is reported as *flaky* rather than as
+  // passed, so a real race still surfaces — but a single blip does not block a
+  // deploy. Locally 0, where a flake is worth stopping for.
+  retries: process.env.CI ? 1 : 0,
   workers: 4,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'e2e-report' }]],
   timeout: 30_000,

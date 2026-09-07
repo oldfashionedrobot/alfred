@@ -165,6 +165,7 @@ RUN bun install --frozen-lockfile --production
 # migrations from './drizzle', relative to the working directory.
 COPY src ./src
 COPY drizzle ./drizzle
+COPY tsconfig.json ./
 
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA NODE_ENV=production
@@ -174,6 +175,13 @@ CMD ["bun", "src/server/index.ts"]
 **No build stage**, because the client is bundled on the first request rather
 than compiled ahead of time — the same decision `design/tech-stack.md` made and
 the cold-start measurements above re-confirmed.
+
+**`tsconfig.json` is a runtime input here**, which it would not be for an app
+that compiled ahead of time. The client is bundled by `Bun.serve` on the first
+request *inside the container*, and Bun reads tsconfig for `jsx: react-jsx` and
+`moduleResolution: bundler`. Bun's own defaults may well cover both — the line
+costs nothing and removes the question, and a local `docker build` settles
+whether it was ever needed.
 
 **`-slim` rather than `-alpine` or `-distroless`.** All three exist for 1.3.14
 on amd64 and arm64 (checked against the registry, not remembered). Alpine is
@@ -239,25 +247,74 @@ about 2.5× headroom.
 
 **No `[checks]`** — see *No health check* above.
 
+### Exactly one machine
+
+`fly deploy --ha=false`, then `fly scale count 1` to confirm. **The `--ha` flag
+defaults to true** — checked against `flyctl deploy --help` rather than
+remembered — so the default behaviour is to create spare machines, and all three
+reasons here point the other way.
+
+The volume attaches to exactly one machine, so a spare either fails to start or
+comes up with no database file. Each machine keeps *its own replica* on a
+sixty-second sync, so a tick on one is invisible on the other for up to a minute
+— which on a single-writer app reads as data loss rather than as staleness. And
+high availability buys nothing that is not already here: Fly restarts a machine
+whose process exits, and with scale-to-zero a cold start is the normal path
+rather than a failure.
+
+Cheaper, too — one machine's minutes instead of two.
+
 ## Getting there
 
-Turso first, because Fly needs its credentials as secrets:
+### Tooling
+
+Installed and verified on the development machine: `flyctl` 0.4.99, `colima`
+0.10.3, `docker` 29.8.0. Colima is not started — `colima start` pulls a VM
+image, worth doing when there is actually an image to build.
+
+**No Turso CLI.** Homebrew's core `turso` is a different tool, the local SQL
+shell for their new engine rather than the cloud CLI, and the real one lives in
+`tursodatabase/tap` — which Homebrew requires an explicit `brew trust` to load.
+That is a decision about running a third party's formula code, and it is not one
+to make in passing for a tool that is not needed: creating one database,
+choosing its region and generating one token are all dashboard operations. The
+CLI earns its place only if `turso db dump` backups are wanted later.
+
+### Turso first, because Fly needs its credentials as secrets
+
+From the dashboard: create the database in the chosen region, take its URL
+(`TURSO_URL`), generate a token (`TURSO_AUTH_TOKEN`).
+
+**Then boot the real server against it, before building anything.** This is the
+one step in this plan that nothing local can stand in for, and it needs no
+container:
 
 ```sh
-turso db create alfred --location iad
-turso db show alfred --url          # -> TURSO_URL
-turso db tokens create alfred       # -> TURSO_AUTH_TOKEN
+TURSO_URL=libsql://... TURSO_AUTH_TOKEN=... DB_PATH=/tmp/alfred-check.db \
+  bun src/server/index.ts
 ```
 
-Then Fly:
+That runs the production path — `client.sync()`, then `migrate()`, then the mood
+seed — through a real embedded replica. Whether drizzle's migrator can write
+through a replica is the one claim in this document that no amount of local
+testing settles, and this is how it gets settled on a laptop rather than in a
+deploy.
+
+### Then Fly
 
 ```sh
 fly auth login
-fly apps create alfred-XXXX
-fly volumes create alfred_data --size 1 --region iad
+fly apps create <name>
+fly volumes create alfred_data --size 1 --region <region>
 fly secrets set TURSO_URL=... TURSO_AUTH_TOKEN=...
-fly deploy --build-arg BUILD_SHA=$(git rev-parse HEAD)
+fly deploy --ha=false --build-arg BUILD_SHA=$(git rev-parse HEAD)
 ```
+
+**The name `alfred` is taken.** It resolves to a Fly IP where an invented
+control name does not, so that is a real app rather than a DNS wildcard.
+`alfred-ofr`, `alfred-household`, `alfred-tasks`, `alfred-butler` and
+`oldfashionedrobot-alfred` were all free when checked. It is only the default
+URL — a custom domain can front it later, so it is not worth deliberating over.
 
 **The first boot runs the migrations against Turso** and creates the `owner`
 account with no password, so the app comes up locked: the login form is there and
@@ -276,6 +333,13 @@ picks it up inside its sixty-second sync.
 trip to Turso: colocated that is single-digit milliseconds, mismatched it is
 100 ms+ on every tick. Both use the same three-letter codes. Free to get right
 now, annoying to change later.
+
+For a household in the US southeast the candidates are `atl`, `mia` and `iad`.
+Note which distance actually matters: the phone's distance to the app costs one
+round trip on the initial load, while a Fly/Turso mismatch costs one on every
+tick. Matching the two providers to each other beats shortening the last mile.
+Fly's region list needs a login to read and Turso keeps its own, so the
+intersection is checked at account-creation time rather than assumed here.
 
 ## Deploying
 
@@ -360,13 +424,26 @@ One workflow, on every push and pull request:
 | `flyctl deploy` | `main` only, after the above are green |
 | smoke test | request the public URL, assert the deployed SHA |
 
-Two details this suite needs:
+What this suite needs from a runner:
 
 **Chrome.** `playwright.config.ts` pins `channel: 'chrome'` — real Google Chrome, chosen locally to avoid downloading Playwright's browsers. A runner needs `bunx playwright install --with-deps chrome`.
 
 **WebKit, and this is now a real gap rather than a nicety.** v8 put the day picker in a `popover`, positioned with CSS anchor positioning where it exists and falling back to the UA's centred placement where it does not. Two paths cannot be tested Chrome-only: that fallback, and what iOS's native date picker does to an open popover. The second is not hypothetical — the equivalent bug on desktop Chrome was real, shipped, and found by hand: `popover="auto"` treated the browser's own calendar chrome as a click outside, so changing month dismissed the picker and placed a task. Safari is the browser this app will actually be used in. Adding `webkit` to the matrix is cheap on a runner and expensive to keep deferring.
 
 **The weekday matrix, weekly rather than per-push.** The suite's behaviour depends on the day: a Saturday offers one placeable date, a Sunday seven, and different tests skip on each. A `TZ` matrix on every push doubles browser minutes for a property that only changes when the scheduling rules change. A weekly scheduled run across both is the better trade — and is where the fixture bugs that bit twice during the build would have been caught.
+
+**One retry, in CI only** — `retries: process.env.CI ? 1 : 0`. Playwright
+reports a test that passes on retry as *flaky* rather than as passed, so a real
+race still surfaces in the report instead of being swallowed, while a single
+blip does not block a deploy. This is worth stating rather than defaulting into,
+because the only flakiness this suite has ever had was a genuine bug — the
+harness bound port zero, closed the socket, then handed it over, so a test could
+reach another test's database — and a higher retry count would have buried it.
+Locally it stays at 0, where a flake is worth stopping for.
+
+**`workers: 4` is left alone** until there is a measurement. Oversubscribing a
+runner does not break Playwright, it only runs slower, and the first CI run
+reports both the core count and the wall time. Tuning before that is guessing.
 
 Actions is free on a public repository.
 
