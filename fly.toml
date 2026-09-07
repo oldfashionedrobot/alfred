@@ -1,0 +1,32 @@
+# alfred — see .plan/deployment.md
+#
+# One machine, asleep unless somebody is using it. Deploy with --ha=false;
+# a second machine cannot have the volume, and would run a replica of its own
+# on a sixty-second sync, which on a single-writer app reads as data loss.
+
+app = "gg-alfred"
+primary_region = "iad"          # Turso is on AWS US East (N. Virginia), same metro
+
+[build]
+
+[env]
+  PORT = "8080"
+  DB_PATH = "/data/alfred.db"   # on the volume, so a wake syncs a delta not the world
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# No [checks]. A health check cannot run while the machine is stopped, and CI's
+# post-deploy smoke test against /api/status gates a bad release better.
+
+[mounts]
+  source = "alfred_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"              # measured: 67 MB at boot, 101 MB once bundling is done

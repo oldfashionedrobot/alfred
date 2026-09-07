@@ -1,6 +1,6 @@
 # alfred — Deployment
 
-Status: **auth is built; the container, `fly.toml` and CI are not.** Nothing is deployed.
+Status: **everything is written — auth, the container, `fly.toml`, CI — and nothing is deployed yet.** The app is `gg-alfred`, in `iad`, against a Turso database in AWS US East (N. Virginia).
 Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md) and [`changes-v9.md`](changes-v9.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
@@ -319,17 +319,27 @@ deploy could fail.
 
 ```sh
 fly auth login
-fly apps create <name>
-fly volumes create alfred_data --size 1 --region <region>
-fly secrets set TURSO_URL=... TURSO_AUTH_TOKEN=...
+fly apps create gg-alfred
+fly volumes create alfred_data --size 1 --region iad -a gg-alfred
+fly secrets import -a gg-alfred < secrets.txt   # NAME=VALUE pairs on stdin
 fly deploy --ha=false --build-arg BUILD_SHA=$(git rev-parse HEAD)
 ```
 
-**The name `alfred` is taken.** It resolves to a Fly IP where an invented
-control name does not, so that is a real app rather than a DNS wildcard.
-`alfred-ofr`, `alfred-household`, `alfred-tasks`, `alfred-butler` and
-`oldfashionedrobot-alfred` were all free when checked. It is only the default
-URL — a custom domain can front it later, so it is not worth deliberating over.
+**`fly secrets import` rather than `fly secrets set`**, because `set` takes the
+values as arguments and a Turso write token does not belong in a shell history
+file. `import` reads `NAME=VALUE` pairs from stdin.
+
+Then CI needs a deploy token of its own — scoped to this app, granting no shell,
+opening no port, and revocable without touching anything else:
+
+```sh
+fly tokens create deploy -a gg-alfred | gh secret set FLY_API_TOKEN
+```
+
+**The app is `gg-alfred`**, because `alfred` itself is taken: it resolves to a
+Fly IP where an invented control name does not, so that is a real app rather
+than a DNS wildcard. This is only the default URL — a custom domain can front it
+later, so it was not worth deliberating over.
 
 **The app comes up locked**, because `owner` exists with no password: the login
 form is there and nothing verifies against it. Setting that password is the last
