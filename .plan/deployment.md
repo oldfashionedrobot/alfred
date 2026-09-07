@@ -532,7 +532,19 @@ What this suite needs from a runner:
 
 **Chrome.** `playwright.config.ts` pins `channel: 'chrome'` — real Google Chrome, chosen locally to avoid downloading Playwright's browsers. A runner needs `bunx playwright install --with-deps chrome`.
 
-**WebKit, and this is now a real gap rather than a nicety.** v8 put the day picker in a `popover`, positioned with CSS anchor positioning where it exists and falling back to the UA's centred placement where it does not. Two paths cannot be tested Chrome-only: that fallback, and what iOS's native date picker does to an open popover. The second is not hypothetical — the equivalent bug on desktop Chrome was real, shipped, and found by hand: `popover="auto"` treated the browser's own calendar chrome as a click outside, so changing month dismissed the picker and placed a task. Safari is the browser this app will actually be used in. Adding `webkit` to the matrix is cheap on a runner and expensive to keep deferring.
+**WebKit, and this is now a real gap rather than a nicety.** v8 put the day picker in a `popover`, positioned with CSS anchor positioning where it exists and falling back to the UA's centred placement where it does not. Two paths cannot be tested Chrome-only: that fallback, and what iOS's native date picker does to an open popover. The second is not hypothetical — the equivalent bug on desktop Chrome was real, shipped, and found by hand: `popover="auto"` treated the browser's own calendar chrome as a click outside, so changing month dismissed the picker and placed a task. Safari is the browser this app will actually be used in.
+
+**Investigated, and deliberately not adopted yet.** "Cheap on a runner" turned out
+to be half true, and the half that is false is the interesting part:
+
+- **The config change is small.** One config, four projects. The only thing forcing a split is `channel: 'chrome'` in the top-level `use`, which WebKit inherits and rejects; moved into the two Chrome projects, WebKit projects sit beside them. `isMobile` works in WebKit, so the viewports stay identical.
+- **It cannot run on this laptop.** Playwright 1.63 targets WebKit revision 2359, but its `browsers.json` pins `mac14` and `mac14-arm64` to 2251 — an older build that rejects `PushAPIEnabled`, a setting the driver sends on every `newPage()`. Every test dies in fixture setup before reaching the app. 1.63 is the current release, so there is nothing to upgrade to, and Playwright's WebKit is its own build — upgrading Safari changes nothing. macOS 15 would fix it.
+- **It runs fine in Linux.** The arm64 `mcr.microsoft.com/playwright:v1.63.0-noble` image carries `webkit-2359`, the matching revision. Adding Bun to that image and shadowing `node_modules` with a container volume gives a working local runner, if one is wanted.
+- **The app fails a lot of it.** A partial run reached 8 passed against 24 failed before it was stopped. These were real in-test failures at 10 seconds, not protocol errors — so the number is about the app, not the harness.
+
+That last point is why this is not a config change but a body of work. It stays a
+known gap: the browser this is used in is untested, and the estimate for closing
+that is now grounded rather than guessed.
 
 **The weekday matrix, weekly rather than per-push.** The suite's behaviour depends on the day: a Saturday offers one placeable date, a Sunday seven, and different tests skip on each. A `TZ` matrix on every push doubles browser minutes for a property that only changes when the scheduling rules change. A weekly scheduled run across both is the better trade — and is where the fixture bugs that bit twice during the build would have been caught.
 
