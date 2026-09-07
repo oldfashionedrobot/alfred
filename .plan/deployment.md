@@ -521,8 +521,8 @@ One workflow, on every push and pull request:
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | includes `e2e/`, which is how the CSS declaration gap surfaced |
-| `bun test` | 171 unit tests over the period logic, ordering, placement, view builders and cross-user isolation |
-| `bunx playwright test` | 256 browser tests across mobile and desktop viewports |
+| `bun test` | 180 unit tests over the period logic, ordering, placement, view builders, command writes and cross-user isolation |
+| `bunx playwright test` | 270 browser tests across mobile and desktop viewports |
 | `docker build` | the image, so a Dockerfile mistake fails here rather than on deploy |
 | `flyctl deploy` | `main` only, after the above are green |
 | smoke test | request the public URL, assert the deployed SHA |

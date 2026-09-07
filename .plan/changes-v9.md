@@ -298,3 +298,7 @@ session is simply there.
 The readiness probe waited for `/api/day` to return `ok`, which with auth on is
 `401` forever. It now probes `/api/status`, which is also where it reads the
 date from — so no test computes a date the server did not give it.
+
+---
+
+Continued in [`changes-v10.md`](changes-v10.md).

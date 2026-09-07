@@ -76,8 +76,8 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 |---|---|
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
-| `bun test` | 171 unit tests: periods, ordering, placement, view builders, per-user isolation |
-| `bun run e2e` | 256 browser tests, mobile and desktop viewports |
+| `bun test` | 180 unit tests: periods, ordering, placement, view builders, command writes, per-user isolation |
+| `bun run e2e` | 270 browser tests, mobile and desktop viewports |
 | `bun run db:generate` | new migration from a schema change |
 | `bun run db:studio` | browse the database |
 
@@ -117,9 +117,11 @@ src/
     api.ts             typed fetch, the client's only I/O
     dates.ts           the one date formatter
     ui.tsx             shared primitives: button, tick, day picker, notice
+    TaskFields.tsx     the task definition fields, shared by capture and the editor
+    TaskEditor.tsx     the editor itself, opened from Day rows and from the panel
     views/             Day, History, Login, and the Routine and Backlog panels Day hosts
 assets/                source art, not bundled
-tests/                 period logic and view builders
+tests/                 period logic, view builders, command writes, per-user isolation
 e2e/                   Playwright, one server + one database per test
 drizzle/               generated migrations
 ```
