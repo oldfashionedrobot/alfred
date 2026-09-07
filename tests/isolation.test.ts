@@ -1,11 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach } from 'bun:test'
-import { createClient, type Client } from '@libsql/client'
-import { drizzle } from 'drizzle-orm/libsql'
-import { migrate } from 'drizzle-orm/libsql/migrator'
+import { closeDb, freshDb, type Harness } from './harness.ts'
 import { eq } from 'drizzle-orm'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 import type { Cadence, ISODate } from '../src/shared/types.ts'
 import type { DB } from '../src/server/db.ts'
@@ -45,21 +40,12 @@ const shift = (date: ISODate, n: number): ISODate => {
 }
 const YESTERDAY = shift(TODAY, -1)
 
-const MIGRATIONS = join(import.meta.dir, '..', 'drizzle')
-let dir: string
-let client: Client
+let h: Harness
 let db: DB
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'alfred-isolation-'))
-  client = createClient({ url: `file:${join(dir, 'alfred.db')}` })
-  await client.execute('PRAGMA foreign_keys = ON')
-  db = drizzle(client, { schema })
-  await migrate(db, { migrationsFolder: MIGRATIONS })
-  await db.insert(schema.moods).values([
-    { slug: 'balanced', emoji: '😑', label: 'balanced', sort_order: 0, active: true },
-    { slug: 'happy', emoji: '😊', label: 'happy', sort_order: 1, active: true },
-  ])
+  h = await freshDb('isolation')
+  db = h.db
   const [other] = await db
     .insert(schema.users)
     .values({ username: 'other', password_hash: '', active: true })
@@ -67,10 +53,7 @@ beforeEach(async () => {
   B = other!.id
 })
 
-afterEach(() => {
-  client.close()
-  rmSync(dir, { recursive: true, force: true })
-})
+afterEach(() => closeDb(h))
 
 async function addTask(
   user_id: number,

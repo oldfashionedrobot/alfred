@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import type { ISODate } from '../shared/types.ts'
+import type { Cadence, ISODate, Placement } from '../shared/types.ts'
 import { shortDate } from './dates.ts'
 
 /**
@@ -175,6 +175,23 @@ export function Popover({
  * task's period IS this week, so it never grows one, while a monthly task gets
  * the rest of its month and a one-off gets no far edge at all.
  */
+/**
+ * The far edge for a cadence, from the server's `placement`. Falls back to the
+ * last chip — this week, the more restrictive of the two answers — rather than
+ * to null, which would read as unbounded.
+ *
+ * Lives here because it is the value `DayPicker`'s `max` takes, and because Day
+ * and To do both need it: it was the same nine lines, comment included, in both.
+ */
+export function placementMaxFor(
+  placement: Placement[],
+  placeableDates: ISODate[],
+  cadence: Cadence | null,
+): ISODate | null {
+  const found = placement.find((p) => p.cadence === cadence)
+  return found ? found.max : (placeableDates[placeableDates.length - 1] ?? null)
+}
+
 export function DayPicker({
   dates,
   today,

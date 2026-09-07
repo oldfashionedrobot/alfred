@@ -343,7 +343,7 @@ const MAX_BULK = 100
  * `create_task` cannot express at all.
  */
 async function createTasks(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
-  onlyFields(b, ['names'])
+  onlyFields(b, ['names', 'planned_date'])
   const raw = b['names']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
     throw new BadRequest('names must be an array of strings')
@@ -360,6 +360,9 @@ async function createTasks(db: DB, userId: number, b: Record<string, unknown>): 
   if (names.length === 0) throw new BadRequest('names must hold at least one name')
   if (names.length > MAX_BULK) throw new BadRequest(`names must hold at most ${MAX_BULK} names`)
 
+  // One date for the whole batch: "these five things, today" is the gesture.
+  const planned = 'planned_date' in b ? reqDateOrNull(b, 'planned_date') : null
+
   await db.insert(tasks)
     .values(
       names.map((name) => ({
@@ -367,7 +370,8 @@ async function createTasks(db: DB, userId: number, b: Record<string, unknown>): 
         name,
         is_baseline: false,
         cadence: null,
-        planned_date: null,
+        // Bulk capture makes one-offs, so there is no daily case to null out.
+        planned_date: planned,
         color: null,
         category: null,
         active: true,

@@ -765,21 +765,25 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
 // ---------------------------------------------------------------------------
 
 /**
- * Since v3 nothing on a Day row opens a form. The list is for doing: every tap
- * on it is made mid-task while working through the day, and a definition sheet
- * arriving from a mis-tap is the opposite of cheap. Editing is a name-tap in the
- * Routine panel — covered in e2e/todo.spec.ts.
+ * From v3 to v10 nothing on a Day row opened a form at all. v10 gave the row a
+ * distinct Edit button, and kept the half of that rule that was load-bearing:
+ * the NAME is not a control. Every tap on this list is made mid-task while
+ * working through the day, and a definition sheet arriving from a mis-tap is the
+ * opposite of cheap — which is an argument about the name, not about a button
+ * you have to aim at. See `.plan/changes-v10.md`.
  */
-test('no row in the Day list opens an editor', async ({ page, app }) => {
+test('a Day row name is not a control, though the row has an Edit button', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })
   await page.goto(app.url)
 
-  await expect(activeRegion(page).getByRole('button', { name: /^Edit / })).toHaveCount(0)
-
-  // The name is present, and is not a control.
+  // The name is present, and tapping it does nothing.
   await expect(activeRegion(page).getByText('Vacuum')).toBeVisible()
   await activeRegion(page).getByText('Vacuum').click()
   await expect(page.getByRole('dialog', { name: 'Edit task' })).toHaveCount(0)
+
+  // The button, aimed at deliberately, does.
+  await activeRegion(page).getByRole('button', { name: 'Edit Vacuum' }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit task' })).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -1621,4 +1625,123 @@ test('the week endpoint is gone, and the two that replaced it answer', async ({ 
   expect((await app.fetch('/api/week')).status).toBe(404)
   expect((await app.fetch('/api/day')).status).toBe(200)
   expect((await app.fetch('/api/todo')).status).toBe(200)
+})
+
+// ===========================================================================
+// Placing at capture, and editing from the day's own list — see changes-v10.md
+// ===========================================================================
+
+test('Add task opens capture with the day already chosen, and it lands on today', async ({
+  page,
+  app,
+}) => {
+  app.seed.task({ name: 'Existing daily', cadence: 'day' })
+  await page.goto(app.url)
+
+  await page.getByRole('button', { name: 'Add task', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+
+  // Prechecked: the whole point of the button is "something I am doing today".
+  await expect(sheet.getByRole('checkbox', { name: /Place today/ })).toBeChecked()
+
+  await sheet.getByRole('textbox', { name: 'Task name' }).fill('Ring the plumber')
+  await sheet.getByRole('button', { name: /^add$/i }).click()
+  await expect(sheet).toHaveCount(0)
+
+  await expect.poll(() => activeNames(page)).toContain('Ring the plumber')
+  const day = await dayView(app)
+  expect(day.active.find((t) => t.name === 'Ring the plumber')?.planned_date).toBe(day.date)
+})
+
+test('the capture button leaves the box clear, and still captures to the backlog', async ({
+  page,
+  app,
+}) => {
+  app.seed.task({ name: 'Existing daily', cadence: 'day' })
+  await page.goto(app.url)
+
+  await page.getByRole('button', { name: 'Capture a new item' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+
+  // The two entry points differ only in this. Capture is still for emptying
+  // your pockets; Add task is for the day in front of you.
+  await expect(sheet.getByRole('checkbox', { name: /Place today/ })).not.toBeChecked()
+
+  await sheet.getByRole('textbox', { name: 'Task name' }).fill('Replace the hose')
+  await sheet.getByRole('button', { name: /^add$/i }).click()
+  await expect(sheet).toHaveCount(0)
+
+  const captured = inventory(await todoView(app), 'Replace the hose')
+  expect(captured!.effective_date).toBeNull()
+  await expect.poll(() => activeNames(page)).not.toContain('Replace the hose')
+})
+
+test('Place today survives the switch to Many, and places every line', async ({ page, app }) => {
+  await page.goto(app.url)
+
+  await page.getByRole('button', { name: 'Add task', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+  await sheet.getByRole('button', { name: 'Many', exact: true }).click()
+
+  // One box governs both modes, so toggling does not quietly drop the choice.
+  await expect(sheet.getByRole('checkbox', { name: /Place today/ })).toBeChecked()
+
+  await sheet.getByRole('textbox', { name: 'One task per line' }).fill('Milk\nBin day')
+  await sheet.getByRole('button', { name: 'Add 2 tasks' }).click()
+  await expect(sheet).toHaveCount(0)
+
+  const day = await dayView(app)
+  const names = day.active.map((t) => t.name)
+  expect(names).toContain('Milk')
+  expect(names).toContain('Bin day')
+})
+
+test('a daily cadence disables Place today rather than ignoring it', async ({ page, app }) => {
+  await page.goto(app.url)
+
+  await page.getByRole('button', { name: 'Add task', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Capture' })
+  await sheet.getByRole('group', { name: 'More' }).count().catch(() => 0)
+  await sheet.getByRole('textbox', { name: 'Task name' }).fill('Stretch')
+  await sheet.getByText('More', { exact: true }).click()
+  await sheet.getByLabel('Cadence').selectOption('day')
+
+  // The server nulls the column for a daily task; the form says so rather than
+  // showing a ticked box that does nothing.
+  await expect(sheet.getByRole('checkbox', { name: /Place today/ })).toBeDisabled()
+
+  await sheet.getByRole('button', { name: /^add$/i }).click()
+  await expect(sheet).toHaveCount(0)
+  const made = inventory(await todoView(app), 'Stretch')
+  expect(made!.effective_date).toBeNull()
+})
+
+test('a row on the day list opens the editor, and a rename persists', async ({ page, app }) => {
+  app.seed.task({ name: 'Bins', cadence: 'week', planned_date: app.today })
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toContain('Bins')
+
+  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  const editor = page.getByRole('dialog', { name: 'Edit task' })
+  await editor.getByRole('textbox', { name: 'Task name' }).fill('The bins')
+  await editor.getByRole('button', { name: 'Save' }).click()
+
+  await expect(editor).toHaveCount(0)
+  await expect.poll(() => activeNames(page)).toContain('The bins')
+})
+
+test('the editor can clear a placement, which drops the task off today', async ({ page, app }) => {
+  app.seed.task({ name: 'Bins', cadence: 'week', planned_date: app.today })
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toContain('Bins')
+
+  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  const editor = page.getByRole('dialog', { name: 'Edit task' })
+  await editor.getByRole('button', { name: 'Clear day' }).click()
+  await editor.getByRole('button', { name: 'Save' }).click()
+
+  await expect(editor).toHaveCount(0)
+  // Placement is sent only when it changed — here it changed, to nothing.
+  await expect.poll(() => activeNames(page)).not.toContain('Bins')
+  expect(inventory(await todoView(app), 'Bins')!.effective_date).toBeNull()
 })

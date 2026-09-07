@@ -164,6 +164,27 @@
   min-height: var(--tap);
 }
 
+/* Pinned right, after the name has taken the space it wants. Quiet on purpose:
+   it is the least likely thing you want from a row you are looking at. */
+.day-row__edit {
+  margin-left: auto;
+  flex: none;
+  align-self: center;
+}
+
+/* The two controls travel together at the end of the bar; the heading keeps its
+   own side, which `space-between` would otherwise give away to the first button. */
+.day-section-actions {
+  display: flex;
+  gap: var(--gap-1);
+}
+
+/* Between the One/Many toggle and whichever form it governs, because it governs
+   both. */
+.capture-today {
+  margin-block: var(--gap-2);
+}
+
 /* Baseline band: a quiet tint, not a heading. The server has already sorted
    these to the top; the boundary is read off is_baseline, never re-grouped. */
 .day-row--baseline {

@@ -46,3 +46,24 @@ test('no console errors on load', async ({ page, app }) => {
   await page.waitForLoadState('networkidle')
   expect(errors).toEqual([])
 })
+
+/**
+ * The suite must never touch a real database, and for one afternoon it did.
+ *
+ * `.env` gained Turso credentials, Bun auto-loaded them in the spawned server,
+ * and every test server became an embedded replica of PRODUCTION — writing ~200
+ * rows there before anyone noticed. `DB_PATH` still pointed at a temp file, so
+ * isolation between tests (above) looked perfect throughout.
+ *
+ * That is the gap this closes: those tests prove the databases differ from each
+ * other, not that they are local. See `.plan/changes-v10.md`.
+ */
+test('the server under test is a local file, never a Turso replica', async ({ app }) => {
+  const dbFiles = await app.fetch('/api/status').then((r) => r.json())
+  expect(dbFiles).toHaveProperty('ok', true)
+
+  // A replica keeps a `-info` file beside the database holding its sync state.
+  // A plain local file has none, and that is the difference worth asserting.
+  const { existsSync } = await import('node:fs')
+  expect(existsSync(`${app.dbPath}-info`)).toBe(false)
+})

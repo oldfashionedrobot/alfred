@@ -93,6 +93,11 @@ export interface DayTask {
   planned_date: ISODate | null
   state: DayTaskState
   effective_date: ISODate | null
+  /**
+   * Free text, and rendered nowhere on Day — carried because the task editor
+   * opens from this list as well as from the panel, and it edits the category.
+   */
+  category: string | null
 }
 
 /**

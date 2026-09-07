@@ -3,13 +3,14 @@ import type { Cadence, ISODate, TodoTask, TodoView } from '../../shared/types.ts
 import { TODO_GROUPS } from '../../shared/types.ts';
 import { ApiError, command } from '../api.ts';
 import { periodLabel, shortDate } from '../dates.ts';
-import { Confirm, DayPicker, Popover, Sheet, Tick } from '../ui.tsx';
+import { Confirm, DayPicker, Popover, Sheet, Tick, placementMaxFor } from '../ui.tsx';
 import {
   TaskFields,
   draftIsValid,
   draftToPatch,
   type TaskDraft
 } from '../TaskFields.tsx';
+import { TaskEditor } from '../TaskEditor.tsx';
 import './todo.css';
 
 /**
@@ -82,9 +83,10 @@ function TodoRow({
           }}
         />
 
-        {/* Tapping the name opens the editor. This panel is the ONLY place a task
-            is defined — the Day list is for doing, and a tap there is a tap you
-            make while working, not one you make to change what a task means. */}
+        {/* Tapping the NAME opens the editor, and only here: on Day a tap is one
+            you make while working, not one you make to change what a task means.
+            Day reaches the same editor through a distinct button, which cannot be
+            hit by accident — see `.plan/changes-v10.md`. */}
         <button
           className="todo-row__label"
           onClick={onEdit}
@@ -245,16 +247,8 @@ export default function Todo({
   // The header count labels THIS panel, so it counts this panel's groups.
   const remaining = tally((t) => !t.is_done, 'panel');
 
-  /**
-   * The far edge for a cadence, from the server's `placement`. Falls back to the
-   * last chip — this week, the more restrictive of the two answers — rather than
-   * to null, which would read as unbounded.
-   */
-  const maxFor = (cadence: Cadence | null): ISODate | null => {
-    if (view === null) return null;
-    const found = view.placement.find((p) => p.cadence === cadence);
-    return found ? found.max : (view.placeable_dates[view.placeable_dates.length - 1] ?? null);
-  };
+  const maxFor = (cadence: Cadence | null): ISODate | null =>
+    view === null ? null : placementMaxFor(view.placement, view.placeable_dates, cadence);
 
   // The overdue count labels a command that clears the WHOLE view, so it counts
   // the whole view — as `has_overdue`, which decides whether the control shows
@@ -374,11 +368,15 @@ export default function Todo({
         </div>
       )}
 
-      {editing !== null && (
+      {/* `view !== null` is implied by `editing`, and stated so the types agree. */}
+      {view !== null && editing !== null && (
         <TaskEditor
           task={editing}
-          categories={view?.categories ?? []}
+          categories={view.categories}
           locked={locked}
+          today={view.today}
+          placeable={view.placeable_dates}
+          placeableMax={maxFor(editing.cadence)}
           onClose={() => setEditingId(null)}
           onSave={(patch) => {
             setEditingId(null);
@@ -394,68 +392,3 @@ export default function Todo({
   );
 }
 
-// --- task editor ------------------------------------------------------------
-
-/**
- * Slow and deliberate, the opposite of capture. Reached by tapping a name in
- * this panel, which is the only place a task is edited — see "Input" in
- * `.plan/views.md`. Archive is the only removal; there is no delete anywhere.
- */
-function TaskEditor({
-  task,
-  categories,
-  locked,
-  onClose,
-  onSave,
-  onArchive
-}: {
-  task: TodoTask;
-  categories: string[];
-  locked: boolean;
-  onClose: () => void;
-  onSave: (patch: Record<string, unknown>) => void;
-  onArchive: (id: number) => void;
-}) {
-  const [draft, setDraft] = useState<TaskDraft>({
-    name: task.name,
-    cadence: task.cadence ?? '',
-    is_baseline: task.is_baseline,
-    color: task.color,
-    category: task.category ?? ''
-  });
-
-  return (
-    <Sheet title="Edit task" onClose={onClose}>
-      <form
-        className="form form--stack"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!draftIsValid(draft)) return;
-          // planned_date is deliberately not sent: setting cadence to 'day'
-          // clears it server-side, in the same transaction.
-          onSave({ id: task.id, ...draftToPatch(draft) });
-        }}
-      >
-        <TaskFields draft={draft} onChange={setDraft} categories={categories} />
-
-        <button
-          className="btn btn--primary"
-          type="submit"
-          disabled={!draftIsValid(draft) || locked}
-        >
-          Save
-        </button>
-      </form>
-
-      <div className="todo-archive">
-        <Confirm
-          label="Archive task"
-          question="Archiving retires it from every view and keeps its history. There is no delete."
-          confirmLabel="Archive"
-          disabled={locked}
-          onConfirm={() => onArchive(task.id)}
-        />
-      </div>
-    </Sheet>
-  );
-}

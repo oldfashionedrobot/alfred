@@ -1,10 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from 'bun:test'
-import { createClient, type Client } from '@libsql/client'
-import { drizzle } from 'drizzle-orm/libsql'
-import { migrate } from 'drizzle-orm/libsql/migrator'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { closeDb, freshDb, type Harness } from './harness.ts'
 
 import type { Cadence, ISODate } from '../src/shared/types.ts'
 import { TODO_GROUPS } from '../src/shared/types.ts'
@@ -87,32 +82,15 @@ const TOMORROW: ISODate = shift(TODAY, 1)
 // Harness — a temp on-disk database per test, migrated the way db.ts does
 // ---------------------------------------------------------------------------
 
-const MIGRATIONS = join(import.meta.dir, '..', 'drizzle')
-
-let dir: string
-let client: Client
+let h: Harness
 let db: DB
 
-// A local libSQL file — the same driver production uses, pointed at a temp path
-// instead of Turso. The suite needs no network and no Turso account.
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'alfred-views-'))
-  client = createClient({ url: `file:${join(dir, 'alfred.db')}` })
-  await client.execute('PRAGMA foreign_keys = ON')
-  db = drizzle(client, { schema })
-  await migrate(db, { migrationsFolder: MIGRATIONS })
-  // days.mood is an FK, so the picker has to exist before a day can point at one.
-  await db.insert(schema.moods).values([
-    { slug: 'balanced', emoji: '😑', label: 'balanced', sort_order: 0, active: true },
-    { slug: 'happy', emoji: '😊', label: 'happy', sort_order: 1, active: true },
-    { slug: 'retired', emoji: '👻', label: 'retired', sort_order: 2, active: false },
-  ])
+  h = await freshDb('views')
+  db = h.db
 })
 
-afterEach(() => {
-  client.close()
-  rmSync(dir, { recursive: true, force: true })
-})
+afterEach(() => closeDb(h))
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -205,6 +183,21 @@ describe('calendar assumptions', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildDayView', () => {
+  test('a row carries its category, which Day draws nowhere', async () => {
+    await addTask({ name: 'Bins', cadence: 'week', planned_date: TODAY, category: 'Chores' })
+    await addTask({ name: 'Stretch', cadence: 'day' })
+
+    const view = await buildDayView(db, USER)
+    const bins = view.active.find((t) => t.name === 'Bins')
+    const stretch = view.active.find((t) => t.name === 'Stretch')
+
+    // Nothing on Day renders a category. It is carried because the editor opens
+    // from this list as well as from the panel, and the editor edits it — a row
+    // that arrived without it would open a form that silently cleared the field.
+    expect(bins?.category).toBe('Chores')
+    expect(stretch?.category).toBeNull()
+  })
+
   test('D1 REGRESSION — completing an overdue one-off keeps it on the screen', async () => {
     // The defect: membership was a chain of `else if` on isOverdue, which is
     // false once a task is done. Ticking an overdue task dropped it out of

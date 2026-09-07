@@ -177,6 +177,8 @@ function toDayTask(task: TaskRow, state: DayTaskState, effective: ISODate | null
     planned_date: task.planned_date,
     state,
     effective_date: effective,
+    // Never drawn on Day. The editor opens from here and needs it.
+    category: task.category,
   }
 }
 

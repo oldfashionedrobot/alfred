@@ -18,12 +18,13 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { TaskFields, draftIsValid, draftToPatch, emptyDraft, type TaskDraft } from '../TaskFields.tsx'
+import { TaskEditor } from '../TaskEditor.tsx'
 import './day.css'
 import type { Cadence, DayTask, DayView, ISODate, TodoView, UpcomingDay } from '../../shared/types.ts'
 import { CADENCES } from '../../shared/types.ts'
 import { command, errorText, getDay, getTodo, logout } from '../api.ts'
 import { dayLabel, longDate, shortDate, weekdayShort } from '../dates.ts'
-import { Confirm, DayPicker, NoticeBar, Popover, Sheet, Tick, type Notice } from '../ui.tsx'
+import { Confirm, DayPicker, NoticeBar, Popover, Sheet, Tick, placementMaxFor, type Notice } from '../ui.tsx'
 import Todo from './Todo.tsx'
 
 /*
@@ -66,6 +67,10 @@ export default function Day() {
   const [notice, setNotice] = useState<Notice>(null)
 
   const [capturing, setCapturing] = useState(false)
+  /** Capture opened from "Add task" precheck it; the FAB does not. */
+  const [captureToday, setCaptureToday] = useState(false)
+  /** The row whose editor is open. Resolved at render, never held — see below. */
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [pickerFor, setPickerFor] = useState<number | null>(null)
 
   // The reorder edit state — the one locally held arrangement in the client.
@@ -169,6 +174,15 @@ export default function Day() {
   }
 
   const reordering = orderIds !== null
+
+  // Every row on the screen, today's and the days beside it, so the edit button
+  // works wherever it is drawn.
+  const editing =
+    editingId === null
+      ? null
+      : ([...view.active, ...view.completed, ...view.upcoming.flatMap((d) => d.tasks)].find(
+          (t) => t.id === editingId,
+        ) ?? null)
   const byId = new Map(view.active.map((t) => [t.id, t]))
   // In the edit state the locally held arrangement is rendered; otherwise the
   // server's order, exactly as given.
@@ -192,15 +206,8 @@ export default function Day() {
     setOrderIds(band === 'baseline' ? [...moved, ...other] : [...other, ...moved])
   }
 
-  /**
-   * The far edge for a cadence, from the server's `placement`. Falls back to the
-   * last chip — this week, the rule before this change and the more restrictive
-   * of the two answers — rather than to null, which would read as unbounded.
-   */
-  const maxFor = (cadence: Cadence | null): ISODate | null => {
-    const found = view.placement.find((p) => p.cadence === cadence)
-    return found ? found.max : (view.placeable_dates[view.placeable_dates.length - 1] ?? null)
-  }
+  const maxFor = (cadence: Cadence | null): ISODate | null =>
+    placementMaxFor(view.placement, view.placeable_dates, cadence)
 
   const toggleReorder = async () => {
     if (!reordering) {
@@ -256,14 +263,29 @@ export default function Day() {
           <section className="day-section" aria-label="Active tasks">
             <div className="day-section-bar">
               <h2 className="day-h2">Today</h2>
-              <button
-                className="btn btn--small btn--quiet"
-                aria-pressed={reordering}
-                onClick={toggleReorder}
-                disabled={busy || view.active.length === 0}
-              >
-                {reordering ? 'Done reordering' : 'Reorder'}
-              </button>
+              {/* The short path to "something I am doing today": capture, with
+                  the day already chosen. The FAB beside it captures to the
+                  backlog, which is the other half of the same gesture. */}
+              <div className="day-section-actions">
+                <button
+                  className="btn btn--small btn--quiet"
+                  onClick={() => {
+                    setCaptureToday(true)
+                    setCapturing(true)
+                  }}
+                  disabled={busy || reordering}
+                >
+                  Add task
+                </button>
+                <button
+                  className="btn btn--small btn--quiet"
+                  aria-pressed={reordering}
+                  onClick={toggleReorder}
+                  disabled={busy || view.active.length === 0}
+                >
+                  {reordering ? 'Done reordering' : 'Reorder'}
+                </button>
+              </div>
             </div>
 
             {rows.length === 0 ? (
@@ -296,6 +318,7 @@ export default function Day() {
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
+                      onEdit={() => setEditingId(task.id)}
                       pickerOpen={pickerFor === task.id}
                       onOpenPicker={() => setPickerFor(task.id)}
                       onClosePicker={() => setPickerFor(null)}
@@ -353,6 +376,7 @@ export default function Day() {
             onOpenPicker={(id) => setPickerFor(id)}
             onClosePicker={() => setPickerFor(null)}
             onUnplan={(id) => run('unplan', { task_id: id })}
+            onEdit={(id) => setEditingId(id)}
             onPlace={async (id, date) => {
               if (await run('place', { task_id: id, date })) setPickerFor(null)
             }}
@@ -386,7 +410,10 @@ export default function Day() {
 
       <button
         className="day-fab"
-        onClick={() => setCapturing(true)}
+        onClick={() => {
+          setCaptureToday(false)
+          setCapturing(true)
+        }}
         aria-label="Capture a new item"
         disabled={busy}
       >
@@ -407,15 +434,49 @@ export default function Day() {
       {capturing && (
         <CaptureSheet
           busy={busy}
+          today={view.date}
+          defaultPlaceToday={captureToday}
           onClose={() => setCapturing(false)}
           onCreate={async (patch) => {
             if (await run('create_task', patch, `Captured “${String(patch.name)}”.`)) {
               setCapturing(false)
             }
           }}
-          onCreateMany={async (names) => {
+          onCreateMany={async (names, plannedDate) => {
             const said = names.length === 1 ? 'Captured 1 item.' : `Captured ${names.length} items.`
-            if (await run('create_tasks', { names }, said)) setCapturing(false)
+            if (await run('create_tasks', { names, planned_date: plannedDate }, said)) {
+              setCapturing(false)
+            }
+          }}
+        />
+      )}
+
+      {/*
+        The editor, opened from a row's edit button. Resolved from the live model
+        at render rather than held, so a refetch behind an open sheet cannot leave
+        it editing a stale row — the same rule the To do panel follows.
+
+        `.plan/design/views.md` used to say the panel was the only place a task is
+        edited. A distinct button keeps the reasoning behind that rule — a tap on
+        Day is a tap you make while working — while giving the day's own list a
+        way to fix a name without going hunting. See `.plan/changes-v10.md`.
+      */}
+      {editing !== null && (
+        <TaskEditor
+          task={editing}
+          categories={todo?.categories ?? []}
+          locked={busy || reordering}
+          today={view.date}
+          placeable={view.placeable_dates}
+          placeableMax={maxFor(editing.cadence)}
+          onClose={() => setEditingId(null)}
+          onSave={(patch) => {
+            setEditingId(null)
+            run('update_task', patch)
+          }}
+          onArchive={(id) => {
+            setEditingId(null)
+            run('archive_task', { id })
           }}
         />
       )}
@@ -545,6 +606,7 @@ function TaskRow({
   onOpenPicker,
   onClosePicker,
   onPlace,
+  onEdit,
   future = false,
 }: {
   task: DayTask
@@ -563,6 +625,8 @@ function TaskRow({
    * its own dismissal and land on whichever won.
    */
   onOpenPicker: () => void
+  /** Opens the editor. A button, never the row: a tap here is a tap while working. */
+  onEdit: () => void
   onClosePicker: () => void
   onPlace: (date: ISODate) => void
   /** On a future pane. Nothing writes to a date that is not today. */
@@ -603,6 +667,14 @@ function TaskRow({
           onToggle={onComplete}
         />
         <TaskName task={task} />
+        <button
+          className="btn btn--small btn--quiet day-row__edit"
+          onClick={onEdit}
+          aria-label={`Edit ${task.name}`}
+          disabled={busy}
+        >
+          Edit
+        </button>
       </div>
 
       {/* Overdue asks for a decision, in the same flat list: complete it above,
@@ -767,6 +839,7 @@ function UpcomingPane({
   onClosePicker,
   onPlace,
   onUnplan,
+  onEdit,
 }: {
   day: UpcomingDay
   today: ISODate
@@ -779,6 +852,7 @@ function UpcomingPane({
   onClosePicker: () => void
   onPlace: (id: number, date: ISODate) => void
   onUnplan: (id: number) => void
+  onEdit: (id: number) => void
 }) {
   return (
     <div className="day-pane">
@@ -802,6 +876,7 @@ function UpcomingPane({
                 // Unreachable: a future pane's tick is not a control.
                 onComplete={() => undefined}
                 onUnplan={() => onUnplan(task.id)}
+                onEdit={() => onEdit(task.id)}
                 placeable={placeable}
                 placeableMax={placeableMax(task.cadence)}
                 pickerOpen={pickerFor === task.id}
@@ -835,20 +910,35 @@ function parseNames(text: string): string[] {
 
 function CaptureSheet({
   busy,
+  today,
+  defaultPlaceToday,
   onClose,
   onCreate,
   onCreateMany,
 }: {
   busy: boolean
+  today: ISODate
+  /** Prechecked when capture was opened by "Add task" from today's list. */
+  defaultPlaceToday: boolean
   onClose: () => void
   onCreate: (patch: Record<string, unknown>) => void
-  onCreateMany: (names: string[]) => void
+  onCreateMany: (names: string[], plannedDate: ISODate | null) => void
 }) {
   const [many, setMany] = useState(false)
   const [draft, setDraft] = useState<TaskDraft>(emptyDraft())
   const [lines, setLines] = useState('')
 
+  /*
+   * One box for both modes, held here rather than in `TaskFields`, because Many
+   * has no draft to put it in — it is a textarea and a count. Keeping it above
+   * the mode forms also means switching One/Many does not lose the choice.
+   */
+  const [placeToday, setPlaceToday] = useState(defaultPlaceToday)
+
   const names = parseNames(lines)
+  // Daily tasks are never placed; the server nulls the column on write.
+  const dailyOne = !many && draft.cadence === 'day'
+  const placing = placeToday && !dailyOne
 
   return (
     <Sheet title="Capture" onClose={onClose}>
@@ -873,13 +963,26 @@ function CaptureSheet({
         </button>
       </div>
 
+      <label className="check capture-today">
+        <input
+          type="checkbox"
+          checked={placing}
+          disabled={busy || dailyOne}
+          onChange={(e) => setPlaceToday(e.target.checked)}
+        />
+        <span>
+          Place today
+          {dailyOne && <em> — a daily task is already on every day</em>}
+        </span>
+      </label>
+
       {many ? (
         <>
           <form
             className="form form--stack"
             onSubmit={(e) => {
               e.preventDefault()
-              if (names.length > 0) onCreateMany(names)
+              if (names.length > 0) onCreateMany(names, placing ? today : null)
             }}
           >
             {/* No More section. Cadence, category, baseline and colour are
@@ -907,8 +1010,9 @@ function CaptureSheet({
             </button>
           </form>
           <p className="hint">
-            They all go to the backlog with no date. Give them a cadence or a day
-            afterwards, in the Routine or Backlog panel.
+            {placing
+              ? 'They all land on today’s list. Give them a cadence afterwards, in the Routine panel.'
+              : 'They all go to the backlog with no date. Give them a cadence or a day afterwards, in the Routine or Backlog panel.'}
           </p>
         </>
       ) : (
@@ -917,7 +1021,9 @@ function CaptureSheet({
             className="form form--stack"
             onSubmit={(e) => {
               e.preventDefault()
-              if (draftIsValid(draft)) onCreate(draftToPatch(draft))
+              if (draftIsValid(draft)) {
+                onCreate({ ...draftToPatch(draft), planned_date: placing ? today : null })
+              }
             }}
           >
             {/* Name is the fast path; everything else is behind a disclosure that
@@ -929,7 +1035,9 @@ function CaptureSheet({
             </button>
           </form>
           <p className="hint">
-            A name alone goes to the backlog with no date — it won’t appear on today’s list.
+            {placing
+              ? 'It lands on today’s list.'
+              : 'A name alone goes to the backlog with no date — it won’t appear on today’s list.'}
           </p>
         </>
       )}

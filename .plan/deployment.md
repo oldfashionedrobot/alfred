@@ -1,7 +1,7 @@
 # alfred — Deployment
 
 Status: **deployed and running** at **https://alfred.goodghost.com** (and at `gg-alfred.fly.dev`, which is the platform name underneath) — one machine in `iad`, against a Turso database in AWS US East (N. Virginia). CI deploys every push to `main` and smoke-tests the result.
-Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md) and [`changes-v9.md`](changes-v9.md). The frozen originals are in [`design/`](design/).
+Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md), [`changes-v9.md`](changes-v9.md) and [`changes-v10.md`](changes-v10.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
 

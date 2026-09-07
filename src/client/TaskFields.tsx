@@ -1,4 +1,4 @@
-import { CADENCES, type Cadence } from '../shared/types.ts'
+import { CADENCES, type Cadence, type ISODate } from '../shared/types.ts'
 
 /**
  * The task definition fields, shared by the editor (To do panel) and the capture
@@ -12,6 +12,12 @@ export type TaskDraft = {
   is_baseline: boolean
   color: string | null
   category: string
+  /**
+   * The day this task is placed on. The editor sets it from a picker and sends
+   * it only when it changed; capture keeps its own "Place today" box, because
+   * capture's Many mode has no draft at all. `draftToPatch` leaves it out.
+   */
+  planned_date: ISODate | null
 }
 
 /** What the server treats as a plain backlog item: a name and nothing else. */
@@ -21,6 +27,7 @@ export const emptyDraft = (): TaskDraft => ({
   is_baseline: false,
   color: null,
   category: '',
+  planned_date: null,
 })
 
 /** The first colour offered when one is added. Any hex is accepted. */
@@ -51,7 +58,12 @@ export function TaskFields({
           className="input"
           value={draft.cadence}
           aria-label="Cadence"
-          onChange={(e) => set({ cadence: e.target.value as Cadence | '' })}
+          onChange={(e) => {
+            const cadence = e.target.value as Cadence | ''
+            // A daily task cannot hold a date — the server nulls it on write, so
+            // the form says so rather than showing a box that does nothing.
+            set(cadence === 'day' ? { cadence, planned_date: null } : { cadence })
+          }}
         >
           <option value="">one-off</option>
           {CADENCES.map((c) => (

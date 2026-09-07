@@ -99,6 +99,8 @@ export type App = {
   fetch: (path: string, init?: RequestInit) => Promise<Response>
   /** `name=value`, for the rare test that builds a request by hand. */
   cookie: string
+  /** This test's database file. Exposed so a test can assert it is a local one. */
+  dbPath: string
 }
 
 export const test = base.extend<{ app: App; signedIn: boolean }>({
@@ -129,9 +131,23 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
      * missing row or an unexpected click target — which is what "flaky" looked
      * like here. Nothing guesses a port now, so there is nothing to race.
      */
+    /*
+     * TURSO_* is EMPTIED, not deleted, and the difference is the whole point.
+     *
+     * Once this repository had a `.env` holding real Turso credentials,
+     * `{ ...process.env }` turned every test server into an embedded replica of
+     * the PRODUCTION database. `DB_PATH` still pointed at a temp file, so
+     * nothing looked wrong — but that file was a replica, and every write the
+     * suite made was forwarded to Turso. It put ~200 rows in the live database.
+     *
+     * Deleting the keys does NOT fix it: Bun auto-loads `.env` in the child, so
+     * the child reads them back. An explicitly-passed variable does beat `.env`,
+     * so an empty string is the only thing that reaches the child as "unset" —
+     * and `db.ts` treats an empty URL as unset for exactly this reason.
+     */
     const proc: ChildProcess = spawn('bun', ['src/server/index.ts'], {
       cwd: ROOT,
-      env: { ...process.env, DB_PATH: dbPath, PORT: '0' },
+      env: { ...process.env, TURSO_URL: '', TURSO_AUTH_TOKEN: '', DB_PATH: dbPath, PORT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -211,7 +227,7 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
         headers: { ...(init.headers ?? {}), ...(cookie === '' ? {} : { cookie }) },
       })
 
-    await use({ url, seed, today, fetch: api, cookie })
+    await use({ url, seed, today, fetch: api, cookie, dbPath })
 
     proc.kill('SIGKILL')
     rmSync(dir, { recursive: true, force: true })

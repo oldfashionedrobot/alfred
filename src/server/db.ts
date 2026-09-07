@@ -27,7 +27,18 @@ import * as schema from './schema.ts'
 
 export const DB_PATH = process.env.DB_PATH ?? './data/alfred.db'
 
-const TURSO_URL = process.env.TURSO_URL
+/*
+ * An EMPTY value counts as unset, and that is load-bearing rather than tidy.
+ *
+ * Bun auto-loads `.env` in every process it starts, including one spawned by the
+ * test fixture — so deleting these keys from the parent's environment does
+ * nothing, because the child reads `.env` and puts them straight back. An
+ * explicitly-passed variable does win over `.env`, so passing an empty string is
+ * the only way a caller can say "local file, whatever .env holds". The browser
+ * fixture relies on it; without it the suite ran against the PRODUCTION
+ * database, which is not hypothetical — it happened, and wrote ~200 rows there.
+ */
+const TURSO_URL = process.env.TURSO_URL || undefined
 const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN
 
 mkdirSync(dirname(DB_PATH), { recursive: true })
