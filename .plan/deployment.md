@@ -73,7 +73,7 @@ This reverses the position taken twice in the earlier draft, and the reason is a
 | 5 years | 2.55 MB | 12% | 25% | 50% | 124% |
 | 10 years | 5.05 MB | 25% | 49% | 99% | 247% |
 
-Fine for years at realistic use — but both terms only ever grow, and the failure mode when the allowance runs out is that syncs stop, which breaks writes. With a volume the replica persists across sleeps, so a wake syncs only the delta: a day's changes are seventeen completions, well under a kilobyte. The growth term disappears.
+Fine for years at realistic use — but both terms only ever grow, and the failure mode when the allowance runs out is that syncs stop, which breaks writes. With a volume the replica persists across sleeps, so a wake syncs only the delta. Turso bills sync in **4 kB frames**, so seventeen completions in a day is seventeen frames rather than the few hundred bytes they weigh — about 2 MB a month against a 3 GB allowance. The frame accounting makes the number sixty times larger than a naive byte count and it is still nowhere near the ceiling. The growth term disappears.
 
 The earlier reasoning was not wrong about the database being small. It missed that the relevant quantity is *small database times many wakes*, and that scale-to-zero multiplies the second term.
 
@@ -186,6 +186,11 @@ whether it was ever needed.
 **`-slim` rather than `-alpine` or `-distroless`.** All three exist for 1.3.14
 on amd64 and arm64 (checked against the registry, not remembered). Alpine is
 musl, which libSQL does ship for, so it would work; distroless is smaller still.
+Turso's own Fly guide says to install `ca-certificates`, and this image already
+has them: the final stage of bun's Dockerfile installs them explicitly, noting
+that the Debian base ships none. Nothing to add, and one more reason not to
+reach for distroless, which would need them copied in by hand.
+
 Slim keeps glibc and, more usefully, keeps a shell — `fly ssh console` on a
 machine with no shell is a bad evening.
 
@@ -296,9 +301,19 @@ TURSO_URL=libsql://... TURSO_AUTH_TOKEN=... DB_PATH=/tmp/alfred-check.db \
 
 That runs the production path — `client.sync()`, then `migrate()`, then the mood
 seed — through a real embedded replica. Whether drizzle's migrator can write
-through a replica is the one claim in this document that no amount of local
-testing settles, and this is how it gets settled on a laptop rather than in a
-deploy.
+*through* a replica was the one claim here that no amount of local testing could
+settle.
+
+**Done, and it passed.** The server booted, migrated, seeded and answered
+`/api/status`. The proof that the writes reached Turso rather than only the local
+file is a second replica from a clean path: it synced down all five tables plus
+`__drizzle_migrations`, eight moods already seeded (so the seed's only-when-empty
+guard held across processes), and one user — `owner`, active, password hash of
+length zero, exactly as migration 0003 intends.
+
+**So the migrations are already applied.** The first deploy will find them
+applied rather than run them, which removes the most interesting way a first
+deploy could fail.
 
 ### Then Fly
 
@@ -316,14 +331,13 @@ control name does not, so that is a real app rather than a DNS wildcard.
 `oldfashionedrobot-alfred` were all free when checked. It is only the default
 URL — a custom domain can front it later, so it is not worth deliberating over.
 
-**The first boot runs the migrations against Turso** and creates the `owner`
-account with no password, so the app comes up locked: the login form is there and
-nothing verifies against it. Setting that password is the last step, and it is
-easier from a laptop than over SSH:
+**The app comes up locked**, because `owner` exists with no password: the login
+form is there and nothing verifies against it. Setting that password is the last
+step, and it is easier from a laptop than over SSH. Note the `DB_PATH` override —
+without it this opens the development database instead of a throwaway replica:
 
 ```sh
-TURSO_URL=... TURSO_AUTH_TOKEN=... DB_PATH=/tmp/alfred-admin.db \
-  bun run user:add owner
+DB_PATH=/tmp/alfred-admin.db bun run user:add owner
 ```
 
 That opens a throwaway local replica, writes through to Turso, and the machine
@@ -334,12 +348,16 @@ trip to Turso: colocated that is single-digit milliseconds, mismatched it is
 100 ms+ on every tick. Both use the same three-letter codes. Free to get right
 now, annoying to change later.
 
-For a household in the US southeast the candidates are `atl`, `mia` and `iad`.
-Note which distance actually matters: the phone's distance to the app costs one
-round trip on the initial load, while a Fly/Turso mismatch costs one on every
-tick. Matching the two providers to each other beats shortening the last mile.
-Fly's region list needs a login to read and Turso keeps its own, so the
-intersection is checked at account-creation time rather than assumed here.
+**`iad`.** Fly no longer has Atlanta or Miami — the whole US list is `dfw`,
+`ewr`, `iad`, `lax`, `ord` and `sjc`, read out of the region table rather than
+remembered, and an earlier draft of this line recommended `atl` on exactly the
+memory that turned out to be stale. For the US southeast `iad` is what is on
+offer, and Turso has it too.
+
+Note which distance actually matters, because it is not the obvious one: a phone
+is one round trip from the app on the initial load, while a Fly/Turso mismatch is
+one round trip on *every tick*. Matching the two providers to each other beats
+shortening the last mile.
 
 ## Deploying
 
@@ -504,10 +522,14 @@ Locally the same variables go in a gitignored `.env`, which Bun loads automatica
 | Fly machine, 256 MB shared-cpu-1x | pennies — it bills for the minutes it is awake |
 | Fly volume, 1 GB | ~$0.15/month |
 | `<app>.fly.dev` and TLS | free |
-| Turso | free tier: 500M row reads, 10M writes, 5 GB storage, 3 GB syncs, 1-day PITR |
+| Turso | free tier: 500M row reads, 10M writes, 5 GB storage, 3 GB syncs, 1-day PITR — confirmed current, September 2026, and it needs no card |
 | GitHub Actions | free, public repository |
 
-Call it **under a dollar a month**, dominated by the volume. Verify Fly's current pricing rather than trusting these figures; they restructured their free allowance into a credit model.
+Call it **under a dollar a month**, dominated by the volume — but **Fly requires a
+credit card on file** from the start. There is no free tier for new organisations
+any more, and no stated minimum spend either: a stopped machine bills only its
+rootfs storage. Turso's free plan needs no card. Both figures checked against the
+providers' own pricing pages in September 2026 rather than carried forward.
 
 ---
 
@@ -522,6 +544,13 @@ gzip'` against the deployed URL settles it. If it does, the note above is just a
 record. If it does not, 184 KB a cold visit is the number to weigh a
 `Bun.build`-and-serve-it-ourselves step against — and that number should be
 measured before the code is written, not after.
+
+**Turso now points new projects at "Turso Sync" rather than embedded replicas.**
+Embedded replicas remain documented and supported, with a Fly guide of their own,
+and the verification above ran against them successfully — so nothing here is
+urgent and redesigning now would be building against a rumour. It is recorded
+because a recommendation like that tends to become a migration in a year, and the
+time to have noticed is before, not during.
 
 **A custom domain, eventually.** Fly issues `<app>.fly.dev` with a working certificate, so nothing is blocked. Adding one later is `fly certs add` plus two DNS records, and changes nothing else here.
 
