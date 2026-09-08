@@ -39,7 +39,7 @@
 
 .todo__chevron {
   flex: none;
-  color: var(--text-faint);
+  color: var(--text-dim);
   transition: transform 120ms ease;
 }
 
@@ -111,7 +111,7 @@
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 /* An empty group keeps its heading and says so quietly — never hidden. */
@@ -119,7 +119,7 @@
 .todo-group__empty {
   margin: 0;
   padding: var(--gap-1) 0 var(--gap-2);
-  color: var(--text-faint);
+  color: var(--text-dim);
   font-size: 0.875rem;
 }
 

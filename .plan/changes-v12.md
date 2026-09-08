@@ -12,7 +12,7 @@ absorbed rather than scheduled.
 
 ---
 
-## 1. Accessibility — WCAG 2.2 Level A and AA, and no further
+## 1. Accessibility — WCAG 2.2 Level A and AA — BUILT
 
 **The target is basic conformance.** Not an exemplary experience: the success
 criteria at Level A and AA, checked, with the gaps closed. Anything at AAA is out
@@ -70,6 +70,51 @@ removes more than half of them.
 **So the work is four small changes**, not an audit: two token values, one
 control's border, and a global focus style.
 
+### What was changed — BUILT
+
+| | |
+|---|---|
+| `--text-faint` | **Deleted.** All nine uses become `--text-dim`. |
+| `--text-dim` (light) | `#6b7075` → `#696e73` |
+| `--accent` (light) | `#3d6ee0` → `#3865cf` |
+| `--border-control` | New: `#8f8f8d` light, `#64696d` dark. `.tick__box` uses it. |
+| `:focus-visible` | One global rule; two now-redundant per-element rules deleted |
+
+**Deleting `--text-faint` is the interesting one**, because the standard forced a
+design decision rather than a colour. To reach 4.5:1 on a light background, a
+"fainter than dim" grey has to be *as dark as dim* — `#6e7277` against
+`--text-dim`'s `#6b7075`. **There is no room for three levels of grey text at AA
+on this background.** So the third level is gone rather than kept as a token that
+means nothing, and nine usages collapsed onto `--text-dim`.
+
+**`--border-control` exists so one checkbox does not darken every rule in the
+app.** 1.4.11 applies to boundaries that identify a control, and `.tick__box` was
+the only one; the decorative separators keep `--border` at its original value.
+
+**Darkening `--accent` beat lightening `--accent-soft`.** The chip needed 4.5:1
+and the obvious fix was washing the soft blue out to near-white (`#fafbfe`).
+Moving the accent instead fixes three pairings at once — chip 3.97→4.55,
+background 4.35→4.98, white-on-accent 4.66→5.34 — and barely shifts the hue.
+
+**One failure only appeared after the others were fixed.** Merging `--text-faint`
+into `--text-dim` put dim text onto `--surface-2` in the To do panel's date
+chips, at 4.38. Darkening dim to `#696e73` clears all three backgrounds. A fix
+that creates a new pairing is the argument for re-measuring exhaustively rather
+than checking the pairs you started with.
+
+**Two pairings were computed as failures and left alone**, on the same
+usage-before-ratio reasoning as before: `--border-control` on `--surface-2`
+(2.84/2.68) never occurs, because the four `--surface-2` elements are a date
+chip, its overdue variant, a history column header and the capture-mode toggle —
+none contains a tick.
+
+**The label audit found nothing.** Every `aria-label` is accurate and the dynamic
+ones carry the task name. `Tick` is `role="checkbox"` with `aria-checked` and a
+label, and its static variant carries a visually-hidden "done"/"not done" with
+the visual box `aria-hidden`. That is 1.1.1 and 4.1.2 satisfied by work that was
+already there — which is what "the intent is in the code, the checking is absent"
+meant.
+
 **Explicitly out of scope, at AAA:**
 
 - **2.3.3 Animation from Interactions (AAA)** — `prefers-reduced-motion`. There is
@@ -87,9 +132,10 @@ aloud, and adding a tool before doing the pass outsources the thinking. Worth
 reconsidering **after**, if the pass finds enough that is worth guarding against
 regression.
 
-**Not scope creep, but worth one look:** a VoiceOver pass on the actual phone.
-Not a formal audit — reading the day screen top to bottom once, to check the
-labels say what they mean. The app is small enough that this is minutes.
+**Dropped: a VoiceOver pass.** It was in an earlier draft as "worth one look",
+and it is not a Level A or AA criterion on its own — 1.1.1 and 4.1.2 are about
+labels existing and being correct, which is a code read. Keeping it in was the
+above-and-beyond this iteration set out to avoid.
 
 ## 2. Error visibility — nothing to build
 

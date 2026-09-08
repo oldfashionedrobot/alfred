@@ -7,11 +7,17 @@
   --surface: #ffffff;
   --surface-2: #f0f0ed;
   --border: #dededa;
+  /*
+   * The border of a CONTROL, not a decorative rule. WCAG 1.4.11 asks for 3:1
+   * on anything needed to identify a component, and `--border` at 1.26:1 is
+   * nowhere near — but darkening every separator to fix one checkbox would be
+   * the wrong trade. Decorative rules stay `--border`; controls use this.
+   */
+  --border-control: #8f8f8d;
   --text: #16181a;
-  --text-dim: #6b7075;
-  --text-faint: #9aa0a6;
+  --text-dim: #696e73;
 
-  --accent: #3d6ee0;
+  --accent: #3865cf;
   --accent-soft: #e6edfd;
   --on-accent: #ffffff;
   --overdue: #c2410c;
@@ -39,9 +45,9 @@
     --surface: #1a1e22;
     --surface-2: #23282d;
     --border: #2e343a;
+    --border-control: #64696d;
     --text: #e8eaec;
     --text-dim: #9aa2aa;
-    --text-faint: #6b7278;
 
     --accent: #6b93f0;
     --accent-soft: #1e2a44;
@@ -53,6 +59,22 @@
     --scrim: rgb(0 0 0 / 0.6);
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   }
+}
+
+/*
+ * One visible focus ring, everywhere. WCAG 2.4.7.
+ *
+ * This used to be styled on exactly three elements, so every other control fell
+ * back to whatever the UA draws — which on a button with a custom background is
+ * frequently nothing at all. `:focus-visible` rather than `:focus` so a mouse
+ * click does not leave a ring behind, which is the reason the rule was avoided
+ * in the first place.
+ *
+ * Anything needing a different offset overrides it; `.day-track` does.
+ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 * {
@@ -215,7 +237,7 @@ select {
 .tick__box {
   width: 22px;
   height: 22px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-control);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }

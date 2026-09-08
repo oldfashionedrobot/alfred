@@ -39,11 +39,6 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.hist-scroll:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .hist-grid {
   border-collapse: separate;
   border-spacing: 0;
@@ -194,7 +189,7 @@
 
 .hist-end {
   margin: 0;
-  color: var(--text-faint);
+  color: var(--text-dim);
   font-size: 0.82rem;
 }
 
