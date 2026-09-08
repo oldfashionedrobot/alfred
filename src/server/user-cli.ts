@@ -8,8 +8,8 @@
  *
  * This exists because it has to: passwords are stored as argon2id hashes, and a
  * hash cannot be typed into a SQL console. There is no self-registration and no
- * plan for one — an account exists because somebody here made it. What v13 added
- * is that the person can choose their own password; see
+ * plan for one — an account exists because somebody here made it. What
+ * `user:invite` adds is that the person can choose their own password.
  */
 import { eq } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'

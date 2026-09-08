@@ -31,7 +31,7 @@ import { DragBand } from './DragBand.tsx'
  *
  * Since v8 this is the only task surface: Week is deleted and its seven day
  * sections are the panes of the track here. Today's pane is the whole Day view;
- * the rest show what is placed on that date and cannot be ticked. See
+ * the rest show what is placed on that date and cannot be ticked.
  */
 
 // --- shell ------------------------------------------------------------------

@@ -20,9 +20,9 @@ import { today, type Viewer } from '../today.ts'
  *
  * Since v8 this also carries the rest of the week: `upcoming` holds one entry per
  * day from tomorrow through Saturday, which the client renders as the panes you
- * swipe through. The Week view and `GET /api/week` are gone — see
- * There is still NO date parameter and this endpoint still
- * means today; what changed is how much of the week rides along with it.
+ * swipe through. The Week view and `GET /api/week` are gone. There is still
+ * NO date parameter and this endpoint still means today; what changed is how
+ * much of the week rides along with it.
  *
  * MEMBERSHIP OF TODAY IS A UNION OF FOUR INDEPENDENT RULES, never a chain of
  * else-if. An active task is a member if ANY of these holds:

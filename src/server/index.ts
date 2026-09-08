@@ -13,10 +13,10 @@ const server = Bun.serve({
   development: process.env.NODE_ENV !== 'production',
   routes: {
     /*
-     * Signing in is `POST /api/login`, and the form is a React view — see
-     * There is no `/login` URL: the client owns the
-     * signed-out state, so one place decides you are signed out rather than a
-     * server route and a client route that have to agree with each other.
+     * Signing in is `POST /api/login`, and the form is a React view. There is
+     * no `/login` URL: the client owns the signed-out state, so one place
+     * decides you are signed out rather than a server route and a client
+     * route that have to agree with each other.
      */
     '/api/*': (req: Request) => handleApi(req),
     // Bun bundles the client from the HTML entrypoint — no Vite, no separate build.

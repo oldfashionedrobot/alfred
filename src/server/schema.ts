@@ -38,7 +38,7 @@ export const users = sqliteTable('users', {
    * An unspent invitation. 32 random bytes as hex, NULL once claimed.
    *
    * The token IS the security: the claim form takes it instead of a username,
-   * so there is nothing to guess and nothing to enumerate. See
+   * so there is nothing to guess and nothing to enumerate.
    */
   claim_token: text('claim_token'),
   /** Epoch ms — an instant, not a day, like the session cookie's expiry. */
