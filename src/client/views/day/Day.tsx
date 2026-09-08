@@ -32,7 +32,7 @@ import { DragBand } from './DragBand.tsx'
  * Since v8 this is the only task surface: Week is deleted and its seven day
  * sections are the panes of the track here. Today's pane is the whole Day view;
  * the rest show what is placed on that date and cannot be ticked. See
- * `.plan/changes-v8.md`.
+ * `.plan/changes/changes-v8.md`.
  */
 
 // --- shell ------------------------------------------------------------------
@@ -438,7 +438,7 @@ export default function Day() {
         `.plan/design/views.md` used to say the panel was the only place a task is
         edited. A distinct button keeps the reasoning behind that rule — a tap on
         Day is a tap you make while working — while giving the day's own list a
-        way to fix a name without going hunting. See `.plan/changes-v10.md`.
+        way to fix a name without going hunting. See `.plan/changes/changes-v10.md`.
       */}
       {editing !== null && (
         <TaskEditor

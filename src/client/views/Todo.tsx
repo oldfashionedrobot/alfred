@@ -86,7 +86,7 @@ function TodoRow({
         {/* Tapping the NAME opens the editor, and only here: on Day a tap is one
             you make while working, not one you make to change what a task means.
             Day reaches the same editor through a distinct button, which cannot be
-            hit by accident — see `.plan/changes-v10.md`. */}
+            hit by accident — see `.plan/changes/changes-v10.md`. */}
         <button
           className="todo-row__label"
           onClick={onEdit}
@@ -193,7 +193,7 @@ export default function Todo({
 }) {
   // Collapsed by default. Week opened both panels expanded on the grounds that
   // there the panel WAS the planning surface; Day is now the only surface, and
-  // its first screen is the day's list — see `.plan/changes-v8.md`.
+  // its first screen is the day's list — see `.plan/changes/changes-v8.md`.
   const [open, setOpen] = useState(false);
   // One picker open at a time: a long panel with six of them fanned out is not
   // a picker, it is a mess.

@@ -4,7 +4,7 @@ Continues [`changes-v8.md`](changes-v8.md). Same rules: what changed, why, and
 what it cost, including the decisions it reverses.
 
 This is the first entry that is not about the interface. It is the last thing
-between the app and a public URL — see [`deployment.md`](deployment.md), whose
+between the app and a public URL — see [`deployment.md`](../deployment.md), whose
 auth section this replaces wholesale.
 
 ---

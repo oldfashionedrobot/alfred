@@ -4,7 +4,7 @@
 > **Frozen.** This describes the design as built, and is no longer maintained.
 > It was checked against the code and corrected on 2026-09-05, so it is accurate
 > as of that date — but anything decided since lives in
-> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+> [`../changes.md`](../changes/changes.md), which is authoritative where the two differ.
 
 Status: draft v5 — category and the Backlog panel · frozen after v6
 Companion to `data-model.md`.
@@ -253,7 +253,7 @@ Every task action in the system lives here, and every one is available from both
 - **Place** — assign a day, from the picker the server supplies.
 - **Unplan** — clear the date.
 - **Reset to backlog** — clear `planned_date` on every overdue item at once, including one-off ones. Overdue only; never days still ahead. It lives in the **Routine** panel and nowhere else, even though it reaches tasks drawn in Backlog: one bulk destructive action, one home.
-- **Edit** — tap a name to open the task editor. Name, cadence, category, baseline flag, a colour when baseline, placement, and Archive. *(This said "the only place a task is edited" until v10, which gave Day's rows an Edit button of their own. The reasoning behind the rule survives it: a **name** is still not an edit target on Day, because a tap there is one you make while working. See [`changes-v10.md`](../changes-v10.md).)*
+- **Edit** — tap a name to open the task editor. Name, cadence, category, baseline flag, a colour when baseline, placement, and Archive. *(This said "the only place a task is edited" until v10, which gave Day's rows an Edit button of their own. The reasoning behind the rule survives it: a **name** is still not an edit target on Day, because a tap there is one you make while working. See [`changes-v10.md`](../changes/changes-v10.md).)*
 
   Editing lives here rather than on Day's list because the two lists answer different questions. Day's list is for *doing*: every tap on it is made mid-task, one-handed, while working through the day, and the whole surface is tuned so a tap is cheap. Opening a definition form from a mis-tap on that surface is the opposite of cheap — it is a modal sheet in the way of the thing you were doing. The panel is where you go to think about what the tasks *are*, so the editor belongs to it. It also comes free on Week, since the panel is hosted there too.
 

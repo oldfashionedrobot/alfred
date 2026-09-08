@@ -22,7 +22,7 @@ import { today, type Viewer } from '../today.ts'
  * Since v8 this also carries the rest of the week: `upcoming` holds one entry per
  * day from tomorrow through Saturday, which the client renders as the panes you
  * swipe through. The Week view and `GET /api/week` are gone — see
- * `.plan/changes-v8.md`. There is still NO date parameter and this endpoint still
+ * `.plan/changes/changes-v8.md`. There is still NO date parameter and this endpoint still
  * means today; what changed is how much of the week rides along with it.
  *
  * MEMBERSHIP OF TODAY IS A UNION OF FOUR INDEPENDENT RULES, never a chain of
@@ -137,7 +137,7 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
  *
  * A task already satisfied for its period is DROPPED rather than struck through.
  * The panes are read for load, and a done task adds none. See "Future panes show
- * placed tasks only" in `.plan/changes-v8.md` for why this does not become a flag
+ * placed tasks only" in `.plan/changes/changes-v8.md` for why this does not become a flag
  * on DayTask.
  *
  * `isDone` is asked about THE PANE'S OWN DATE, not about today. Those differ at a

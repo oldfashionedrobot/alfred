@@ -16,8 +16,8 @@ import type { ISODate } from '../shared/types.ts'
  * It used to read the process's local date, and said so: "one process, one
  * machine, one household — there is no timezone to reconcile." True on a laptop
  * in the household; false the moment it ran in Ashburn on UTC and started
- * calling 8pm Monday "Tuesday". See `.plan/changes-v10.md` for that evening and
- * `.plan/changes-v11.md` for this.
+ * calling 8pm Monday "Tuesday". See `.plan/changes/changes-v10.md` for that evening and
+ * `.plan/changes/changes-v11.md` for this.
  *
  * `en-CA` formats as YYYY-MM-DD, which is why it is here rather than a locale
  * anybody reads. No `TZ` environment variable and no dependency.

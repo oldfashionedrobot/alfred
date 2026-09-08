@@ -104,7 +104,7 @@ export interface DayTask {
  * One future day of this week, in `DayView.upcoming`.
  *
  * `tasks` is what is PLACED on that date and not already satisfied for its
- * period — see "Future panes show placed tasks only" in `.plan/changes-v8.md`.
+ * period — see "Future panes show placed tasks only" in `.plan/changes/changes-v8.md`.
  * Daily tasks are excluded structurally rather than by a filter: one can never
  * hold a planned_date, so `planned_date === date` never matches one.
  *

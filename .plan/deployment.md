@@ -1,7 +1,7 @@
 # alfred — Deployment
 
 Status: **deployed and running** at **https://alfred.goodghost.com** (and at `gg-alfred.fly.dev`, which is the platform name underneath) — one machine in `iad`, against a Turso database in AWS US East (N. Virginia). CI deploys every push to `main` and smoke-tests the result.
-Companion to [`changes.md`](changes.md), [`changes-v8.md`](changes-v8.md), [`changes-v9.md`](changes-v9.md) and [`changes-v10.md`](changes-v10.md). The frozen originals are in [`design/`](design/).
+Companion to [`changes.md`](changes/changes.md), [`changes-v8.md`](changes/changes-v8.md), [`changes-v9.md`](changes/changes-v9.md) and [`changes-v10.md`](changes/changes-v10.md). The frozen originals are in [`design/`](design/).
 
 The app has run on a laptop until now. This is the plan for putting it somewhere a phone can reach, and it is deliberately the smallest arrangement that is not fragile.
 
@@ -472,7 +472,7 @@ Three lines that fold in three things — deploy verification, version confirmat
 
 ## Auth — built, and not as designed here
 
-**[`changes-v9.md`](changes-v9.md) replaced this section wholesale.** What is
+**[`changes-v9.md`](changes/changes-v9.md) replaced this section wholesale.** What is
 built is accounts, not the shared password this document specified: a `users`
 table, `user_id` on `tasks` and `days`, argon2id via `Bun.password`, and a
 stateless cookie keyed off the user's own password hash. Signing in is always
@@ -596,7 +596,7 @@ NODE_ENV=production
 ```
 
 **There is no auth variable.** Accounts live in the database and signing in is
-always required — see [`changes-v9.md`](changes-v9.md), which replaced this
+always required — see [`changes-v9.md`](changes/changes-v9.md), which replaced this
 document's shared-password design. Creating the first account is a one-off
 `bun run user:add <name>` against the deployed database.
 

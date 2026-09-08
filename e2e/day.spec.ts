@@ -770,7 +770,7 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
  * the NAME is not a control. Every tap on this list is made mid-task while
  * working through the day, and a definition sheet arriving from a mis-tap is the
  * opposite of cheap — which is an argument about the name, not about a button
- * you have to aim at. See `.plan/changes-v10.md`.
+ * you have to aim at. See `.plan/changes/changes-v10.md`.
  */
 test('a Day row name is not a control, though the row has an Edit button', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })

@@ -4,7 +4,7 @@
 > **Frozen.** This describes the design as built, and is no longer maintained.
 > It was checked against the code and corrected on 2026-09-05, so it is accurate
 > as of that date — but anything decided since lives in
-> [`../changes.md`](../changes.md), which is authoritative where the two differ.
+> [`../changes.md`](../changes/changes.md), which is authoritative where the two differ.
 
 Status: v1 — findings recorded, remedies in progress · frozen after v6
 Date: 2026-09-05

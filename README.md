@@ -6,7 +6,7 @@ Two kinds of document live in [`.plan/`](.plan/).
 
 **[`deployment.md`](.plan/deployment.md)** is the deployment: how it is containerised, hosted and released, and what the measurements turned out to be once it was running.
 
-**[`changes.md`](.plan/changes.md) is the running log and the authoritative one.** Every change since the first build is recorded there in order, including the decisions that were reversed and why.
+**[`changes.md`](.plan/changes/changes.md) is the running log and the authoritative one.** Every change since the first build is recorded there in order, including the decisions that were reversed and why.
 
 **[`.plan/design/`](.plan/design/) holds the original design, frozen.** It was checked against the code and corrected before being frozen, so it is an accurate snapshot rather than a stale one — but it is no longer maintained, and `changes.md` wins where they differ. Its value is the reasoning: why the model is period-based, why nothing writes to a past date, what was rejected and on what grounds.
 
@@ -92,7 +92,7 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 
 With `TURSO_URL` unset the app is a plain local libSQL file — which is how development and the whole test suite run, so neither needs a network or a Turso account. Set it and that same file becomes a replica synced from Turso: reads stay local and fast, writes go to Turso, and the durable copy is the one in the cloud.
 
-**The Turso credentials do not live in `.env`.** Bun loads `.env` in every process started here, so anything in it reaches the app, the test suite and every throwaway script alike — which is how the browser suite once wrote ~200 rows into production. They live in the gitignored `.env.turso`, and reaching the real database is an explicit `bun --env-file=.env.turso ...`. See [`changes-v10.md`](.plan/changes-v10.md).
+**The Turso credentials do not live in `.env`.** Bun loads `.env` in every process started here, so anything in it reaches the app, the test suite and every throwaway script alike — which is how the browser suite once wrote ~200 rows into production. They live in the gitignored `.env.turso`, and reaching the real database is an explicit `bun --env-file=.env.turso ...`. See [`changes-v10.md`](.plan/changes/changes-v10.md).
 
 ---
 

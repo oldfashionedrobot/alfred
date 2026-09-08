@@ -10,7 +10,7 @@ import type { Cadence, ISODate } from '../shared/types.ts'
  * OWNERSHIP. `tasks` and `days` carry a user_id; `completions` does not, because
  * a completion belongs to whoever owns its task and a second copy of that fact
  * could disagree with the first. `moods` is global — it is a vocabulary, not
- * anybody's data. See `.plan/changes-v9.md`.
+ * anybody's data. See `.plan/changes/changes-v9.md`.
  */
 
 /**
@@ -31,7 +31,7 @@ export const users = sqliteTable('users', {
   /**
    * IANA name. The user's day boundary, and therefore what `today()` means for
    * them — a day belongs to a person, not to the server and not to the device
-   * they happen to be holding. See `.plan/changes-v11.md`.
+   * they happen to be holding. See `.plan/changes/changes-v11.md`.
    */
   timezone: text('timezone').notNull().default('America/New_York'),
 })

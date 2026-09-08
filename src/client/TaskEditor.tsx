@@ -8,7 +8,7 @@ import { TaskFields, draftIsValid, draftToPatch, type TaskDraft } from './TaskFi
  *
  * It opens from two places now — a name in the To do panel, and the edit button
  * on a Day row. It used to be one, and `.plan/design/views.md` said so; see
- * `.plan/changes-v10.md` for why that changed and what keeps the original
+ * `.plan/changes/changes-v10.md` for why that changed and what keeps the original
  * reasoning intact.
  *
  * Archive is the only removal; there is no delete anywhere.

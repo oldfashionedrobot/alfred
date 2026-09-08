@@ -55,7 +55,7 @@ export async function handleApi(req: Request): Promise<Response> {
         sha: process.env.BUILD_SHA ?? 'dev',
         // Which database this process is talking to. The browser fixture asserts
         // it is 'local', which is the durable version of a guard that used to
-        // infer it from a libSQL file artifact — see `.plan/changes-v11.md`.
+        // infer it from a libSQL file artifact — see `.plan/changes/changes-v11.md`.
         database: isReplica ? 'replica' : 'local',
       })
     }
