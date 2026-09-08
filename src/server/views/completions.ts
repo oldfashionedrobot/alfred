@@ -14,7 +14,7 @@ const PLACEABLE_CADENCES: ReadonlyArray<Cadence | null> = ['week', 'month', 'qua
  * offer, and the current period's completions grouped by task.
  *
  * Day and Todo both ship `placeable_dates` and both read completions per task.
- * `.plan/review-findings.md` records both as duplication that produced real
+ * Both were duplication that produced real
  * defects — the picker and the 409 on `place` agreed only by coincidence of two
  * separate derivations, and two copies of the grouping disagreed on scope. There
  * is exactly one implementation of each here, and no builder computes a week

@@ -15,7 +15,7 @@ import * as schema from './schema.ts'
  *
  *   TURSO_URL set    →  an EMBEDDED REPLICA: the same local file, kept in sync
  *                       with Turso. Reads are served from local disk at the
- *                       microsecond speeds `design/tech-stack.md` assumed;
+ *                       microsecond speeds it was designed for;
  *                       writes go to Turso and come back down. The durable copy
  *                       lives in Turso, which is what retires that document's
  *                       "silent failure mode" — losing the instance now loses
@@ -38,7 +38,7 @@ import * as schema from './schema.ts'
  * reset — it cheerfully creates a replica of PRODUCTION there, and the next
  * `bun run dev` opens the household's real data as the development database.
  *
- * So: with Turso, say where. See `.plan/changes/changes-v13.md`.
+ * So: with Turso, say where.
  */
 if (process.env.TURSO_URL && !process.env.DB_PATH) {
   throw new Error(
@@ -93,7 +93,7 @@ export type DB = typeof db
 /** True when this process is talking to Turso rather than a bare local file. */
 export const isReplica = TURSO_URL !== undefined
 
-/** The eight starting states from `design/data-model.md`. The only seeded data. */
+/** The eight starting states. The only seeded data. */
 const STARTING_MOODS: ReadonlyArray<{ slug: string; emoji: string; label: string }> = [
   { slug: 'angry', emoji: '🤬', label: 'angry' },
   { slug: 'scattered', emoji: '🤯', label: 'scattered' },
@@ -111,7 +111,7 @@ export async function initDb(): Promise<void> {
     // from an empty local file and then collide with the primary.
     await client.sync()
   } else {
-    // libSQL defaults to `delete`; design/tech-stack.md asks for WAL so a read
+    // libSQL defaults to `delete`; WAL means a read
     // never blocks the writer. A replica's storage is Turso's to manage.
     await client.execute('PRAGMA journal_mode = WAL')
   }

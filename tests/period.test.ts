@@ -76,7 +76,7 @@ describe('calendar assumptions the rest of the suite rests on', () => {
 // ---------------------------------------------------------------------------
 
 describe('periodKey', () => {
-  test('the table in data-model.md, for 2026-09-05', () => {
+  test('the period table, for 2026-09-05', () => {
     expect(periodKey('2026-09-05', 'day')).toBe('2026-09-05')
     expect(periodKey('2026-09-05', 'week')).toBe('W2026-08-30')
     expect(periodKey('2026-09-05', 'month')).toBe('2026-09')
@@ -192,7 +192,7 @@ describe('periodKey', () => {
 // ---------------------------------------------------------------------------
 
 describe('periodStart', () => {
-  test('the table in data-model.md, for 2026-09-05', () => {
+  test('the period table, for 2026-09-05', () => {
     expect(periodStart('2026-09-05', 'day')).toBe('2026-09-05')
     expect(periodStart('2026-09-05', 'week')).toBe('2026-08-30')
     expect(periodStart('2026-09-05', 'month')).toBe('2026-09-01')
@@ -277,7 +277,7 @@ describe('effectiveDate', () => {
   })
 
   /**
-   * THE REGRESSION CASE, called out explicitly in data-model.md:
+   * THE REGRESSION CASE:
    *
    *   "in the week of Sun Sep 27 - Sat Oct 3, a monthly task placed on Fri Oct 2
    *    while today is Tue Sep 29 sits inside the current week but in a different
@@ -362,10 +362,10 @@ describe('effectiveDate', () => {
 })
 
 // ---------------------------------------------------------------------------
-// The behaviour table in data-model.md, row by row
+// The behaviour table, row by row
 // ---------------------------------------------------------------------------
 
-describe('behaviour table from data-model.md "Computing state"', () => {
+describe('the behaviour table for derived state', () => {
   test('row 1 — weekly task placed Tuesday, today Wednesday: effective date holds, overdue', () => {
     // Tue 2026-09-01 and Wed 2026-09-02 are in the week starting Sun 2026-08-30.
     const t = task({ cadence: 'week', planned_date: '2026-09-01' })
@@ -708,7 +708,7 @@ describe('periodEnd', () => {
 describe('today(zone)', () => {
   test('two zones can disagree about the date, and that is the point', () => {
     // 02:35 UTC on the 8th is 22:35 on the 7th in New York — the exact hour that
-    // made the deployed app a day ahead of the household. See changes-v10.md.
+    // made the deployed app a day ahead of the household.
     const instant = new Date('2026-09-08T02:35:00Z')
     expect(today('UTC', instant)).toBe('2026-09-08')
     expect(today('America/New_York', instant)).toBe('2026-09-07')

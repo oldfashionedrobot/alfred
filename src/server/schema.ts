@@ -5,12 +5,12 @@ import type { Cadence, ISODate } from '../shared/types.ts'
  * Property names are snake_case, identical to the column names and to the wire
  * format. There is no mapping layer anywhere.
  *
- * Dates are TEXT 'YYYY-MM-DD', never timestamps — see `.plan/api.md`.
+ * Dates are TEXT 'YYYY-MM-DD', never timestamps.
  *
  * OWNERSHIP. `tasks` and `days` carry a user_id; `completions` does not, because
  * a completion belongs to whoever owns its task and a second copy of that fact
  * could disagree with the first. `moods` is global — it is a vocabulary, not
- * anybody's data. See `.plan/changes/changes-v9.md`.
+ * anybody's data.
  */
 
 /**
@@ -31,7 +31,7 @@ export const users = sqliteTable('users', {
   /**
    * IANA name. The user's day boundary, and therefore what `today()` means for
    * them — a day belongs to a person, not to the server and not to the device
-   * they happen to be holding. See `.plan/changes/changes-v11.md`.
+   * they happen to be holding.
    */
   timezone: text('timezone').notNull().default('America/New_York'),
   /**
@@ -39,7 +39,6 @@ export const users = sqliteTable('users', {
    *
    * The token IS the security: the claim form takes it instead of a username,
    * so there is nothing to guess and nothing to enumerate. See
-   * `.plan/changes/changes-v13.md`.
    */
   claim_token: text('claim_token'),
   /** Epoch ms — an instant, not a day, like the session cookie's expiry. */
@@ -66,7 +65,7 @@ export const tasks = sqliteTable('tasks', {
   /**
    * Free text, matched exactly. Groups tasks inside the To do panel; the Day
    * list ignores it. Not a table: the editor suggests categories already in use,
-   * which is the cheap half of one — see `.plan/data-model.md`.
+   * which is the cheap half of one.
    */
   category: text('category'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),

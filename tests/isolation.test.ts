@@ -38,10 +38,8 @@ const viewer = (id: number) => ({ id, timezone: ZONE })
  * The suite's timezone, explicit and fixed.
  *
  * `today()` takes a zone now, so nothing here depends on the process's `TZ` —
- * which is what closes the gap `changes.md` recorded: `bun test` ran UTC while
- * the browser suite ran local, the two disagreed about what day it was, and the
- * skip count moved with the clock. UTC because it has no DST, so no test lands
- * on a day that is 23 or 25 hours long.
+ * UTC because it has no DST, so no test lands on a day that is 23 or 25 hours
+ * long.
  */
 const ZONE = 'UTC'
 

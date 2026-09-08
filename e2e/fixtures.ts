@@ -199,7 +199,7 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
         // auth gate, so this probe works whether or not the test wants a login.
         //
         // It no longer carries a date. It is ungated, so with per-user zones
-        // there is no user whose day it could name — see `.plan/changes/changes-v11.md`.
+        // there is no user whose day it could name.
         // `today` comes from /api/day below, after signing in, which is the only
         // point at which "today" means anything.
         const r = await fetch(`${url}/api/status`)

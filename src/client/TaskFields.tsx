@@ -3,7 +3,7 @@ import { CADENCES, type Cadence, type ISODate } from '../shared/types.ts'
 /**
  * The task definition fields, shared by the editor (To do panel) and the capture
  * sheet (Day). One definition, because the two forms now carry the same inputs —
- * `views.md`, "Input". Capture collapses everything below the name.
+ * Capture collapses everything below the name.
  */
 
 export type TaskDraft = {

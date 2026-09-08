@@ -770,7 +770,7 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
  * the NAME is not a control. Every tap on this list is made mid-task while
  * working through the day, and a definition sheet arriving from a mis-tap is the
  * opposite of cheap — which is an argument about the name, not about a button
- * you have to aim at. See `.plan/changes/changes-v10.md`.
+ * you have to aim at.
  */
 test('a Day row name is not a control, though the row has an Edit button', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })
@@ -1628,7 +1628,7 @@ test('the week endpoint is gone, and the two that replaced it answer', async ({ 
 })
 
 // ===========================================================================
-// Placing at capture, and editing from the day's own list — see changes-v10.md
+// Placing at capture, and editing from the day's own list
 // ===========================================================================
 
 test('Add task opens capture with the day already chosen, and it lands on today', async ({

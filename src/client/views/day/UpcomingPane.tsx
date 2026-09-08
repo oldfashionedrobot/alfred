@@ -10,7 +10,7 @@ import { TaskRow } from './TaskRow.tsx'
  * Placed tasks only, and only those still outstanding — the server decides both
  * and this renders what it sent. Daily tasks are absent because one can never
  * hold a planned_date; a task already satisfied for its period is absent because
- * a done task adds no load to the day. See `.plan/changes/changes-v8.md`.
+ * a done task adds no load to the day.
  *
  * The rows are `TaskRow` with `future` set — the same component today's pane
  * uses, which is why `UpcomingDay.tasks` is `DayTask[]` and not a narrower type.

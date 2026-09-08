@@ -2,7 +2,7 @@ import type { Cadence, ISODate } from '../shared/types.ts'
 import type { CompletionRow, TaskRow } from './schema.ts'
 
 /**
- * The single implementation of "Computing state" in `.plan/data-model.md`.
+ * The single implementation of derived task state.
  *
  * Pure and I/O-free. Every function takes `today` as an argument rather than
  * reading the clock — that is what makes them directly testable, and the

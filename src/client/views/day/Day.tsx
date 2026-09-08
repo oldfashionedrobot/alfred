@@ -17,7 +17,7 @@ import { DragBand } from './DragBand.tsx'
 /*
  * Day — the doing surface.
  *
- * Data rule (.plan/api.md, "Client fetching"): fetch the models, render them,
+ * Data rule: fetch the models, render them,
  * post a named command, refetch and replace wholesale. Nothing derived from a
  * model is held in state, nothing is sorted or filtered here — `view.active`
  * and `view.completed` arrive in render order. The one exception is `orderIds`,
@@ -26,13 +26,12 @@ import { DragBand } from './DragBand.tsx'
  *
  * Day fetches TWO models: its own and the To do panel's. `placeable_dates` rides
  * on DayView exactly so that the picker and the server's 409 on `place` cannot
- * disagree (D3 in review-findings.md) — and since v8 it is also the list of PANES,
+ * disagree — and it is also the list of PANES,
  * so the days you can swipe to and the days you can place on are one derivation.
  *
  * Since v8 this is the only task surface: Week is deleted and its seven day
  * sections are the panes of the track here. Today's pane is the whole Day view;
  * the rest show what is placed on that date and cannot be ticked. See
- * `.plan/changes/changes-v8.md`.
  */
 
 // --- shell ------------------------------------------------------------------
@@ -435,10 +434,8 @@ export default function Day() {
         at render rather than held, so a refetch behind an open sheet cannot leave
         it editing a stale row — the same rule the To do panel follows.
 
-        `.plan/design/views.md` used to say the panel was the only place a task is
-        edited. A distinct button keeps the reasoning behind that rule — a tap on
-        Day is a tap you make while working — while giving the day's own list a
-        way to fix a name without going hunting. See `.plan/changes/changes-v10.md`.
+        A distinct button rather than the row: a tap on Day is a tap you make
+        while working, so a name is not an edit target here.
       */}
       {editing !== null && (
         <TaskEditor

@@ -11,8 +11,7 @@ import { today, type Viewer } from '../today.ts'
 
 /**
  * The To do panel — the complete inventory, hosted by Day and
- * identical in both. See "To do" in `.plan/views.md` and "GET /api/todo" in
- * `.plan/api.md`.
+ * identical in both.
  *
  * SIX GROUPS, ALWAYS ALL SIX, ALWAYS IN CADENCE ORDER, even when empty. The
  * panel is a map of the periods as much as a list of tasks, and a month that
@@ -57,7 +56,7 @@ export async function buildTodoView(db: DB, viewer: Viewer): Promise<TodoView> {
         category: t.category,
         // The EFFECTIVE date, not the raw column. A weekly task placed last
         // Tuesday and viewed this Sunday has fallen out the back of its period:
-        // the column still holds that date, but `data-model.md` is explicit that
+        // the column still holds that date, but
         // such a task "has no day against it" — showing the stale one would
         // reintroduce the staleness effective_date exists to remove. Null here
         // also drops the row into band 3 (unplaced), which is where it belongs.
@@ -118,7 +117,7 @@ function keepOneOff(own: CompletionRow[], weekStart: ISODate): boolean {
  * This is deliberately NOT `sortTasks()` and must not be folded into it. There
  * is no baseline band — baseline is a flag on daily tasks and every group is one
  * cadence — and no `days.task_order`, which belongs to Day's list, arranged for
- * doing. `.plan/review-findings.md` closes this: one function with flags would
+ * doing. One function with flags would
  * be worse than two small ones.
  */
 function band(t: TodoTask): number {

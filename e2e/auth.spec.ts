@@ -191,7 +191,7 @@ test('repeated failures lock the account out for a while', async ({ page, app })
 })
 
 // ===========================================================================
-// Claiming an invitation — see .plan/changes/changes-v13.md
+// Claiming an invitation
 // ===========================================================================
 
 test('an invited person sets a password and lands signed in', async ({ page, app }) => {

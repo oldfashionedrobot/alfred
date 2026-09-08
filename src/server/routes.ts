@@ -32,7 +32,7 @@ const MAX_LIMIT = 365
  * renders it, and it arrives in that view's model.
  *
  * Anything else — an unknown path, or a known path with the wrong method — is a
- * 404. `.plan/api.md`'s error table has four codes and three classes: a 405 is a
+ * 404. The error taxonomy has four codes and three classes: a 405 is a
  * fourth class serving only a hand-written curl, so the method is part of the
  * route match rather than a check with its own error.
  *
@@ -62,7 +62,7 @@ export async function handleApi(req: Request): Promise<Response> {
         sha: process.env.BUILD_SHA ?? 'dev',
         // Which database this process is talking to. The browser fixture asserts
         // it is 'local', which is the durable version of a guard that used to
-        // infer it from a libSQL file artifact — see `.plan/changes/changes-v11.md`.
+        // infer it from a libSQL file artifact.
         database: isReplica ? 'replica' : 'local',
       })
     }

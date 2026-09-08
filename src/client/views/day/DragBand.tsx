@@ -25,7 +25,7 @@ import type { DayTask } from '../../../shared/types.ts'
  * Each band gets its OWN DndContext, which is how "bands never mix" is enforced:
  * a baseline task and a non-baseline one are never in the same drag context, so
  * crossing the boundary is not a move that can be expressed rather than a move
- * that has to be rejected. `views.md` calls the band boundary the meaning of the
+ * that has to be rejected. The band boundary is the meaning of the
  * baseline flag; this makes it structural.
  *
  * The whole row is the handle. In this mode nothing else on a row is

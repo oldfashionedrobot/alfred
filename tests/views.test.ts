@@ -16,7 +16,7 @@ import { buildHistoryView } from '../src/server/views/history.ts'
 /**
  * The view builders, against a real on-disk SQLite database.
  *
- * `.plan/review-findings.md` records why this file exists: `tech-stack.md` used
+ * This file exists because an earlier version of this project
  * to claim the period logic was "the only part of the system that needs tests",
  * and that was wrong by exactly one layer. `period.ts` was correct; D1 and D2 —
  * both defects that made a task untickable and unrecoverable through the
@@ -68,10 +68,8 @@ function lastDayOfMonth(year: number, month: number): ISODate {
  * The suite's timezone, explicit and fixed.
  *
  * `today()` takes a zone now, so nothing here depends on the process's `TZ` —
- * which is what closes the gap `changes.md` recorded: `bun test` ran UTC while
- * the browser suite ran local, the two disagreed about what day it was, and the
- * skip count moved with the clock. UTC because it has no DST, so no test lands
- * on a day that is 23 or 25 hours long.
+ * UTC because it has no DST, so no test lands on a day that is 23 or 25 hours
+ * long.
  */
 const ZONE = 'UTC'
 
@@ -296,7 +294,7 @@ describe('buildDayView', () => {
     'a weekly task placed AND completed on an earlier day of this week is not a member at all',
     async () => {
       // Neither planned today, nor overdue (it is done), nor ticked today.
-      // views.md: a completed task stays on Day for the day you ticked it, and
+      // A completed task stays on Day for the day you ticked it, and
       // no longer — the To do panel answers for the rest of the period.
       const past = EARLIER_THIS_WEEK!
       await addTask({ name: 'Vacuum', cadence: 'week', planned_date: past, done_on: [past] })
@@ -918,7 +916,7 @@ describe('buildHistoryView', () => {
 
 // ---------------------------------------------------------------------------
 // A rolled-over placement shows no day, and sits in the unplaced band.
-// data-model.md: "A date that has fallen out the back of its period is simply
+// "A date that has fallen out the back of its period is simply
 // not there." Rollover is a read — nothing ever clears planned_date — so the
 // raw column still holds last period's date and must not be rendered.
 // ---------------------------------------------------------------------------
@@ -1008,7 +1006,7 @@ describe('todo — categories', () => {
 
   test('exact matching means Dog and dog are two categories', async () => {
     // A known and accepted cost of free text — pinned so it is a decision
-    // rather than a surprise. `data-model.md` says so explicitly.
+    // rather than a surprise.
     await addTask({ name: 'a', cadence: 'day', category: 'Dog' })
     await addTask({ name: 'b', cadence: 'day', category: 'dog' })
 

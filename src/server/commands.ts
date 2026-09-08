@@ -8,7 +8,7 @@ import { today, type Viewer } from './today.ts'
 import { loadCurrentCompletions, placementMax } from './views/completions.ts'
 
 /**
- * Every named command from `.plan/api.md`. Commands map 1:1 to gestures in views.md.
+ * Every named command. Commands map 1:1 to gestures in the views.
  *
  * On success a command returns nothing — the route replies { ok: true } and the
  * client refetches the view it is on. On failure, throw BadRequest / NotFound /
@@ -27,7 +27,7 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * Day record:   set_mood, set_log, set_task_order
  *
  * There are no mood-management commands. The mood set is seeded on first run and
- * edited in the database — see "Moods are data, not a feature" in `.plan/views.md`.
+ * edited in the database rather than through the app.
  * `set_mood` records the day's mood and is the only mood command there is.
  */
 export async function runCommand(
@@ -238,7 +238,7 @@ async function place(db: DB, userId: number, now: ISODate, b: Record<string, unk
 
   // The same derivation the views ship as `placement`, so the picker and this
   // rejection cannot disagree — which is the whole reason the server ships the
-  // bound at all. See `.plan/api.md`.
+  // bound at all.
   //
   // THIS WEEK UNION THE TASK'S OWN PERIOD. The period half is what makes a
   // placement mean anything: `planned_date` names a day INSIDE the current
@@ -305,7 +305,7 @@ async function resetOverdue(db: DB, userId: number, now: ISODate, b: Record<stri
 // Tasks
 // ---------------------------------------------------------------------------
 
-/** The `+` on Day. One field, deliberately — see "Input" in `.plan/views.md`. */
+/** The `+` on Day. One field, deliberately. */
 async function createTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['name', 'is_baseline', 'cadence', 'planned_date', 'color', 'category'])
   const name = reqName(b, 'name')
@@ -478,7 +478,7 @@ async function setTaskOrder(db: DB, userId: number, now: ISODate, b: Record<stri
     throw new BadRequest('task_ids must be an array of integers')
   }
 
-  // Stored opaquely. `.plan/data-model.md` has the order disposable, per-day and
+  // Stored opaquely. The order is disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
   await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
 }

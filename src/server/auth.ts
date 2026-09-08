@@ -211,7 +211,7 @@ export function isTimezone(zone: string): boolean {
  *
  * The empty-hash check is what makes this a claim and not a password reset: it
  * is a one-way transition, and resetting a claimed account stays a deliberate
- * act from a laptop. See `.plan/changes/changes-v13.md`.
+ * act from a laptop.
  */
 export async function claimAccount(
   db: DB,

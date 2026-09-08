@@ -12,7 +12,7 @@ import { closeDb, freshDb, type Harness } from './harness.ts'
  * Every one of these is a guard rather than a feature. The token is the whole
  * security model — 32 random bytes standing in for a username nobody can guess —
  * so the interesting assertions are the refusals, and that they are
- * indistinguishable from each other. See `.plan/changes/changes-v13.md`.
+ * indistinguishable from each other.
  */
 
 const TOKEN = 'a'.repeat(64)

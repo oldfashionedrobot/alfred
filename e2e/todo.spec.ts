@@ -18,7 +18,7 @@ import type { TodoTask, TodoGroup, TodoView } from '../src/shared/types.ts'
  * weekly task can be overdue at all; on a Saturday it holds exactly one.
  *
  * Overdue fixtures are therefore always one-offs. A one-off's period start is
- * unbounded (`data-model.md`, "Computing state"), so a past `planned_date`
+ * unbounded, so a past `planned_date`
  * stays overdue on every day of the week — a weekly one would silently fall out
  * of its period and read as unplaced when the suite ran on a Sunday. The split
  * does not change that: it only means those rows are now drawn in **Backlog**,

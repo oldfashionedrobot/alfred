@@ -6,7 +6,7 @@ import type { ISODate } from '../shared/types.ts'
  * This is the ONLY place in the codebase that reads the clock for a date.
  * Nothing else constructs today's date, and no endpoint accepts a date meaning
  * "the day to render" — which is what makes same-day-only recording structural
- * rather than a rule the UI is trusted to follow. See `.plan/design/api.md`.
+ * rather than a rule the UI is trusted to follow.
  *
  * The zone comes from the USER, not from the server and not from the device.
  * That is the whole point: a laptop in London and a phone in Atlanta must not
@@ -16,8 +16,7 @@ import type { ISODate } from '../shared/types.ts'
  * It used to read the process's local date, and said so: "one process, one
  * machine, one household — there is no timezone to reconcile." True on a laptop
  * in the household; false the moment it ran in Ashburn on UTC and started
- * calling 8pm Monday "Tuesday". See `.plan/changes/changes-v10.md` for that evening and
- * `.plan/changes/changes-v11.md` for this.
+ * calling 8pm Monday "Tuesday".
  *
  * `en-CA` formats as YYYY-MM-DD, which is why it is here rather than a locale
  * anybody reads. No `TZ` environment variable and no dependency.

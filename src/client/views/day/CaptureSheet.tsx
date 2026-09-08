@@ -142,7 +142,7 @@ export function CaptureSheet({
             }}
           >
             {/* Name is the fast path; everything else is behind a disclosure that
-                costs nothing closed. See "Input" in `.plan/views.md`. */}
+                costs nothing closed. */}
             <TaskFields draft={draft} onChange={setDraft} collapseExtras autoFocusName />
 
             <button className="btn btn--primary" type="submit" disabled={!draftIsValid(draft) || busy}>

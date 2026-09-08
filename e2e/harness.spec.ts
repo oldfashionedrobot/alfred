@@ -56,7 +56,7 @@ test('no console errors on load', async ({ page, app }) => {
  * isolation between tests (above) looked perfect throughout.
  *
  * That is the gap this closes: those tests prove the databases differ from each
- * other, not that they are local. See `.plan/changes/changes-v10.md`.
+ * other, not that they are local.
  */
 test('the server under test is a local file, never a Turso replica', async ({ app }) => {
   // Asked, not inferred. This used to check for the absence of a libSQL `-info`

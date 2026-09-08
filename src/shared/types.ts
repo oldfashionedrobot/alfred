@@ -1,6 +1,6 @@
 /**
  * Wire types — the contract between server and client.
- * Mirrors `.plan/api.md`. Field names are snake_case, matching the data model;
+ * The wire contract. Field names are snake_case, matching the data model;
  * there is no wire renaming anywhere.
  */
 
@@ -104,7 +104,7 @@ export interface DayTask {
  * One future day of this week, in `DayView.upcoming`.
  *
  * `tasks` is what is PLACED on that date and not already satisfied for its
- * period — see "Future panes show placed tasks only" in `.plan/changes/changes-v8.md`.
+ * period.
  * Daily tasks are excluded structurally rather than by a filter: one can never
  * hold a planned_date, so `planned_date === date` never matches one.
  *
@@ -163,7 +163,7 @@ export interface TodoTask {
   /**
    * The day shown against the row — the EFFECTIVE date, not `tasks.planned_date`.
    * Rollover is a read, so the column still holds last period's date after it has
-   * fallen out the back of that period; `data-model.md` says such a task has no
+   * fallen out the back of that period; such a task has no
    * day against it. Null also puts the row in the unplaced band.
    */
   effective_date: ISODate | null

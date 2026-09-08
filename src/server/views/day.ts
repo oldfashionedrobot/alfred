@@ -17,12 +17,11 @@ import { today, type Viewer } from '../today.ts'
 
 /**
  * Everything the Day view renders. Always today — no parameters.
- * See "GET /api/day" in `.plan/api.md`.
  *
  * Since v8 this also carries the rest of the week: `upcoming` holds one entry per
  * day from tomorrow through Saturday, which the client renders as the panes you
  * swipe through. The Week view and `GET /api/week` are gone — see
- * `.plan/changes/changes-v8.md`. There is still NO date parameter and this endpoint still
+ * There is still NO date parameter and this endpoint still
  * means today; what changed is how much of the week rides along with it.
  *
  * MEMBERSHIP OF TODAY IS A UNION OF FOUR INDEPENDENT RULES, never a chain of
@@ -34,7 +33,7 @@ import { today, type Viewer } from '../today.ts'
  *   a completion dated today     // whatever you ticked, whenever it was due
  *
  * The fourth rule is small and load-bearing, and writing the four as a chain is
- * D1 in `.plan/review-findings.md`: `isOverdue` is false once a task is done, so
+ * `isOverdue` is false once a task is done, so
  * an else-if chain drops a completed non-daily task out of `active` AND out of
  * `completed` — off the screen, with no row left to tap to untick it, and no
  * other surface able to correct it. Membership only ever grows with doneness;
@@ -137,7 +136,7 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
  *
  * A task already satisfied for its period is DROPPED rather than struck through.
  * The panes are read for load, and a done task adds none. See "Future panes show
- * placed tasks only" in `.plan/changes/changes-v8.md` for why this does not become a flag
+ * placed tasks only — this deliberately does not become a flag
  * on DayTask.
  *
  * `isDone` is asked about THE PANE'S OWN DATE, not about today. Those differ at a

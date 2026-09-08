@@ -10,7 +10,6 @@
  * hash cannot be typed into a SQL console. There is no self-registration and no
  * plan for one — an account exists because somebody here made it. What v13 added
  * is that the person can choose their own password; see
- * `.plan/changes/changes-v13.md`.
  */
 import { eq } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'

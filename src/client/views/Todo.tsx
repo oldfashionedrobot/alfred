@@ -15,7 +15,7 @@ import './todo.css';
 
 /**
  * The To do panel — the complete inventory. Hosted by Day,
- * identical in both. See "To do" in `.plan/views.md`.
+ * identical in both.
  *
  * The host owns fetching: it passes the model in and a refresh callback, so a
  * command fired from here refetches both the panel and its host.
@@ -86,7 +86,7 @@ function TodoRow({
         {/* Tapping the NAME opens the editor, and only here: on Day a tap is one
             you make while working, not one you make to change what a task means.
             Day reaches the same editor through a distinct button, which cannot be
-            hit by accident — see `.plan/changes/changes-v10.md`. */}
+            hit by accident. */}
         <button
           className="todo-row__label"
           onClick={onEdit}
@@ -193,7 +193,7 @@ export default function Todo({
 }) {
   // Collapsed by default. Week opened both panels expanded on the grounds that
   // there the panel WAS the planning surface; Day is now the only surface, and
-  // its first screen is the day's list — see `.plan/changes/changes-v8.md`.
+  // its first screen is the day's list.
   const [open, setOpen] = useState(false);
   // One picker open at a time: a long panel with six of them fanned out is not
   // a picker, it is a mess.

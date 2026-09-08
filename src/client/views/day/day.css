@@ -343,7 +343,7 @@
    Today first, then one pane per day through Saturday. A snapping scroll
    container and nothing else: no library, no gesture handling, no active-index
    state. Which day you are looking at is answered by the pane's own heading,
-   which is why there is no strip of chips above it — see `.plan/changes/changes-v8.md`.
+   which is why there is no strip of chips above it.
 
    The page body must never scroll sideways. The track scrolls inside itself,
    the same arrangement `.hist-scroll` uses for the history grid, and it is

@@ -103,7 +103,7 @@ export async function login(username: string, password: string): Promise<string 
  *
  * The timezone is the DEVICE's, offered as a default the person can change —
  * it is stored against the user, so their day boundary follows them rather than
- * whatever they are holding. See `.plan/changes/changes-v13.md`.
+ * whatever they are holding.
  */
 export async function claim(
   token: string,

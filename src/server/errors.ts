@@ -1,5 +1,5 @@
 /**
- * The error taxonomy from `.plan/api.md`. One human-readable string on the wire,
+ * The error taxonomy. One human-readable string on the wire,
  * no error codes and no field-level validation objects.
  */
 

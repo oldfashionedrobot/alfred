@@ -15,7 +15,6 @@ import { today, type Viewer } from '../today.ts'
 const DEFAULT_LIMIT = 60
 
 /**
- * See "GET /api/history" in `.plan/api.md`.
  *
  * columns: active daily tasks in sort order.
  * rows: most recent first, EVERY date in the range including days with nothing

@@ -1,7 +1,7 @@
 import type { TaskRow } from './schema.ts'
 
 /**
- * `sort()` from `.plan/views.md`. Runs on the server; every task array in a view
+ * The one ordering function. Runs on the server; every task array in a view
  * model arrives already ordered and the client renders it as given.
  *
  *   band 1 -> is_baseline
@@ -20,7 +20,7 @@ export function sortTasks<T extends Pick<TaskRow, 'id' | 'name' | 'is_baseline'>
   taskOrder: number[] | null,
 ): T[] {
   // Ids in taskOrder that match nothing shown today are simply never looked up
-  // — `.plan/data-model.md` has the order disposable and tolerant of stale ids.
+  // — the order is disposable and tolerant of stale ids.
   const position = new Map<number, number>()
   if (taskOrder) {
     for (const [i, id] of taskOrder.entries()) {
@@ -49,7 +49,7 @@ export function sortTasks<T extends Pick<TaskRow, 'id' | 'name' | 'is_baseline'>
  *
  * The tie-break shared by the To do panel and History's columns. It is NOT
  * `sortTasks` — there is no `days.task_order` here, and baseline outranks
- * category deliberately, which `views.md` states along with its cost.
+ * category deliberately.
  *
  * One implementation because two screens show the same tasks in what should be
  * the same order: a column in the grid and a row in the panel are the same

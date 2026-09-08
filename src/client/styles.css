@@ -461,7 +461,7 @@ select {
 /* --- task colour ---------------------------------------------------------
    Baseline tasks may carry a colour, set in the task editor. It paints the
    row's left edge and the task's own name, and nothing else — no fill, no
-   badge. Used exactly as picked: `views.md` is explicit that the app does not
+   badge. Used exactly as picked: the app does not
    second-guess the swatch, because a swatch that renders as something else is
    worse than a bad one.
 

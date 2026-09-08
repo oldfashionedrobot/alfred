@@ -14,7 +14,7 @@ const server = Bun.serve({
   routes: {
     /*
      * Signing in is `POST /api/login`, and the form is a React view — see
-     * `.plan/changes/changes-v9.md`. There is no `/login` URL: the client owns the
+     * There is no `/login` URL: the client owns the
      * signed-out state, so one place decides you are signed out rather than a
      * server route and a client route that have to agree with each other.
      */
