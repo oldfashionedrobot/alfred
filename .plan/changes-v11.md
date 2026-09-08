@@ -149,8 +149,8 @@ handled, and production HTML routes stop serving sourcemaps.
 
 ## 6. Cross-browser, and the honest limits of it
 
-**What.** WebKit in CI, a checked-in `Dockerfile.test` so it can be run locally,
-and a written manual checklist for what neither can reach.
+**What.** WebKit in CI, and a checked-in `Dockerfile.test` so it can be run
+locally. No manual test plan.
 
 **What emulation gives.** Playwright ships 207 device profiles; `iPhone 15` sets
 the user agent, a 393×659 viewport, `deviceScaleFactor: 3`, `isMobile`,
@@ -167,10 +167,20 @@ treated the browser's own calendar chrome as a click outside, so changing month
 dismissed the picker and placed a task. The iOS date picker is OS chrome. No
 emulation reaches it.
 
-So the coverage is honest about its shape: **WebKit in CI** for the engine,
-**a manual checklist on the actual phone** for the native picker and anything
-else the OS draws, and **no real-device automation** — BrowserStack is not worth
-buying for a household app.
+So the coverage is honest about its shape: **WebKit in CI** for the engine, and
+**nothing automated** for the native picker or anything else the OS draws.
+BrowserStack is not worth buying for a household app.
+
+**And no written checklist for that gap either**, which is a deliberate choice
+rather than an omission. This app has one household and is opened on the same
+phone every day; the person who would write the checklist is the person who would
+notice within a day of shipping. A test plan nobody runs is worse than admitting
+there isn't one, because it reads like coverage.
+
+The residual risk is stated rather than papered over: an iOS-only regression in
+the parts Safari draws itself — the date picker especially, which has bitten this
+project once — ships, and is found by using the app. For a household tracker that
+is an acceptable trade. It would not be for anything with users who are not you.
 
 **The local container is the enabling piece.** Playwright 1.63 pins macOS 14 to
 WebKit 2251 while its driver targets 2359, so WebKit cannot run on this laptop at
@@ -190,8 +200,8 @@ gap that matters is Chrome-on-Android's own quirks, and the answer then is the
 same manual checklist, on that phone.
 
 **The shape this leaves.** Four browser projects — `mobile` and `desktop` on
-Chrome, `mobile-webkit` and `desktop-webkit` on WebKit — plus a manual checklist
-for the OS-drawn parts. That is every layer automation can honestly reach.
+Chrome, `mobile-webkit` and `desktop-webkit` on WebKit. That is every layer
+automation can honestly reach here, and the layer beneath it is daily use.
 
 **Known before starting: the app fails a lot of WebKit.** A partial run reached
 8 passed against 24 failed, as real in-test failures rather than protocol errors.
