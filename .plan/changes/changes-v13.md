@@ -175,27 +175,47 @@ that cannot be undone in a minute.
 
 ---
 
-### A footgun closed on the way past
+### Admin runs on the machine, and the footgun it removes
 
-Documenting `user:invite` against production surfaced something worse than the
-documentation. **`DB_PATH` means two different things**: without `TURSO_URL` it is
-the database, with it it is the local replica file. They want different
-locations, and the default served only one of them.
+Documenting `user:invite` against production went through three answers before
+arriving at the obvious one.
 
-Forgetting it turned out not to corrupt anything — libSQL refuses with *"db file
-exists but metadata file does not"* when the dev database is already there,
-which was worth confirming rather than assuming. **But if the file does not
-exist** — a fresh clone, or after a reset — it creates a replica of PRODUCTION at
-`./data/alfred.db`, and the next `bun run dev` opens the household's real data as
-the development database. Silent, and exactly the shape of the afternoon the test
-suite spent writing to production.
+**The first** was to run it from a laptop with `DB_PATH` pointed at a throwaway
+replica. That works, and it exposed something worse than the instruction:
+`DB_PATH` means two different things — the database without `TURSO_URL`, the
+local *replica file* with it. Forgetting it does not corrupt anything, since
+libSQL refuses with *"db file exists but metadata file does not"* when the dev
+database is there. **But if that file does not exist** — a fresh clone, or after a
+reset — it creates a replica of PRODUCTION at `./data/alfred.db`, and the next
+`bun run dev` opens the household's real data as the development database.
+Silent, and the same shape as the afternoon the test suite spent writing to
+production.
 
-So `db.ts` now refuses: `TURSO_URL` set and `DB_PATH` unset is an error that says
-what to do instead. Production is unaffected — `fly.toml` sets `DB_PATH`
-explicitly — and so is the test fixture, which has always passed it.
+**The second** was a third connection mode in `db.ts`: `TURSO_URL` with no
+`DB_PATH` meaning a direct connection, no local file at all. It works — it was
+built and tested — and it was reverted, because it solved a problem the third
+answer does not have.
 
-The README said forgetting it would "invite somebody to your development
-database", which was wrong in both directions. Corrected.
+**The third, and the right one: run it where the data is.**
+
+```sh
+fly ssh console -a gg-alfred -C "sh -c 'bun run user:invite jess'"
+```
+
+Nothing is passed. The secrets are deployed, `fly.toml` carries `DB_PATH` and now
+`APP_URL`, and the write goes through the machine's own replica so it is visible
+there immediately. No override to forget, so the footgun above cannot be reached
+in the first place.
+
+**`deployment.md` used to recommend the laptop**, on the reasoning that it "does
+not care whether the machine is awake, stopped, or deployed at all — you could
+run it before Fly exists." True at bootstrap, and stale the moment a machine
+existed. That is corrected there, and the laptop keeps `.env.turso` for one
+thing only: the pre-deploy boot check, which by definition happens before there
+is a machine to run anything on.
+
+One fewer copy of a write token, and it is why `-slim` was chosen over
+distroless: `fly ssh console` on an image with no shell is a bad evening.
 
 ### What this is not
 

@@ -412,15 +412,26 @@ later, so it was not worth deliberating over.
 
 **The app comes up locked**, because `owner` exists with no password: the login
 form is there and nothing verifies against it. Setting that password is the last
-step, and it is easier from a laptop than over SSH. Note the `DB_PATH` override —
-without it this opens the development database instead of a throwaway replica:
+step, and it is done **on the machine**, where the credentials already are:
 
 ```sh
-DB_PATH=/tmp/alfred-admin.db bun --env-file=.env.turso run user:add owner
+fly ssh console -a gg-alfred -C "sh -c 'bun run user:add owner'"
 ```
 
-That opens a throwaway local replica, writes through to Turso, and the machine
-picks it up inside its sixty-second sync.
+No environment to pass: `TURSO_URL` and `TURSO_AUTH_TOKEN` are deployed secrets,
+`DB_PATH` and `APP_URL` are in `fly.toml`, and the write goes through the
+machine's own replica — so it is visible there immediately rather than after a
+sync.
+
+**This reverses what this document used to say.** It recommended running admin
+commands from a laptop, on the reasoning that it "does not care whether the
+machine is awake, stopped, or deployed at all — you could run it before Fly
+exists." That was true at bootstrap, when there was no machine, and it stopped
+being a good reason the moment there was one. Running from a laptop needs the
+`.env.turso` credentials, a `DB_PATH` override pointing somewhere throwaway, and
+an `APP_URL` — three things to get right, against a machine that already has all
+three. It also means one more copy of a write token, which is the part that
+actually matters.
 
 **Region is the one thing to get right before any of it.** Every write is a round
 trip to Turso: colocated that is single-digit milliseconds, mismatched it is
@@ -670,10 +681,15 @@ The CI smoke test still asks `gg-alfred.fly.dev`, deliberately: that name is
 guaranteed by the platform and does not depend on a registrar, so it tests the
 deploy rather than the DNS.
 
-**Where `user:add` is run from, long term.** The bootstrap is documented above.
-Adding a second person later is the same command against Turso, which is fine
-but is a laptop with a write token — worth revisiting if that ever stops feeling
-proportionate.
+**Settled: admin runs on the machine.** `fly ssh console -C "bun run user:invite
+<name>"` needs nothing passed to it — the secrets are deployed and `fly.toml`
+carries `DB_PATH` and `APP_URL`. The laptop keeps `.env.turso` only for the
+pre-deploy boot check above, which is the one thing that has to happen before a
+machine exists.
+
+That is one fewer place a write token lives, and it is why `-slim` was chosen
+over distroless back in *The container*: `fly ssh console` on an image with no
+shell is a bad evening.
 
 ---
 

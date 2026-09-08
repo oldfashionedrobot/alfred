@@ -47,14 +47,13 @@ bun run user:enable jess
 
 `user:add` also sets an existing user's password — which invalidates their existing sessions, because a session cookie is signed with the user's password hash.
 
-**Against the deployed app**, which is the case that matters, these run from a laptop with the Turso credentials — nothing is done over SSH:
+**Against the deployed app**, run them on the machine, where the credentials already are:
 
 ```sh
-DB_PATH=/tmp/alfred-admin.db APP_URL=https://alfred.goodghost.com \
-  bun --env-file=.env.turso run user:invite jess
+fly ssh console -a gg-alfred -C "sh -c 'bun run user:invite jess'"
 ```
 
-`DB_PATH` points at a throwaway replica. With `TURSO_URL` set it means the local *replica file* rather than the database, so leaving it out is refused with an explanation rather than quietly creating a replica of production inside `data/`. `APP_URL` only decides what the printed link points at. `.env.turso` is where the credentials live and is never loaded automatically; see [`.env.example`](.env.example) for why.
+Nothing to pass: `TURSO_URL` and `TURSO_AUTH_TOKEN` are deployed secrets, and `fly.toml` carries `DB_PATH` and `APP_URL`. That keeps production credentials off the laptop, which is the point — see [`.env.example`](.env.example) for why they are not in `.env` either.
 
 `owner` is user 1, created by the migration, and owns everything written before accounts existed — so setting its password is how you claim your own data.
 
