@@ -119,7 +119,11 @@ src/
     ui.tsx             shared primitives: button, tick, day picker, notice
     TaskFields.tsx     the task definition fields, shared by capture and the editor
     TaskEditor.tsx     the editor itself, opened from Day rows and from the panel
-    views/             Day, History, Login, and the Routine and Backlog panels Day hosts
+    views/
+      day/             Day and its parts: rows, strip, panes, capture, drag, mood
+      History.tsx      the grid
+      Todo.tsx         the Routine and Backlog panels Day hosts, one component twice
+      Login.tsx        the signed-out surface
 assets/                source art, not bundled
 tests/                 period logic, view builders, command writes, per-user isolation
 e2e/                   Playwright, one server + one database per test

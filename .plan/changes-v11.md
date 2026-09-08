@@ -81,7 +81,7 @@ wrote 206 rows into production. It reads `database === 'local'` now.
 
 ---
 
-## 3. `Day.tsx` becomes a folder
+## 3. `Day.tsx` becomes a folder — BUILT
 
 **What.** `src/client/views/day/` holding `Day.tsx`, `CaptureSheet.tsx`,
 `TaskRow.tsx`, `DayStrip.tsx`, `DragBand.tsx`, `MoodRow.tsx` and `day.css`.
@@ -95,9 +95,28 @@ a component earns its own file when it is used elsewhere, or when the file it
 lives in has become hard to navigate. `History.tsx` (202 lines) and `Todo.tsx`
 (394) stay single files until one of those is true of them.
 
-**Cost.** Pure churn — no behaviour changes, and the browser suite is the proof.
-Worth doing in the same iteration that adds to the file, and not worth doing on
-its own.
+**What it produced.** 1133 lines became seven files: `Day.tsx` at 482 and the
+rest between 82 and 160. `Day.tsx` stays the largest, which is the right shape —
+it is the view, and the others are its parts. `UpcomingPane` importing `TaskRow`
+is the one real cross-edge, and it was already the design: an upcoming pane
+renders the same row with `future` set.
+
+**Cost.** Pure churn, as expected — 270 browser tests pass unchanged, which is
+the only proof that matters for a move that typechecks either way.
+
+**Two things worth recording about doing it mechanically**, because both are how
+this kind of refactor goes wrong quietly:
+
+The first pass copied whole `import` statements wherever any symbol matched, so
+`CaptureSheet` ended up importing `DayPicker`, `Popover`, `Tick` and eleven other
+things it never uses. **`tsc` does not flag that** — `noUnusedLocals` is not set —
+so nothing in the toolchain would have said a word. They were rebuilt from actual
+references.
+
+Fixing that then dropped the `type` keyword off eighteen specifiers, which `tsc`
+*did* catch under `verbatimModuleSyntax`, and the repair left
+`import { type A, type B }` where this codebase writes `import type { A, B }`.
+Machine edits should not quietly degrade the style of files they touch.
 
 ---
 

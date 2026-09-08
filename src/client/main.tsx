@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 import { onSignedOut } from './api.ts'
-import Day from './views/Day.tsx'
+import Day from './views/day/Day.tsx'
 import History from './views/History.tsx'
 import Login from './views/Login.tsx'
 
