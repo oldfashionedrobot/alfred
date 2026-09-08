@@ -170,7 +170,7 @@ handled, and production HTML routes stop serving sourcemaps.
 
 ---
 
-## 6. Cross-browser, and the honest limits of it
+## 6. Cross-browser, and the honest limits of it — BUILT
 
 **What.** WebKit in CI, and a checked-in `Dockerfile.test` so it can be run
 locally. No manual test plan.
@@ -223,12 +223,38 @@ gap that matters is Chrome-on-Android's own quirks, and the answer then is the
 same manual checklist, on that phone.
 
 **The shape this leaves.** Four browser projects — `mobile` and `desktop` on
-Chrome, `mobile-webkit` and `desktop-webkit` on WebKit. That is every layer
-automation can honestly reach here, and the layer beneath it is daily use.
+Chrome, `mobile-webkit` and `desktop-webkit` on WebKit — 540 tests. That is every
+layer automation can honestly reach here, and the layer beneath it is daily use.
 
-**Known before starting: the app fails a lot of WebKit.** A partial run reached
-8 passed against 24 failed, as real in-test failures rather than protocol errors.
-That is the actual work of this item — triage, not configuration.
+`channel: 'chrome'` moved out of `use` and into the two Chrome projects, which
+was the single line that had made a second config file look necessary.
+
+**The scripts split by what can run where**, because `bun run e2e` must not try
+WebKit on a machine where it cannot start: `e2e` is Chrome only and is the local
+default, `e2e:all` is everything and is what CI runs, and `e2e:docker` is the
+WebKit half in Linux. `Dockerfile.test` is the Playwright image plus Bun — the
+official image ships only Node, and the fixture spawns `bun` servers. It does no
+`COPY`: it mounts the working tree and shadows `node_modules` with a container
+volume, so the Linux libSQL binary does not fight the macOS one.
+
+**A note on measuring this, since it cost an hour twice.** Two separate runs
+produced failures that were not failures: once from running a second Playwright
+process while a full run was going, so they fought over `test-results/`, and once
+from starting a second container while the first was still running, which starved
+the CPU and timed out the argon2id-heavy auth tests at 30 seconds. Both looked
+exactly like WebKit incompatibilities. In a clean container the same auth spec
+passes in 24 seconds. **Do not run two test processes at once on this machine.**
+
+**Expected before starting: substantial triage. Wrong.** The plan carried a
+figure of 8 passed against 24 failed, from a partial run during the v10
+investigation. That run happened *while the suite was still writing to
+production*, so the tests were asserting against ~200 real tasks instead of their
+own fixtures. It was a symptom of the Turso leak wearing a WebKit costume, and it
+was recorded as a fact about the app and then planned against.
+
+Against an isolated database, **WebKit mobile runs 135 passed, 0 failed**. The
+app appears to work in the engine it was never tested in, which is the good
+outcome nobody had evidence for either way.
 
 ---
 

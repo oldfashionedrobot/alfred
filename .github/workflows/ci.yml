@@ -22,9 +22,12 @@ jobs:
       - run: bunx tsc --noEmit      # covers e2e/ too, which is how a CSS gap once surfaced
       - run: bun test               # bunfig.toml scopes the runner to tests/
 
-      # playwright.config.ts pins channel 'chrome' — real Google Chrome, not
-      # Playwright's bundled Chromium, so the runner has to fetch it.
-      - run: bunx playwright install --with-deps chrome
+      # Two engines. `chrome` is the channel the Chrome projects pin — real
+      # Google Chrome, not bundled Chromium. `webkit` is Playwright's own build,
+      # and the reason CI is the only place the WebKit projects can run: on
+      # macOS 14 Playwright pins an older WebKit that its driver cannot talk to,
+      # so the laptop runs Chrome only. See `.plan/changes-v11.md`.
+      - run: bunx playwright install --with-deps chrome webkit
       - run: bunx playwright test
 
       # trace: 'retain-on-failure' is only worth setting if the traces escape.

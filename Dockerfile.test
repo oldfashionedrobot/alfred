@@ -1,0 +1,28 @@
+# The browser suite, in Linux, because WebKit cannot run on this laptop.
+#
+# Playwright 1.63 targets WebKit revision 2359, but its own browsers.json pins
+# macOS 14 to 2251 — an older build that rejects a setting the driver sends on
+# every newPage(), so every test dies in fixture setup before reaching the app.
+# There is no newer Playwright to upgrade to. The Linux image carries the
+# matching revision, which makes this the only way to reproduce a WebKit CI
+# failure locally. See `.plan/changes-v10.md` for the diagnosis.
+#
+#   bun run e2e:docker
+#
+# The image is the browsers plus Bun: the e2e fixture spawns `bun` servers, and
+# the official Playwright image ships only Node.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
+
+RUN apt-get update -qq \
+    && apt-get install -qq --no-install-recommends curl unzip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+WORKDIR /app
+
+# No COPY and no install: `e2e:docker` mounts the working tree and shadows
+# node_modules with a container volume, so the Linux libSQL binary lives there
+# instead of fighting the macOS one in the host's node_modules.

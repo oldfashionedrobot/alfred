@@ -522,7 +522,7 @@ One workflow, on every push and pull request:
 |---|---|
 | `bunx tsc --noEmit` | includes `e2e/`, which is how the CSS declaration gap surfaced |
 | `bun test` | 183 unit tests over the period logic, ordering, placement, timezones, view builders, command writes and cross-user isolation |
-| `bunx playwright test` | 270 browser tests across mobile and desktop viewports |
+| `bunx playwright test` | 540 browser tests: two engines (Chrome, WebKit) across mobile and desktop viewports |
 | `docker build` | the image, so a Dockerfile mistake fails here rather than on deploy |
 | `flyctl deploy` | `main` only, after the above are green |
 | smoke test | request the public URL, assert the deployed SHA |
@@ -540,6 +540,13 @@ to be half true, and the half that is false is the interesting part:
 - **It cannot run on this laptop.** Playwright 1.63 targets WebKit revision 2359, but its `browsers.json` pins `mac14` and `mac14-arm64` to 2251 — an older build that rejects `PushAPIEnabled`, a setting the driver sends on every `newPage()`. Every test dies in fixture setup before reaching the app. 1.63 is the current release, so there is nothing to upgrade to, and Playwright's WebKit is its own build — upgrading Safari changes nothing. macOS 15 would fix it.
 - **It runs fine in Linux.** The arm64 `mcr.microsoft.com/playwright:v1.63.0-noble` image carries `webkit-2359`, the matching revision. Adding Bun to that image and shadowing `node_modules` with a container volume gives a working local runner, if one is wanted.
 - **The app fails a lot of it.** A partial run reached 8 passed against 24 failed before it was stopped. These were real in-test failures at 10 seconds, not protocol errors — so the number is about the app, not the harness.
+
+  **That bullet was wrong, and is left standing because the mistake is the
+  point.** Those failures were the suite writing to PRODUCTION — the leak
+  described in `changes-v10.md`, not yet found when this was written. The tests
+  were asserting against ~200 real tasks rather than their own fixtures. Against
+  an isolated database WebKit passes. A symptom of one bug was recorded as a fact
+  about another, and then planned against. See `changes-v11.md`.
 
 That last point is why this is not a config change but a body of work. It stays a
 known gap: the browser this is used in is untested, and the estimate for closing

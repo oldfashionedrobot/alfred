@@ -77,7 +77,8 @@ The seed only fires when the table is empty, so a restart never resurrects a ret
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
 | `bun test` | 183 unit tests: periods, ordering, placement, timezones, view builders, command writes, per-user isolation |
-| `bun run e2e` | 270 browser tests, mobile and desktop viewports |
+| `bun run e2e` | 270 browser tests on Chrome, mobile and desktop viewports |
+| `bun run e2e:docker` | the WebKit half, in Linux — the only way to run it on macOS 14 |
 | `bun run db:generate` | new migration from a schema change |
 | `bun run db:studio` | browse the database |
 
