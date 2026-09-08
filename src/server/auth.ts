@@ -236,3 +236,38 @@ export async function claimAccount(
   // The cookie is signed with the hash, so it has to be the NEW one.
   return { ...user, password_hash, timezone, claim_token: null, claim_expires: null }
 }
+
+// ---------------------------------------------------------------------------
+// Changing your own account
+// ---------------------------------------------------------------------------
+
+/** False for a zone `Intl` will not take, which the caller turns into a 400. */
+export async function setTimezone(db: DB, userId: number, timezone: string): Promise<boolean> {
+  if (!isTimezone(timezone)) return false
+  await db.update(users).set({ timezone }).where(eq(users.id, userId)).run()
+  return true
+}
+
+/**
+ * Change a password, given the current one. Null when `current` is wrong.
+ *
+ * Length is the caller's business, as it is for `claimAccount` — the route owns
+ * `MIN_PASSWORD` so there is one place that phrases the rule.
+ *
+ * The cookie is signed with the password hash, so writing a new hash invalidates
+ * every cookie this user holds, including the one that made this request. The
+ * caller mints a fresh cookie from the row returned here: that is what keeps
+ * THIS device signed in while every other one is turned out.
+ */
+export async function changePassword(
+  db: DB,
+  user: UserRow,
+  current: string,
+  next: string,
+): Promise<UserRow | null> {
+  if (!(await Bun.password.verify(current, user.password_hash))) return null
+
+  const password_hash = await Bun.password.hash(next)
+  await db.update(users).set({ password_hash }).where(eq(users.id, user.id)).run()
+  return { ...user, password_hash }
+}

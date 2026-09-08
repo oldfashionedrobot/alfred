@@ -3,9 +3,11 @@ import {
   MIN_PASSWORD,
   authenticate,
   claimAccount,
+  changePassword,
   clearedCookie,
   currentUser,
   sessionCookie,
+  setTimezone,
 } from './auth.ts'
 import { runCommand } from './commands.ts'
 import { db, isReplica } from './db.ts'
@@ -70,11 +72,7 @@ export async function handleApi(req: Request): Promise<Response> {
 
     // Signing in and out are the other two things that cannot require a session.
     if (req.method === 'POST' && path === '/api/login') {
-      const body = await readBody(req)
-      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-        throw new BadRequest('body must be a JSON object')
-      }
-      const { username, password } = body as Record<string, unknown>
+      const { username, password } = objectBody(await readBody(req))
       if (typeof username !== 'string' || typeof password !== 'string') {
         throw new BadRequest('username and password are required')
       }
@@ -95,11 +93,7 @@ export async function handleApi(req: Request): Promise<Response> {
      * `authenticate` went to some trouble to avoid it.
      */
     if (req.method === 'POST' && path === '/api/claim') {
-      const body = await readBody(req)
-      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-        throw new BadRequest('body must be a JSON object')
-      }
-      const { token, password, timezone } = body as Record<string, unknown>
+      const { token, password, timezone } = objectBody(await readBody(req))
       if (typeof token !== 'string' || typeof password !== 'string' || typeof timezone !== 'string') {
         throw new BadRequest('token, password and timezone are required')
       }
@@ -123,6 +117,41 @@ export async function handleApi(req: Request): Promise<Response> {
     const user = await currentUser(db, req)
     if (user === null) throw new Unauthorized('sign in at /login')
 
+    /*
+     * Your own account, and only ever your own: the row these read and write is
+     * the one the cookie already resolved to, so none of them carries an id.
+     */
+    if (req.method === 'POST' && path === '/api/account/timezone') {
+      const { timezone } = objectBody(await readBody(req))
+      if (typeof timezone !== 'string') throw new BadRequest('timezone is required')
+      if (!(await setTimezone(db, user.id, timezone))) {
+        throw new BadRequest('not a timezone this system knows')
+      }
+      return json({ ok: true })
+    }
+
+    /*
+     * The current password is required because a session alone must not be
+     * enough to take an account over — otherwise a borrowed unlocked browser is
+     * permanent. `authenticate`'s lockout is deliberately NOT extended here: it
+     * blunts guessing at the sign-in door, where the caller has no session, and
+     * this one already holds the session the guess would be trying to reach.
+     */
+    if (req.method === 'POST' && path === '/api/account/password') {
+      const { current, next } = objectBody(await readBody(req))
+      if (typeof current !== 'string' || typeof next !== 'string') {
+        throw new BadRequest('current and next are required')
+      }
+      if (next.length < MIN_PASSWORD) {
+        throw new BadRequest(`a password needs at least ${MIN_PASSWORD} characters`)
+      }
+      const updated = await changePassword(db, user, current, next)
+      if (updated === null) throw new BadRequest('That is not your current password.')
+      // Signed with the NEW hash, so this device survives the change it made
+      // while every other session this user has stops verifying.
+      return json({ ok: true }, 200, { 'set-cookie': sessionCookie(updated) })
+    }
+
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)
       if (name !== '' && !name.includes('/')) {
@@ -133,6 +162,10 @@ export async function handleApi(req: Request): Promise<Response> {
 
     if (req.method === 'GET') {
       switch (path) {
+        // Not a view: the two fields a person can change about themselves,
+        // which no view payload carries.
+        case '/api/account':
+          return json({ username: user.username, timezone: user.timezone })
         case '/api/day':
           return json(await buildDayView(db, user))
         case '/api/todo':
@@ -189,6 +222,14 @@ function json<T>(data: NotPromise<T>, status = 200, extra: Record<string, string
 /** A trailing slash names the same endpoint. `/api` itself is not one. */
 function normalise(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+}
+
+/** Every POST body here is a JSON object. One place says so, for all of them. */
+function objectBody(body: unknown): Record<string, unknown> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequest('body must be a JSON object')
+  }
+  return body as Record<string, unknown>
 }
 
 async function readBody(req: Request): Promise<unknown> {

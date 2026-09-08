@@ -292,7 +292,7 @@
 .day-fab {
   position: fixed;
   right: max(var(--gap-4), calc(50vw - 360px + var(--gap-4)));
-  bottom: calc(var(--tap) + var(--gap-4) + env(safe-area-inset-bottom) + var(--gap-3));
+  bottom: calc(env(safe-area-inset-bottom) + var(--gap-4));
   z-index: 20;
   width: 56px;
   height: 56px;
@@ -536,8 +536,3 @@
 
 /* Only rendered where a session exists to end — see `auth_required`. Quiet and
    at the foot of the page: signing out is not something to do by accident. */
-.day-signout {
-  display: flex;
-  justify-content: center;
-  padding: var(--gap-5) 0 var(--gap-2);
-}

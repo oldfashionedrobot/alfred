@@ -120,6 +120,40 @@ export async function claim(
   return body.error ?? 'Could not set up the account.'
 }
 
+export type Account = { username: string; timezone: string }
+
+/** Who you are signed in as, and the zone your day rolls over in. */
+export async function getAccount(): Promise<Account> {
+  return (await (await fetch('/api/account')).json()) as Account
+}
+
+/** Null on success, else the message to show. */
+export async function setTimezone(timezone: string): Promise<string | null> {
+  return post('/api/account/timezone', { timezone }, 'Could not save that timezone.')
+}
+
+/**
+ * Null on success, else the message to show.
+ *
+ * The response carries a fresh cookie signed with the NEW password hash, which
+ * the browser stores like any other. That is what keeps this device signed in
+ * while every other session this account has stops verifying.
+ */
+export async function changePassword(current: string, next: string): Promise<string | null> {
+  return post('/api/account/password', { current, next }, 'Could not change the password.')
+}
+
+async function post(path: string, body: unknown, fallback: string): Promise<string | null> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (res.ok) return null
+  const failed = (await res.json().catch(() => ({}))) as { error?: string }
+  return failed.error ?? fallback
+}
+
 /** Clears the cookie server-side, then puts the app back to the login view. */
 export async function logout(): Promise<void> {
   await fetch('/api/logout', { method: 'POST' })

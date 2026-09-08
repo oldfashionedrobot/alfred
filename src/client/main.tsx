@@ -1,13 +1,18 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import { onSignedOut } from './api.ts'
+import { logout, onSignedOut } from './api.ts'
+import { Popover } from './ui.tsx'
 import Day from './views/day/Day.tsx'
 import History from './views/History.tsx'
 import Login from './views/Login.tsx'
 import Claim from './views/Claim.tsx'
+import Settings from './views/Settings.tsx'
 
-type Tab = 'day' | 'history'
+type Tab = 'day' | 'history' | 'settings'
+
+/** The two tabs the bar shows. Settings is reached from the menu, not from here. */
+const TABS = ['day', 'history'] as const
 
 /**
  * The shell, and the only place that knows whether you are signed in.
@@ -31,9 +36,18 @@ function App() {
   const [claimToken, setClaimToken] = useState(claimTokenFromUrl)
   const [tab, setTab] = useState<Tab>('day')
   const [signedIn, setSignedIn] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
   // Bumped on sign-in to remount the views, which is how they refetch. A
   // reload would also work and would cost the bundle again.
   const [session, setSession] = useState(0)
+  const menuButton = useRef<HTMLButtonElement>(null)
+
+  // Focus goes back where it came from: a menu that closes into nowhere strands
+  // anybody driving this from a keyboard.
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false)
+    menuButton.current?.focus()
+  }, [])
 
   useEffect(() => {
     onSignedOut(() => setSignedIn(false))
@@ -72,17 +86,53 @@ function App() {
 
   return (
     <>
+      {/* Tabs and the account menu in one bar. Sign out lives in the menu rather
+          than inside a view, so it is reachable from all of them. */}
+      <header className="topbar">
+        <nav className="topbar__tabs">
+          {TABS.map((t) => (
+            <button key={t} onClick={() => setTab(t)} aria-current={tab === t ? 'page' : undefined}>
+              {t[0]!.toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </nav>
+
+        <button
+          ref={menuButton}
+          className="topbar__menu pop-anchor"
+          style={{ '--pop-anchor': '--account-menu' } as CSSProperties}
+          onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+          aria-expanded={menuOpen}
+          aria-label="Account menu"
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+
+        {menuOpen && (
+          <Popover anchor="--account-menu" onClose={closeMenu}>
+            <div className="menu">
+              <button
+                className="menu__item"
+                onClick={() => {
+                  setTab('settings')
+                  closeMenu()
+                }}
+              >
+                Settings
+              </button>
+              <button className="menu__item" onClick={() => void logout()}>
+                Sign out
+              </button>
+            </div>
+          </Popover>
+        )}
+      </header>
+
       <main className="app" key={session}>
         {tab === 'day' && <Day />}
         {tab === 'history' && <History />}
+        {tab === 'settings' && <Settings />}
       </main>
-      <nav className="nav">
-        {(['day', 'history'] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} aria-current={tab === t ? 'page' : undefined}>
-            {t[0]!.toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </nav>
     </>
   )
 }

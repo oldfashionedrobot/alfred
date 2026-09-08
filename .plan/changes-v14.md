@@ -63,8 +63,8 @@ everything below that line.
 | | |
 |---|---|
 | `GET /api/account` | `{ username, timezone }` |
-| `POST /api/account/timezone` | `{ timezone }` → `204`. Rejects anything `isTimezone` does not accept. |
-| `POST /api/account/password` | `{ current, next }` → `204` plus a fresh `Set-Cookie`. Rejects a wrong `current`, and a `next` shorter than `MIN_PASSWORD`. |
+| `POST /api/account/timezone` | `{ timezone }` → `{ ok: true }`. Rejects anything `isTimezone` does not accept. |
+| `POST /api/account/password` | `{ current, next }` → `{ ok: true }` plus a fresh `Set-Cookie`. Rejects a wrong `current`, and a `next` shorter than `MIN_PASSWORD`. |
 
 The `GET` is needed because nothing currently exposes either field: no view
 payload carries the viewer's timezone or username, so without it the settings
@@ -108,9 +108,15 @@ not. It is accepted here because there are two tabs and switching between them
 is rare — the Day view is where the app is used. If that stops being true, the
 tabs can move back down and the menu can stay up.
 
-The menu is a plain conditional render — not the native `popover` attribute.
-Popover support is one of the engine differences the WebKit projects exist to
-catch, and this does not need it.
+The menu reuses `Popover` from `ui.tsx`, the primitive the day picker already
+opens with. It uses the native popover API and CSS anchor positioning, and it
+already closes on `Escape` and on a pointer landing outside. Writing a second
+dismiss mechanism beside it would have been the mistake; the engine risk was
+taken when the day picker was built, and the WebKit projects cover it.
+
+`Popover` does not restore focus — it has never needed to, since a day picker
+closes back into the row it belongs to. The menu closes into a bar with nothing
+adjacent, so the shell returns focus to the trigger itself.
 
 ### A Settings view
 
@@ -136,6 +142,8 @@ two carry different requirements and a shared button would imply otherwise.
 | `Day.tsx` | the sign-out block and the `logout` import go — the menu owns it now |
 | `views/Settings.tsx` | new |
 | `api.ts` | `getAccount`, `setTimezone` and `changePassword` beside `logout` |
+| `zones.ts` | new — `zones()` and `deviceZone()` lifted out of `Claim.tsx`, which now shares them |
+| `routes.ts` | the twice-copied "body must be a JSON object" guard becomes `objectBody`, used by all four POSTs |
 
 Sign out currently lives inside the Day view, which means it cannot be reached
 from History. Moving it into the menu fixes that and removes a one-off, rather

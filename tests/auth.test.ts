@@ -3,7 +3,14 @@ import { eq } from 'drizzle-orm'
 
 import type { DB } from '../src/server/db.ts'
 import * as schema from '../src/server/schema.ts'
-import { claimAccount, isTimezone } from '../src/server/auth.ts'
+import {
+  changePassword,
+  claimAccount,
+  currentUser,
+  isTimezone,
+  sessionCookie,
+  setTimezone,
+} from '../src/server/auth.ts'
 import { closeDb, freshDb, type Harness } from './harness.ts'
 
 /**
@@ -120,5 +127,74 @@ describe('isTimezone', () => {
     for (const bad of ['', 'Mars/Olympus_Mons', 'EST5EDT_nope', 'not a zone']) {
       expect(isTimezone(bad)).toBe(false)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Changing your own account
+// ---------------------------------------------------------------------------
+
+/** A claimed account: a real password hash, no token. */
+async function member(password = GOOD) {
+  const [row] = await db
+    .insert(schema.users)
+    .values({ username: 'sam', password_hash: await Bun.password.hash(password), active: true })
+    .returning()
+  return row!
+}
+
+/** `sessionCookie` returns a Set-Cookie; a request sends only the name=value. */
+const asRequest = (setCookie: string) =>
+  new Request('http://alfred.test/api/day', { headers: { cookie: setCookie.split(';')[0]! } })
+
+describe('setTimezone', () => {
+  test('stores a zone Intl accepts', async () => {
+    const u = await member()
+    expect(await setTimezone(db, u.id, 'Europe/London')).toBe(true)
+    expect((await reload(u.id)).timezone).toBe('Europe/London')
+  })
+
+  test('refuses one it does not, and leaves the stored zone alone', async () => {
+    const u = await member()
+    await setTimezone(db, u.id, 'Europe/London')
+    expect(await setTimezone(db, u.id, 'Mars/Olympus_Mons')).toBe(false)
+    // A rejected write must not be a write. The default would look like success
+    // to anybody who only checked the return value.
+    expect((await reload(u.id)).timezone).toBe('Europe/London')
+  })
+})
+
+describe('changePassword', () => {
+  test('replaces the hash when the current password is right', async () => {
+    const u = await member()
+    const updated = await changePassword(db, u, GOOD, 'a-different-long-password')
+    expect(updated).not.toBeNull()
+
+    const row = await reload(u.id)
+    expect(row.password_hash).not.toBe(u.password_hash)
+    expect(await Bun.password.verify('a-different-long-password', row.password_hash)).toBe(true)
+    // The caller signs a cookie with what it is handed, so it has to be current.
+    expect(updated!.password_hash).toBe(row.password_hash)
+  })
+
+  test('refuses a wrong current password and changes nothing', async () => {
+    const u = await member()
+    expect(await changePassword(db, u, 'not-the-password', 'a-different-long-password')).toBeNull()
+    expect((await reload(u.id)).password_hash).toBe(u.password_hash)
+  })
+
+  /*
+   * The point of the whole design: the cookie is HMAC'd with the password hash,
+   * so a change revokes every session the user has — and the route hands back a
+   * row precisely so the device that made the change can be given a new one.
+   */
+  test('the old cookie stops verifying, and the returned row mints one that works', async () => {
+    const u = await member()
+    const before = sessionCookie(u)
+    expect(await currentUser(db, asRequest(before))).not.toBeNull()
+
+    const updated = await changePassword(db, u, GOOD, 'a-different-long-password')
+    expect(await currentUser(db, asRequest(before))).toBeNull()
+    expect(await currentUser(db, asRequest(sessionCookie(updated!)))).not.toBeNull()
   })
 })

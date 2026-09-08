@@ -25,6 +25,12 @@ function withOwner(app: App): void {
 
 const signInButton = (page: Page) => page.getByRole('button', { name: 'Sign in' })
 
+/** Sign out lives in the account menu, so it is reachable from every view. */
+async function signOut(page: Page) {
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+}
+
 /** Fill the form that is already on screen and submit it. */
 async function fillIn(page: Page, username = 'owner', password = PASSWORD) {
   await page.getByLabel('Name').fill(username)
@@ -123,7 +129,7 @@ test('signing out ends the session', async ({ page, app }) => {
   await fillIn(page)
   await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  await signOut(page)
   await expect(signInButton(page)).toBeVisible()
 
   // Not just in this tab: the cookie is gone.
@@ -142,7 +148,7 @@ test('two people see their own boards and nothing of each other', async ({ page,
   await expect(page.getByRole('checkbox', { name: 'Complete Water the ferns' })).toBeVisible()
   await expect(page.getByText('Feed Barney')).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  await signOut(page)
   await fillIn(page, 'owner')
   await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
   await expect(page.getByText('Water the ferns')).toHaveCount(0)

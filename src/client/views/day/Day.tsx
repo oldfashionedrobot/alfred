@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from 'r
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
-import { command, errorText, getDay, getTodo, logout } from '../../api.ts'
+import { command, errorText, getDay, getTodo } from '../../api.ts'
 import { longDate } from '../../dates.ts'
 import { NoticeBar, Tick, placementMaxFor, type Notice } from '../../ui.tsx'
 import Todo from '../Todo.tsx'
@@ -397,15 +397,6 @@ export default function Day() {
       >
         +
       </button>
-
-      {/* Unconditional: there is always a session, because there is no way to
-          run this app without one. `logout` clears the cookie and then tells the
-          shell, which is the same path a 401 takes. */}
-      <div className="day-signout">
-        <button className="btn btn--small btn--quiet" onClick={() => void logout()}>
-          Sign out
-        </button>
-      </div>
 
       <NoticeBar notice={notice} onDismiss={() => setNotice(null)} />
 

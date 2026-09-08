@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { claim } from '../api.ts'
+import { deviceZone, zones } from '../zones.ts'
 import './login.css'
 
 /**
@@ -13,25 +14,6 @@ import './login.css'
  * Shares `login.css` and the ordinary primitives, for the reason `Login.tsx`
  * gives: a second style system is exactly what `ui.tsx` exists to prevent.
  */
-
-/** What the browser thinks it is, offered as a default rather than imposed. */
-function deviceZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
-  } catch {
-    return 'America/New_York'
-  }
-}
-
-/** Every IANA zone the browser knows, so nobody types one by hand. */
-function zones(): string[] {
-  try {
-    const all = Intl.supportedValuesOf('timeZone')
-    return all.length > 0 ? all : [deviceZone()]
-  } catch {
-    return [deviceZone()]
-  }
-}
 
 export default function Claim({ token, onClaimed }: { token: string; onClaimed: () => void }) {
   const [password, setPassword] = useState('')

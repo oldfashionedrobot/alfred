@@ -1,0 +1,46 @@
+/* Your own account. Everything visual here is a shared primitive from
+   styles.css — this file only places them. */
+
+.settings {
+  max-width: 26rem;
+  padding: var(--gap-4) 0 var(--gap-5);
+}
+
+.settings__title {
+  margin: 0 0 var(--gap-1);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings__who {
+  margin: 0 0 var(--gap-5);
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* A rule between the two, so it reads as two things you can do rather than one
+   long form with two buttons in it. */
+.settings__form + .settings__form {
+  margin-top: var(--gap-5);
+  padding-top: var(--gap-5);
+  border-top: 1px solid var(--border);
+}
+
+.settings__heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.settings__error {
+  margin: 0;
+  color: var(--overdue);
+  font-size: 0.86rem;
+}
+
+.settings__saved {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
