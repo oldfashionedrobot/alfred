@@ -48,13 +48,14 @@ export async function handleApi(req: Request): Promise<Response> {
      * The one endpoint before the gate, and deliberately so.
      *
      * It answers three questions that all have to be answerable without a
-     * session: is the process up, which build is it, and what does it think
-     * today is. The first two are what CI's post-deploy smoke test asks — see
+     * session: is the process up, which build is it, and which database it is
+     * talking to. The first two are what CI's post-deploy smoke test asks — see
      * `.plan/deployment.md`, which uses them instead of a Fly health check. The
-     * third is what the Playwright fixture reads so that no test computes a date
-     * the server did not give it.
+     * third is what the browser harness asserts, so a test run pointed at
+     * production fails instead of writing to it.
      *
-     * Nothing here is private: a date and a commit hash from a public repository.
+     * Nothing here is private: a commit hash from a public repository, and the
+     * word 'local' or 'replica'.
      */
     if (req.method === 'GET' && path === '/api/status') {
       return json({

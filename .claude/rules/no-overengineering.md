@@ -3,8 +3,7 @@
 Alfred is a personal household tracker with one household and a database
 measured in kilobytes. Build for that, not for a scale it will never see.
 
-The project's own standard, from [.plan/design/tech-stack.md](.plan/design/tech-stack.md),
-is that every field earns its place by appearing on a screen. The infrastructure
+Every field earns its place by appearing on a screen. The infrastructure
 equivalent: every moving part should prevent a failure that would otherwise
 actually happen. Machinery added on spec is the thing to leave out.
 

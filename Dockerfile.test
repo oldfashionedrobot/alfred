@@ -5,7 +5,7 @@
 # every newPage(), so every test dies in fixture setup before reaching the app.
 # There is no newer Playwright to upgrade to. The Linux image carries the
 # matching revision, which makes this the only way to reproduce a WebKit CI
-# failure locally. See `.plan/changes-v10.md` for the diagnosis.
+# failure locally.
 #
 #   bun run e2e:docker
 #

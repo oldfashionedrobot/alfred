@@ -38,8 +38,7 @@ export default defineConfig({
    *
    * WEBKIT IS NOT iOS SAFARI. It is the same engine at a mobile viewport, which
    * catches engine differences — anchor positioning, popover support, layout —
-   * and cannot catch what iOS draws itself. The date picker bug this project
-   * shipped lived in exactly that gap. See `.plan/changes-v11.md`.
+   * and cannot catch what iOS draws itself.
    */
   projects: [
     // Mobile first — this is ticked throughout the day on a phone.

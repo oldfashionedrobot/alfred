@@ -16,10 +16,9 @@ primary_region = "iad"          # Turso is on AWS US East (N. Virginia), same me
   # It lives here because this is where the app's own URL is known — and because
   # admin commands run ON the machine, where the credentials already are.
   APP_URL = "https://alfred.goodghost.com"
-  # No TZ. v10 set one here because the container ran UTC and rolled over to
-  # tomorrow at 8pm Eastern. v11 moved the zone onto the user, where a day
-  # belongs, so the container's own zone stopped mattering — the process can run
-  # UTC and its logs are the better for it. See `.plan/changes-v11.md`.
+  # No TZ. Each user carries their own zone, so the container's zone does not
+  # decide what "today" means — the process runs UTC and its logs are the
+  # better for it.
 
 [http_service]
   internal_port = 8080

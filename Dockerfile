@@ -1,8 +1,7 @@
 # alfred — see .plan/deployment.md
 #
 # No build stage. The client is bundled by Bun.serve from index.html on the
-# first request, inside this container, which is the same decision
-# .plan/design/tech-stack.md made everywhere else: no Vite, no compile step.
+# first request, inside this container: no Vite, no compile step.
 FROM oven/bun:1.3.14-slim
 WORKDIR /app
 
