@@ -269,3 +269,7 @@ work, and the fix that does work costs more than the problem. It is folded into 
 3 follows, so a folder move never appears in the same diff as a behaviour change.
 6 is last and largest, because its failure count is unknown until the harness
 runs — and is known to be substantial.
+
+---
+
+Continued in [`changes-v12.md`](changes-v12.md).
