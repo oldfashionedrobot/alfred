@@ -12,45 +12,62 @@ absorbed rather than scheduled.
 
 ---
 
-## 1. Accessibility, which has never been verified
+## 1. Accessibility — WCAG 2.2 Level A and AA, and no further
 
-**The honest starting position.** This app is not careless about accessibility —
+**The target is basic conformance.** Not an exemplary experience: the success
+criteria at Level A and AA, checked, with the gaps closed. Anything at AAA is out
+of scope and is named below so the line is visible rather than implied.
+
+**The honest starting position.** This app is not careless about accessibility.
 `--tap: 44px` is defined as a minimum touch target, `aria-` attributes appear
 across every view, visually-hidden `.sr` spans carry labels, and `:focus-visible`
-outlines exist. The intent is visible in the code.
+outlines exist. The intent is in the code. What is missing is that **none of it
+has ever been checked** — and this is the one area where "seems fine on my phone"
+proves nothing, because the person who built it knows where everything is and
+reads it in the light he designed it in.
 
-**None of it has ever been checked.** That is the gap: not neglect, but an
-assumption nobody has tested. And it is the one area where "seems fine on my
-phone" genuinely proves nothing, because the person who built it knows where
-everything is and reads it in the light they designed it in.
+**What is in scope, by criterion.**
 
-**Two gaps are already known**, found while scoping this:
+| Criterion | Level | Status going in |
+|---|---|---|
+| 1.1.1 Non-text Content | A | `aria-` labels exist throughout; never verified for accuracy |
+| 1.3.1 Info and Relationships | A | semantic elements used; headings and list structure unverified |
+| 2.1.1 Keyboard | A | drag reorder has a keyboard path already, tested |
+| 4.1.2 Name, Role, Value | A | needs a read of every control's accessible name |
+| **1.4.3 Contrast (Minimum)** | AA | **never measured, in either theme** |
+| **1.4.11 Non-text Contrast** | AA | **never measured** — borders, the tick, the colour stripes |
+| **2.4.7 Focus Visible** | AA | **defined in two files only**, not globally |
+| 2.5.8 Target Size (Minimum) | AA | requires 24×24 CSS px; `--tap` is 44px, so this is a verification that it reaches every control |
 
-- **No `prefers-reduced-motion` anywhere.** The day carousel scroll-snaps, rows
-  animate on drag, and sheets transition. Someone who has asked their OS to stop
-  moving things gets all of it anyway.
-- **`:focus-visible` is defined in two places** — the History scroller and a
-  reordering row — not globally. Every other control falls back to whatever the
-  UA draws, which on a custom-styled button is often nothing.
+**The one known gap is focus.** `:focus-visible` is styled on the History
+scroller and a reordering row. Every other control falls back to whatever the UA
+draws on a custom-styled button, which is often nothing. That is a straight AA
+failure and the clearest thing to fix.
 
-**What the pass covers.**
+**Contrast is the bulk of the work**, and it is mechanical rather than a matter of
+taste: every foreground/background token pair against 4.5:1 for text and 3:1 for
+UI, in light *and* dark. The dark theme has never been measured at all.
 
-| | |
-|---|---|
-| **Contrast** | Every token pair against WCAG AA — 4.5:1 for text, 3:1 for UI and large text — in *both* themes. There is a dark theme, and it has never been measured. Objective and mechanical. |
-| **Tap targets** | `--tap: 44px` exists; verify it actually reaches every interactive element rather than the ones it was applied to. Checkable from Playwright with bounding boxes. |
-| **Focus** | A global visible focus style, and a tab order that matches reading order — particularly through the carousel, where the panes off-screen are still in the DOM. |
-| **Motion** | Honour `prefers-reduced-motion` on the carousel, the drag, and the sheets. |
-| **Screen reader** | A VoiceOver pass on the actual phone. The app is small enough to read end to end, and this is the part no tool substitutes for. |
+**Explicitly out of scope, at AAA:**
 
-**On automating it.** `@axe-core/playwright` would catch a useful subset — missing
-labels, contrast, ARIA misuse — as part of the existing suite. It is a new
-dependency in a project that has resisted them, and it cannot judge focus order
-or whether a label reads sensibly aloud. Worth adding **only** if the manual pass
-finds enough to be worth guarding; not worth adding first, on the theory that a
-tool will do the thinking.
+- **2.3.3 Animation from Interactions (AAA)** — `prefers-reduced-motion`. There is
+  none anywhere in the app, so the carousel, drags and sheets animate regardless.
+  An earlier draft of this plan listed that as a gap; **it is not a conformance
+  gap at AA**, and it is recorded here because the correction is the point. It is
+  about five lines of CSS if it is ever wanted for its own sake rather than for a
+  standard.
+- 1.4.6 Contrast (Enhanced), 2.4.8 Location, and the rest of AAA.
 
----
+**Rejected: `@axe-core/playwright`.** It would catch a subset — missing labels,
+contrast, ARIA misuse — inside the existing suite. It is a new dependency in a
+project that has resisted them, it cannot judge whether a label reads sensibly
+aloud, and adding a tool before doing the pass outsources the thinking. Worth
+reconsidering **after**, if the pass finds enough that is worth guarding against
+regression.
+
+**Not scope creep, but worth one look:** a VoiceOver pass on the actual phone.
+Not a formal audit — reading the day screen top to bottom once, to check the
+labels say what they mean. The app is small enough that this is minutes.
 
 ## 2. Error visibility — nothing to build
 
