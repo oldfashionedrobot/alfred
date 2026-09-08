@@ -15,6 +15,12 @@ auth section this replaces wholesale.
 builder and every command takes a user, and answers only for them. Signing in is
 a username and a password; there is no signup page and no plan for one.
 
+> **v13 added one.** Not self-registration — an account still exists only because
+> somebody here made it — but an invited person now sets their own password at
+> `/claim?t=…` instead of being handed one. This sentence is left as written
+> because it records what was decided in v9; see
+> [`changes-v13.md`](changes-v13.md).
+
 **Why this and not the shared password.** `deployment.md` specified a single
 password in an environment variable, checked in middleware — no users, no
 ownership. That is a doorkey, not an identity: it cannot tell two people apart,

@@ -20,6 +20,9 @@ import { users, type UserRow } from './schema.ts'
  * does that once per test rather than every spec doing it by hand.
  */
 
+/** The one definition of long enough, used by the CLI and by `/api/claim`. */
+export const MIN_PASSWORD = 12
+
 const COOKIE = 'alfred_session'
 const MAX_AGE_DAYS = 90
 const MAX_AGE_SECONDS = MAX_AGE_DAYS * 24 * 60 * 60
@@ -182,4 +185,54 @@ export async function authenticate(
 
   failures.delete(who)
   return user
+}
+
+// ---------------------------------------------------------------------------
+// Claiming an invitation
+// ---------------------------------------------------------------------------
+
+/** A zone is valid if Intl will format with it. No 445-entry list to maintain. */
+export function isTimezone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Spend an invitation: set the password and the zone, clear the token.
+ *
+ * Returns null for every failure — wrong token, expired, already spent, account
+ * disabled — because the caller must not be able to tell them apart. The claim
+ * form takes a token rather than a username precisely so there is nothing to
+ * enumerate, and a helpful error would hand that back.
+ *
+ * The empty-hash check is what makes this a claim and not a password reset: it
+ * is a one-way transition, and resetting a claimed account stays a deliberate
+ * act from a laptop. See `.plan/changes/changes-v13.md`.
+ */
+export async function claimAccount(
+  db: DB,
+  token: string,
+  password: string,
+  timezone: string,
+): Promise<UserRow | null> {
+  if (token === '' || !isTimezone(timezone)) return null
+
+  const user = await db.select().from(users).where(eq(users.claim_token, token)).get()
+  if (!user || !user.active) return null
+  if (user.password_hash !== '') return null
+  if (user.claim_expires === null || Date.now() > user.claim_expires) return null
+
+  const password_hash = await Bun.password.hash(password)
+  await db
+    .update(users)
+    .set({ password_hash, timezone, claim_token: null, claim_expires: null })
+    .where(eq(users.id, user.id))
+    .run()
+
+  // The cookie is signed with the hash, so it has to be the NEW one.
+  return { ...user, password_hash, timezone, claim_token: null, claim_expires: null }
 }

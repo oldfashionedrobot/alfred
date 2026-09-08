@@ -1,0 +1,124 @@
+import { test, expect, describe, beforeEach, afterEach } from 'bun:test'
+import { eq } from 'drizzle-orm'
+
+import type { DB } from '../src/server/db.ts'
+import * as schema from '../src/server/schema.ts'
+import { claimAccount, isTimezone } from '../src/server/auth.ts'
+import { closeDb, freshDb, type Harness } from './harness.ts'
+
+/**
+ * Claiming an invitation.
+ *
+ * Every one of these is a guard rather than a feature. The token is the whole
+ * security model — 32 random bytes standing in for a username nobody can guess —
+ * so the interesting assertions are the refusals, and that they are
+ * indistinguishable from each other. See `.plan/changes/changes-v13.md`.
+ */
+
+const TOKEN = 'a'.repeat(64)
+const WEEK = 7 * 24 * 60 * 60 * 1000
+const GOOD = 'a-long-enough-password'
+
+let h: Harness
+let db: DB
+
+beforeEach(async () => {
+  h = await freshDb('auth')
+  db = h.db
+})
+afterEach(() => closeDb(h))
+
+/** An unclaimed account: it exists, it has no password, it holds a token. */
+async function invite(over: Partial<typeof schema.users.$inferInsert> = {}) {
+  const [row] = await db
+    .insert(schema.users)
+    .values({
+      username: 'jess',
+      password_hash: '',
+      active: true,
+      claim_token: TOKEN,
+      claim_expires: Date.now() + WEEK,
+      ...over,
+    })
+    .returning()
+  return row!
+}
+
+const reload = async (id: number) =>
+  (await db.select().from(schema.users).where(eq(schema.users.id, id)).get())!
+
+describe('claimAccount', () => {
+  test('sets the password and the zone, and spends the token', async () => {
+    const u = await invite()
+    const claimed = await claimAccount(db, TOKEN, GOOD, 'Europe/London')
+    expect(claimed).not.toBeNull()
+
+    const row = await reload(u.id)
+    expect(row.password_hash).not.toBe('')
+    expect(row.timezone).toBe('Europe/London')
+    // Single use: the row that let them in cannot let anybody else in.
+    expect(row.claim_token).toBeNull()
+    expect(row.claim_expires).toBeNull()
+    expect(await Bun.password.verify(GOOD, row.password_hash)).toBe(true)
+  })
+
+  test('returns the NEW hash, because the cookie is signed with it', async () => {
+    await invite()
+    const claimed = await claimAccount(db, TOKEN, GOOD, 'America/New_York')
+    // Returning the pre-claim row would mint a cookie signed with '' — one that
+    // could never verify, so claiming would silently fail to sign anybody in.
+    expect(claimed!.password_hash).not.toBe('')
+  })
+
+  test('an expired token is refused', async () => {
+    await invite({ claim_expires: Date.now() - 1 })
+    expect(await claimAccount(db, TOKEN, GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('a token with no expiry at all is refused', async () => {
+    await invite({ claim_expires: null })
+    expect(await claimAccount(db, TOKEN, GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('a wrong token is refused', async () => {
+    await invite()
+    expect(await claimAccount(db, 'b'.repeat(64), GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('an empty token matches nothing, including a spent invitation', async () => {
+    // The guard that matters: `claim_token` is NULL once spent, and an empty
+    // string must not be allowed to find its way to a NULL column.
+    await invite({ claim_token: null })
+    expect(await claimAccount(db, '', GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('an account that already has a password cannot be re-claimed', async () => {
+    // This is what makes it a claim and not a password reset.
+    await invite({ password_hash: 'already-set' })
+    expect(await claimAccount(db, TOKEN, GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('a disabled account cannot be claimed', async () => {
+    await invite({ active: false })
+    expect(await claimAccount(db, TOKEN, GOOD, 'America/New_York')).toBeNull()
+  })
+
+  test('an invalid timezone is refused, and nothing is written', async () => {
+    const u = await invite()
+    expect(await claimAccount(db, TOKEN, GOOD, 'Mars/Olympus_Mons')).toBeNull()
+    const row = await reload(u.id)
+    expect(row.password_hash).toBe('')
+    expect(row.claim_token).toBe(TOKEN)
+  })
+})
+
+describe('isTimezone', () => {
+  test('accepts IANA names and rejects anything else', async () => {
+    for (const good of ['America/New_York', 'Europe/London', 'UTC', 'Pacific/Kiritimati']) {
+      expect(isTimezone(good)).toBe(true)
+    }
+    for (const bad of ['', 'Mars/Olympus_Mons', 'EST5EDT_nope', 'not a zone']) {
+      expect(isTimezone(bad)).toBe(false)
+    }
+  })
+})

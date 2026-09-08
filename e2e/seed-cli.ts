@@ -61,6 +61,16 @@ switch (op.kind) {
     ])
     break
   }
+  case 'invite': {
+    // An unclaimed account: exists, no password, holds a token. The same state
+    // `user:invite` creates, and the one the migration left `owner` in.
+    db.run(
+      'INSERT INTO users (username, password_hash, active, claim_token, claim_expires) VALUES (?, ?, 1, ?, ?)',
+      [op.username, '', op.token, op.expires ?? Date.now() + 7 * 24 * 60 * 60 * 1000],
+    )
+    break
+  }
+
   case 'mood':
     db.run('INSERT OR REPLACE INTO moods (slug, emoji, label, sort_order, active) VALUES (?, ?, ?, ?, ?)', [
       op.slug, op.emoji, op.label, op.sort_order, (op.active ?? true) ? 1 : 0,

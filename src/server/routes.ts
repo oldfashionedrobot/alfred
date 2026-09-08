@@ -1,5 +1,12 @@
 import { isISODate, type ISODate } from '../shared/types.ts'
-import { authenticate, clearedCookie, currentUser, sessionCookie } from './auth.ts'
+import {
+  MIN_PASSWORD,
+  authenticate,
+  claimAccount,
+  clearedCookie,
+  currentUser,
+  sessionCookie,
+} from './auth.ts'
 import { runCommand } from './commands.ts'
 import { db, isReplica } from './db.ts'
 import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
@@ -75,6 +82,33 @@ export async function handleApi(req: Request): Promise<Response> {
       // account, no password set. Telling them apart only helps somebody
       // finding out which names are real.
       if (user === null) throw new Unauthorized('That name and password did not match.')
+      return json({ ok: true }, 200, { 'set-cookie': sessionCookie(user) })
+    }
+
+    /*
+     * Spending an invitation. Ungated for the same reason login is: the person
+     * doing it has no session yet, and cannot get one any other way.
+     *
+     * It takes a TOKEN, not a username — so there is nothing here to guess and
+     * nothing to enumerate, which a username field would have reintroduced after
+     * `authenticate` went to some trouble to avoid it.
+     */
+    if (req.method === 'POST' && path === '/api/claim') {
+      const body = await readBody(req)
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        throw new BadRequest('body must be a JSON object')
+      }
+      const { token, password, timezone } = body as Record<string, unknown>
+      if (typeof token !== 'string' || typeof password !== 'string' || typeof timezone !== 'string') {
+        throw new BadRequest('token, password and timezone are required')
+      }
+      if (password.length < MIN_PASSWORD) {
+        throw new BadRequest(`a password needs at least ${MIN_PASSWORD} characters`)
+      }
+      const user = await claimAccount(db, token, password, timezone)
+      // One answer for every failure — wrong, expired, spent, disabled. Telling
+      // them apart only helps somebody probing for a live invitation.
+      if (user === null) throw new Unauthorized('That link is not valid.')
       return json({ ok: true }, 200, { 'set-cookie': sessionCookie(user) })
     }
 

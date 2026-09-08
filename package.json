@@ -13,7 +13,10 @@
     "e2e:report": "playwright show-report e2e-report",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "user:add": "bun src/server/user-cli.ts"
+    "user:add": "bun src/server/user-cli.ts add",
+    "user:invite": "bun src/server/user-cli.ts invite",
+    "user:disable": "bun src/server/user-cli.ts disable",
+    "user:enable": "bun src/server/user-cli.ts enable"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

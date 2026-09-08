@@ -98,6 +98,28 @@ export async function login(username: string, password: string): Promise<string 
   return body.error ?? 'Could not sign in.'
 }
 
+/**
+ * Spend an invitation: set a password and a zone, and end up signed in.
+ *
+ * The timezone is the DEVICE's, offered as a default the person can change —
+ * it is stored against the user, so their day boundary follows them rather than
+ * whatever they are holding. See `.plan/changes/changes-v13.md`.
+ */
+export async function claim(
+  token: string,
+  password: string,
+  timezone: string,
+): Promise<string | null> {
+  const res = await fetch('/api/claim', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, password, timezone }),
+  })
+  if (res.ok) return null
+  const body = (await res.json().catch(() => ({}))) as { error?: string }
+  return body.error ?? 'Could not set up the account.'
+}
+
 /** Clears the cookie server-side, then puts the app back to the login view. */
 export async function logout(): Promise<void> {
   await fetch('/api/logout', { method: 'POST' })

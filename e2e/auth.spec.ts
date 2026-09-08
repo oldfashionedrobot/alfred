@@ -189,3 +189,69 @@ test('repeated failures lock the account out for a while', async ({ page, app })
   await failSignIn(page, 'owner', PASSWORD)
   await expect(signInButton(page)).toBeVisible()
 })
+
+// ===========================================================================
+// Claiming an invitation — see .plan/changes/changes-v13.md
+// ===========================================================================
+
+test('an invited person sets a password and lands signed in', async ({ page, app }) => {
+  const token = app.seed.invite('jess')
+
+  await page.goto(`${app.url}/claim?t=${token}`)
+  await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible()
+
+  // The zone is prefilled from the device rather than left blank to be hunted for.
+  await expect(page.getByRole('combobox', { name: 'Your timezone' })).not.toHaveValue('')
+
+  await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
+  await page.getByRole('button', { name: 'Set up' }).click()
+
+  // Claiming signs you in — it is the only reason to be on that page.
+  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  // And the URL no longer carries a spent token, so a refresh is not confusing.
+  expect(new URL(page.url()).pathname).toBe('/')
+})
+
+test('the chosen timezone is what the server then calls today', async ({ page, app }) => {
+  const token = app.seed.invite('jess')
+  await page.goto(`${app.url}/claim?t=${token}`)
+
+  await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
+  await page.getByRole('combobox', { name: 'Your timezone' }).selectOption('Pacific/Kiritimati')
+  await page.getByRole('button', { name: 'Set up' }).click()
+  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+
+  // A day belongs to a person: the far side of the date line is a day ahead of
+  // UTC, and this account's Day view has to agree with that rather than with
+  // the server's own clock.
+  const res = await page.request.get(`${app.url}/api/day`)
+  const day = (await res.json()) as { date: string }
+  const kiritimati = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Kiritimati', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
+  expect(day.date).toBe(kiritimati)
+})
+
+test('a spent token cannot be used twice, and says nothing useful', async ({ page, app }) => {
+  const token = app.seed.invite('jess')
+  await page.goto(`${app.url}/claim?t=${token}`)
+  await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
+  await page.getByRole('button', { name: 'Set up' }).click()
+  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+
+  // Second attempt with the same link.
+  await page.goto(`${app.url}/claim?t=${token}`)
+  await page.getByRole('textbox', { name: 'Choose a password' }).fill('someone-elses-1234')
+  await page.getByRole('button', { name: 'Set up' }).click()
+
+  // One answer for every failure — spent, expired, wrong, never existed.
+  await expect(page.getByRole('alert')).toHaveText('That link is not valid.')
+})
+
+test('an expired invitation is refused', async ({ page, app }) => {
+  const token = app.seed.invite('jess', { expires: Date.now() - 1000 })
+  await page.goto(`${app.url}/claim?t=${token}`)
+  await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
+  await page.getByRole('button', { name: 'Set up' }).click()
+  await expect(page.getByRole('alert')).toHaveText('That link is not valid.')
+})

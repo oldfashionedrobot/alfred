@@ -34,6 +34,16 @@ export const users = sqliteTable('users', {
    * they happen to be holding. See `.plan/changes/changes-v11.md`.
    */
   timezone: text('timezone').notNull().default('America/New_York'),
+  /**
+   * An unspent invitation. 32 random bytes as hex, NULL once claimed.
+   *
+   * The token IS the security: the claim form takes it instead of a username,
+   * so there is nothing to guess and nothing to enumerate. See
+   * `.plan/changes/changes-v13.md`.
+   */
+  claim_token: text('claim_token'),
+  /** Epoch ms — an instant, not a day, like the session cookie's expiry. */
+  claim_expires: integer('claim_expires'),
 })
 
 export const tasks = sqliteTable('tasks', {

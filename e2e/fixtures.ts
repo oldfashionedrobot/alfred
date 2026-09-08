@@ -37,6 +37,16 @@ export class Seed {
     return this.run({ kind: 'user', ...u }).id as number
   }
 
+  /**
+   * An unclaimed account holding a claim token — what `user:invite` creates.
+   * Returns the token so a test can build the URL.
+   */
+  invite(username: string, opts: { expires?: number } = {}): string {
+    const token = 'e2e' + Math.random().toString(16).slice(2).padEnd(61, '0')
+    this.run({ kind: 'invite', username, token, ...opts })
+    return token
+  }
+
   /** Give an existing user a password — `owner` has none until something does. */
   password(username: string, password: string): void {
     this.run({ kind: 'password', username, password })

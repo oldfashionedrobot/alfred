@@ -34,13 +34,27 @@ bun run dev             # → http://localhost:3000
 
 ### Accounts
 
-Tasks, completions and journal entries belong to a user. There is no signup page and no plan for one; accounts are made one at a time:
+Tasks, completions and journal entries belong to a user. **There is no self-registration** — an account exists only because somebody here made one — but since v13 the person can choose their own password rather than being handed one.
 
 ```sh
-echo 'a-long-enough-password' | bun run user:add sanjeev
+bun run user:invite jess          # creates an unclaimed account, prints a claim link
+echo 'a-long-enough-password' | bun run user:add sanjeev   # or set one directly
+bun run user:disable jess         # revoke access, keep the data
+bun run user:enable jess
 ```
 
-The same command sets an existing user's password — which also invalidates their existing sessions, because a session cookie is signed with the user's password hash.
+`user:invite` prints a single-use link that expires in seven days, carrying a 32-byte token. Send it however suits — it is a password, so treat it like one. Opening it asks for a password and a timezone, prefilled from that device, and signs them in. There is no email pipeline: the token does the security work, and handing it over directly is more reliable than mail you cannot watch arrive.
+
+`user:add` also sets an existing user's password — which invalidates their existing sessions, because a session cookie is signed with the user's password hash.
+
+**Against the deployed app**, which is the case that matters, these run from a laptop with the Turso credentials — nothing is done over SSH:
+
+```sh
+DB_PATH=/tmp/alfred-admin.db APP_URL=https://alfred.goodghost.com \
+  bun --env-file=.env.turso run user:invite jess
+```
+
+`DB_PATH` points at a throwaway replica — without it you would be inviting somebody to your development database. `APP_URL` only decides what the printed link points at. `.env.turso` is where the credentials live and is never loaded automatically; see [`.env.example`](.env.example) for why.
 
 `owner` is user 1, created by the migration, and owns everything written before accounts existed — so setting its password is how you claim your own data.
 

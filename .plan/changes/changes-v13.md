@@ -2,8 +2,8 @@
 
 Continues [`changes-v12.md`](changes-v12.md).
 
-**Nothing here is built yet.** One item: a way for a second person to get an
-account without you typing their password for them.
+**BUILT.** A way for a second person to get an account without you typing their
+password for them.
 
 ---
 
@@ -109,6 +109,71 @@ enough that a link left in a message thread stops working.
 The last one is the existing isolation suite, which already covers two users. It
 gains nothing new to prove; it should simply keep passing with a user who arrived
 this way rather than through `user:add`.
+
+---
+
+## Folded in, because a second person makes them real
+
+### The timezone field lives here
+
+v12 deferred a timezone writer with the trigger *"a second person in a different
+zone"*. This is that iteration, and the claim form is a signup form — which is
+where a zone gets set, rather than in a settings screen nobody opens.
+
+**The device proposes, the person decides.** The browser knows its own zone from
+`Intl.DateTimeFormat().resolvedOptions().timeZone`; the form prefills with it and
+she can change it. That keeps v11's rule intact — a day belongs to a person, not
+to the device they are holding — while removing the need to choose from 445 IANA
+zones by hand.
+
+`users.timezone` already exists and already defaults to `America/New_York`, so
+this is a writer for a column that works, not a new concept.
+
+### `user:disable` and `user:enable`
+
+`users.active` exists and `authenticate` checks it, but `user-cli` always writes
+`active: true` — so revoking access means hand-written SQL. With one user that is
+theoretical. With two it is "turn this off", and it should not require a
+database client.
+
+Two commands, and the mechanism is already there.
+
+### The docs stop being true, and say so
+
+`README.md` and [`changes-v9.md`](changes-v9.md) both say *"there is no signup
+page and no plan for one."* This adds one.
+
+**The README is updated**, because it describes what is true now.
+**`changes-v9.md` is not.** It was true when it was written, and rewriting a
+record of what was decided in v9 to match v13 would destroy the thing those
+documents are for. It gets a pointer forward instead — the same treatment the
+wrong WebKit figure got in v12, and for the same reason.
+
+**The reasoning behind the original rule survives the reversal**, which is why it
+is a reversal and not an abandonment: there is still no self-registration. An
+account exists only because you made one. What changes is who types the password.
+
+---
+
+## Decided, not built
+
+**Moods stay global.** The `moods` table has no `user_id`, so both people share
+one vocabulary and `days.mood` points at a shared slug. That is not an oversight
+to fix — it predates accounts entirely — but nobody had ever decided it, and a
+second person is when it becomes real.
+
+**Decided: shared is correct here.** A household talking about its days in the
+same eight words is a feature, and per-user moods would be a migration, a
+per-user seed, and a second editing path for a screen that changes twice a year.
+Easy to revisit: it is one column and a backfill if it ever stops being true.
+
+**Cold start stays deferred.** v12's trigger was a guest hitting seven seconds
+with no idea why, and a second person is that guest. It is left anyway, because
+the fix is `min_machines_running = 1` at ~$2/month and the end of scale-to-zero —
+and it is a one-line change on the day it starts to matter. Waiting costs nothing
+that cannot be undone in a minute.
+
+---
 
 ### What this is not
 
