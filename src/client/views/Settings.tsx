@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { changePassword, getAccount, setTimezone, type Account } from '../api.ts'
 import { zones } from '../zones.ts'
+import { MIN_PASSWORD } from '../../shared/types.ts'
 import './settings.css'
 
 /**
@@ -15,9 +16,6 @@ import './settings.css'
  * being corrected, and offering the browser's instead would hide the mismatch
  * this form exists to fix.
  */
-
-/** Matches `MIN_PASSWORD` on the server, which is where it is enforced. */
-const MIN_PASSWORD = 12
 
 export default function Settings() {
   const [account, setAccount] = useState<Account | null>(null)

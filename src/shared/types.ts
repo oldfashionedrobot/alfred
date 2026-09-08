@@ -9,6 +9,15 @@ export type Cadence = 'day' | 'week' | 'month' | 'quarter' | 'year'
 /** 'YYYY-MM-DD'. Dates are strings end to end — never Date, never a timestamp. */
 export type ISODate = string
 
+/**
+ * How long a password has to be. The one definition of long enough.
+ *
+ * Shared because both sides say it: the server enforces it — on `/api/claim`,
+ * on a password change, and in the CLI — and the two forms have to state the
+ * same number to the person typing, or one of them is lying.
+ */
+export const MIN_PASSWORD = 12
+
 export const CADENCES: readonly Cadence[] = ['day', 'week', 'month', 'quarter', 'year']
 
 export function isCadence(v: unknown): v is Cadence {

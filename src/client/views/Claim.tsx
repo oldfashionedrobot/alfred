@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { claim } from '../api.ts'
 import { deviceZone, zones } from '../zones.ts'
+import { MIN_PASSWORD } from '../../shared/types.ts'
 import './login.css'
 
 /**
@@ -21,7 +22,7 @@ export default function Claim({ token, onClaimed }: { token: string; onClaimed: 
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const ready = password.length >= 12 && !busy
+  const ready = password.length >= MIN_PASSWORD && !busy
 
   return (
     <main className="login">
@@ -54,7 +55,7 @@ export default function Claim({ token, onClaimed }: { token: string; onClaimed: 
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <span className="hint">At least 12 characters.</span>
+          <span className="hint">At least {MIN_PASSWORD} characters.</span>
         </label>
 
         <label className="field">

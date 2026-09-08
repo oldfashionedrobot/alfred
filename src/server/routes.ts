@@ -1,6 +1,5 @@
-import { isISODate, type ISODate } from '../shared/types.ts'
+import { MIN_PASSWORD, isISODate, type ISODate } from '../shared/types.ts'
 import {
-  MIN_PASSWORD,
   authenticate,
   claimAccount,
   changePassword,

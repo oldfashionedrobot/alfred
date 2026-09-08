@@ -20,9 +20,6 @@ import { users, type UserRow } from './schema.ts'
  * does that once per test rather than every spec doing it by hand.
  */
 
-/** The one definition of long enough, used by the CLI and by `/api/claim`. */
-export const MIN_PASSWORD = 12
-
 const COOKIE = 'alfred_session'
 const MAX_AGE_DAYS = 90
 const MAX_AGE_SECONDS = MAX_AGE_DAYS * 24 * 60 * 60

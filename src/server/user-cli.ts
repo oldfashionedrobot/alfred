@@ -13,7 +13,7 @@
  */
 import { eq } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
-import { MIN_PASSWORD } from './auth.ts'
+import { MIN_PASSWORD } from '../shared/types.ts'
 import { db, initDb } from './db.ts'
 import { users } from './schema.ts'
 
