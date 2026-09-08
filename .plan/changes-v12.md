@@ -39,14 +39,36 @@ reads it in the light he designed it in.
 | **2.4.7 Focus Visible** | AA | **defined in two files only**, not globally |
 | 2.5.8 Target Size (Minimum) | AA | requires 24×24 CSS px; `--tap` is 44px, so this is a verification that it reaches every control |
 
-**The one known gap is focus.** `:focus-visible` is styled on the History
-scroller and a reordering row. Every other control falls back to whatever the UA
-draws on a custom-styled button, which is often nothing. That is a straight AA
-failure and the clearest thing to fix.
+### Measured, before writing any code
 
-**Contrast is the bulk of the work**, and it is mechanical rather than a matter of
-taste: every foreground/background token pair against 4.5:1 for text and 3:1 for
-UI, in light *and* dark. The dark theme has never been measured at all.
+Every token pair was computed against the WCAG formula in both themes. Eight
+pairs fail in light and four in dark on raw ratio — but **a ratio is not a
+violation until you know what the token is used for**, and classifying by usage
+removes more than half of them.
+
+**The four real failures.**
+
+| | Light | Dark | Needs | Why it counts |
+|---|---|---|---|---|
+| `--text-faint` as text | **2.46** | **3.79** | 4.5 | It is `color:` in eight places at `0.75rem` — small text, so no large-text exemption |
+| `.tick__box` border | **1.26** | **1.47** | 3.0 | 1.4.11: it is the identifying boundary of the tick, the most-used control in the app |
+| `--accent` on `--accent-soft` | **3.97** | 4.80 | 4.5 | `styles.css:293–295` — accent text on an accent-soft background |
+| `:focus-visible` | — | — | — | 2.4.7: styled on two elements, not globally |
+
+**What the classification ruled out**, which is why measuring beat guessing:
+
+- **`--done` is not a violation.** It is only ever `--tick-colour` and
+  `--cell-colour` — a graphic, judged at 3:1, and it passes both themes. On raw
+  ratio it looked like two failures.
+- **Most `--border` uses are exempt.** 1.4.11 covers boundaries needed to
+  *identify a control*, not decorative rules. Panel outlines and separators are
+  fine; only `.tick__box` is a control boundary.
+- **Target size passes.** `.tick__box` is 22px, which looks like a 2.5.8 failure
+  until you notice 2.5.8 measures the *target*: `.tick` is `width: var(--tap)`,
+  so 44×44 against a 24×24 requirement.
+
+**So the work is four small changes**, not an audit: two token values, one
+control's border, and a global focus style.
 
 **Explicitly out of scope, at AAA:**
 
