@@ -32,9 +32,9 @@ the `moods` table is empty. Nothing else is seeded.
 |---|---|
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
-| `bun test` | 193 unit tests |
-| `bun run e2e` | 278 browser tests on Chrome, mobile and desktop viewports |
-| `bun run e2e:all` | all 556, both engines — WebKit does not run on macOS 14 |
+| `bun test` | 198 unit tests |
+| `bun run e2e` | 294 browser tests on Chrome, mobile and desktop viewports |
+| `bun run e2e:all` | all 588, both engines — WebKit does not run on macOS 14 |
 | `bun run e2e:docker` | the WebKit half, in Linux |
 | `bun run e2e:ui` | Playwright's UI mode, Chrome only |
 | `bun run e2e:report` | open the last HTML report |
@@ -79,6 +79,10 @@ fly ssh console -a gg-alfred -C "sh -c 'bun run user:invite jess'"
 
 `user:add` also sets an existing user's password, which invalidates that user's
 sessions. `owner` is user 1 and owns everything written before accounts existed.
+
+After that, people change their own timezone and password in Settings, reached
+from the account menu in the top bar. Changing a password signs out that
+account's other devices but not the one making the change.
 
 Signing in is always required, in development as much as anywhere else.
 

@@ -130,9 +130,13 @@ src/server/
   views/         one builder per screen
 ```
 
+`src/shared/types.ts` is the contract both sides import: the wire types, the
+validators, and `MIN_PASSWORD` — the one definition of how long a password has to
+be, which the server enforces and both forms state.
+
 ### The API
 
-Three ungated endpoints:
+Four ungated endpoints:
 
 | | |
 |---|---|
@@ -150,6 +154,9 @@ becomes an identity.
 | `GET /api/todo` | `TodoView` |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
 | `POST /api/commands/<name>` | `{ ok: true }` |
+| `GET /api/account` | `{ username, timezone }` — the two fields no view payload carries |
+| `POST /api/account/timezone` | `{ timezone }` |
+| `POST /api/account/password` | `{ current, next }`, and a fresh session cookie |
 
 There is no CRUD. A client gets data because a view renders it. Anything
 unrecognised — unknown path, or known path with the wrong method — is a 404.
@@ -183,6 +190,16 @@ An invitation is a `claim_token` with an expiry. `POST /api/claim` spends it,
 setting the password and timezone, only if the token matches, has not expired,
 the account is active, and the hash is still empty. One message for every failure.
 
+Changing your own password requires the current one: a session alone must not be
+enough to take an account over. The response carries a cookie signed with the new
+hash, so the device that made the change stays signed in while every other
+session that account holds stops verifying. The sign-in lockout does not apply —
+it blunts guessing where there is no session, and this caller already holds one.
+
+Changing your own timezone requires nothing but the session. It is not a
+security-relevant field, and it rewrites no data: dates are stored as strings, so
+a new zone only changes what `today()` returns from then on.
+
 ### Accounts
 
 ```
@@ -195,15 +212,20 @@ bun run user:enable <name>
 There is no self-registration. `APP_URL` decides what the printed claim link
 points at.
 
+Once an account exists, its owner changes their own timezone and password from
+the Settings view. Nothing else about an account is editable from the app: a
+username is the login identifier, and `active` is an administrative decision.
+
 ---
 
 ## Client
 
 ```
 src/client/
-  main.tsx           the shell: signed-in state, tab, and the /claim route
+  main.tsx           the shell: signed-in state, top bar, tab, and the /claim route
   api.ts             typed fetch, the client's only I/O
   dates.ts           date formatting and calendar arithmetic on strings
+  zones.ts           the IANA zone list, for the two forms that offer one
   ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet, placementMaxFor
   TaskFields.tsx     the task definition fields
   TaskEditor.tsx     the editor, opened from Day rows and from the panel
@@ -215,12 +237,20 @@ src/client/
     History.tsx      the grid
     Login.tsx        the signed-out surface
     Claim.tsx        spending an invitation
+    Settings.tsx     your own timezone and password
 ```
 
 The server derives everything. The client renders arrays that arrive already
 ordered and sectioned, posts named commands, and refetches. It never sorts,
 filters, or computes a period. It never asks what day it is — every view model
 carries its own date.
+
+### The shell
+
+A fixed top bar carries the two tabs — Day and History — and an account menu.
+The menu holds Settings and Sign out, so both are reachable from every view. It
+is `ui.tsx`'s `Popover`, which closes on `Escape` and on a pointer landing
+outside; the shell returns focus to the menu button.
 
 ### Day
 
@@ -247,6 +277,13 @@ quarter, This year, One-off. **Routine** draws the five recurring groups and
 
 A grid of days by task. Read-only. Pages backwards in blocks, up to 365 at a time.
 
+### Settings
+
+Two independent forms, each saving on its own, because they carry different
+requirements. The timezone select is prefilled from `GET /api/account` rather
+than from the browser: the stored value is the thing being corrected, so offering
+the device's guess would hide the mismatch the form exists to fix.
+
 ---
 
 ## Tests
@@ -258,13 +295,13 @@ A grid of days by task. Read-only. Pages backwards in blocks, up to 365 at a tim
 | `tests/views.test.ts` | the view builders, against a real database |
 | `tests/commands.test.ts` | what commands write |
 | `tests/isolation.test.ts` | that one user never sees another's data |
-| `tests/auth.test.ts` | claiming an invitation |
+| `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 193. Each suite names its own timezone rather than inheriting the
+`bun test` runs 198. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 556 across four projects — `mobile` and `desktop` on Chrome,
+Playwright runs 588 across four projects — `mobile` and `desktop` on Chrome,
 `mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
