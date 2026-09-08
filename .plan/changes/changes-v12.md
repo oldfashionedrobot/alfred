@@ -197,3 +197,7 @@ all. Every fix costs something real: `min_machines_running = 1` is ~$2/month and
 the end of scale-to-zero. **Deferred until there is a second user**, on the
 grounds that one person who knows why it is slow tolerates it differently from a
 guest who does not.
+
+---
+
+Continued in [`changes-v13.md`](changes-v13.md).
