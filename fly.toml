@@ -12,6 +12,10 @@ primary_region = "iad"          # Turso is on AWS US East (N. Virginia), same me
 [env]
   PORT = "8080"
   DB_PATH = "/data/alfred.db"   # on the volume, so a wake syncs a delta not the world
+  # The household's zone, and the app's day boundary. Without it the container
+  # runs UTC and rolls over to tomorrow at 8pm Eastern — so an evening tick was
+  # recorded against the wrong date. See `.plan/changes-v10.md`.
+  TZ = "America/New_York"
 
 [http_service]
   internal_port = 8080

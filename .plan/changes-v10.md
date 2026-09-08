@@ -182,3 +182,34 @@ it was not, and this one holds no matter what anybody later puts in `.env`.
 | `tests/harness.ts` | Not a test. The shared database setup, extracted. |
 
 Unit tests 171 → 180, browser tests 256 → 268.
+
+---
+
+## The container had no timezone
+
+**What.** `fly.toml` sets `TZ=America/New_York`.
+
+**Why it was wrong.** `today.ts` reads the process's local date, and its comment
+said *"one process, one machine, one household — there is no timezone to
+reconcile."* That was true while the app ran on a laptop in the household. The
+container has no `/etc/timezone` and an empty `TZ`, so it ran UTC: at 22:35
+Eastern the deployed app was serving `2026-09-08`, and had been rolling over to
+tomorrow at 8pm every evening since the first deploy.
+
+The consequence is not cosmetic. A task ticked at 9pm is written against the
+wrong date, and **dates are stored as strings with no time** — `planned_date`,
+`completed_on` and `days.date` are all `YYYY-MM-DD`. There is no instant to
+reinterpret, so changing the timezone fixes nothing already written. The fix is
+forward-only and the affected rows were corrected by hand.
+
+**Checked, not assumed.** The slim image has no `/etc/timezone`, so `TZ` might
+have done nothing — it works: `TZ=America/New_York` inside the container gives
+Eastern, and Bun's `Date` honours it.
+
+**A per-user zone is the answer for more than one household**, and is deliberately
+not built yet — see [`changes-v11.md`](changes-v11.md).
+
+---
+
+Continued in [`changes-v11.md`](changes-v11.md).
+
