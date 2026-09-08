@@ -54,7 +54,7 @@ DB_PATH=/tmp/alfred-admin.db APP_URL=https://alfred.goodghost.com \
   bun --env-file=.env.turso run user:invite jess
 ```
 
-`DB_PATH` points at a throwaway replica — without it you would be inviting somebody to your development database. `APP_URL` only decides what the printed link points at. `.env.turso` is where the credentials live and is never loaded automatically; see [`.env.example`](.env.example) for why.
+`DB_PATH` points at a throwaway replica. With `TURSO_URL` set it means the local *replica file* rather than the database, so leaving it out is refused with an explanation rather than quietly creating a replica of production inside `data/`. `APP_URL` only decides what the printed link points at. `.env.turso` is where the credentials live and is never loaded automatically; see [`.env.example`](.env.example) for why.
 
 `owner` is user 1, created by the migration, and owns everything written before accounts existed — so setting its password is how you claim your own data.
 

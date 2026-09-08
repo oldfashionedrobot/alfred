@@ -175,6 +175,28 @@ that cannot be undone in a minute.
 
 ---
 
+### A footgun closed on the way past
+
+Documenting `user:invite` against production surfaced something worse than the
+documentation. **`DB_PATH` means two different things**: without `TURSO_URL` it is
+the database, with it it is the local replica file. They want different
+locations, and the default served only one of them.
+
+Forgetting it turned out not to corrupt anything — libSQL refuses with *"db file
+exists but metadata file does not"* when the dev database is already there,
+which was worth confirming rather than assuming. **But if the file does not
+exist** — a fresh clone, or after a reset — it creates a replica of PRODUCTION at
+`./data/alfred.db`, and the next `bun run dev` opens the household's real data as
+the development database. Silent, and exactly the shape of the afternoon the test
+suite spent writing to production.
+
+So `db.ts` now refuses: `TURSO_URL` set and `DB_PATH` unset is an error that says
+what to do instead. Production is unaffected — `fly.toml` sets `DB_PATH`
+explicitly — and so is the test fixture, which has always passed it.
+
+The README said forgetting it would "invite somebody to your development
+database", which was wrong in both directions. Corrected.
+
 ### What this is not
 
 **Not self-registration.** An account must exist before anything can claim it, and

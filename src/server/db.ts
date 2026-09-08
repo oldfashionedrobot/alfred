@@ -25,6 +25,31 @@ import * as schema from './schema.ts'
  * stays on drizzle's `sqlite-core` and the existing migrations still apply.
  */
 
+/*
+ * DB_PATH means two different things, and that is why this guard exists.
+ *
+ * Without TURSO_URL it is THE DATABASE. With TURSO_URL it is the local REPLICA
+ * file — a cache of the real database, which lives in Turso. Those want
+ * different locations, and there is no single sensible default for both.
+ *
+ * Defaulting the replica to `./data/alfred.db` is actively dangerous. If that
+ * file exists, libSQL refuses with "db file exists but metadata file does not",
+ * which is at least loud. If it does NOT exist — a fresh clone, or after a
+ * reset — it cheerfully creates a replica of PRODUCTION there, and the next
+ * `bun run dev` opens the household's real data as the development database.
+ *
+ * So: with Turso, say where. See `.plan/changes/changes-v13.md`.
+ */
+if (process.env.TURSO_URL && !process.env.DB_PATH) {
+  throw new Error(
+    'TURSO_URL is set but DB_PATH is not.\n\n' +
+      'With Turso, DB_PATH is the local replica file rather than the database, ' +
+      'and defaulting it to ./data/alfred.db would put production data in your ' +
+      'development database. Point it somewhere throwaway:\n\n' +
+      '  DB_PATH=/tmp/alfred-admin.db bun --env-file=.env.turso run user:invite <name>\n',
+  )
+}
+
 export const DB_PATH = process.env.DB_PATH ?? './data/alfred.db'
 
 /*
