@@ -7,7 +7,7 @@ import type { CompletionRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue, periodEnd, periodStart } from '../period.ts'
 import { byBaselineCategoryName } from '../sort.ts'
 import { loadCurrentCompletions, placeableDates, placementRanges } from './completions.ts'
-import { today } from '../today.ts'
+import { today, type Viewer } from '../today.ts'
 
 /**
  * The To do panel — the complete inventory, hosted by Day and
@@ -29,8 +29,9 @@ import { today } from '../today.ts'
  * Both are null for the one-off group: its period is unbounded. There is no week
  * number in this model, deliberately — the client renders a range.
  */
-export async function buildTodoView(db: DB, userId: number): Promise<TodoView> {
-  const date = today()
+export async function buildTodoView(db: DB, viewer: Viewer): Promise<TodoView> {
+  const userId = viewer.id
+  const date = today(viewer.timezone)
 
   const taskRows = await db
     .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()

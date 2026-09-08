@@ -206,8 +206,9 @@ forward-only and the affected rows were corrected by hand.
 have done nothing — it works: `TZ=America/New_York` inside the container gives
 Eastern, and Bun's `Date` honours it.
 
-**A per-user zone is the answer for more than one household**, and is deliberately
-not built yet — see [`changes-v11.md`](changes-v11.md).
+**A per-user zone is the answer for more than one household.** It was built in
+v11, immediately after this, and it removed the `TZ` line above rather than
+building on it — see [`changes-v11.md`](changes-v11.md).
 
 ---
 

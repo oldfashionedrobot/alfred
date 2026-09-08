@@ -521,7 +521,7 @@ One workflow, on every push and pull request:
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | includes `e2e/`, which is how the CSS declaration gap surfaced |
-| `bun test` | 180 unit tests over the period logic, ordering, placement, view builders, command writes and cross-user isolation |
+| `bun test` | 183 unit tests over the period logic, ordering, placement, timezones, view builders, command writes and cross-user isolation |
 | `bunx playwright test` | 270 browser tests across mobile and desktop viewports |
 | `docker build` | the image, so a Dockerfile mistake fails here rather than on deploy |
 | `flyctl deploy` | `main` only, after the above are green |
@@ -545,7 +545,7 @@ That last point is why this is not a config change but a body of work. It stays 
 known gap: the browser this is used in is untested, and the estimate for closing
 that is now grounded rather than guessed.
 
-**The weekday matrix, weekly rather than per-push.** The suite's behaviour depends on the day: a Saturday offers one placeable date, a Sunday seven, and different tests skip on each. A `TZ` matrix on every push doubles browser minutes for a property that only changes when the scheduling rules change. A weekly scheduled run across both is the better trade — and is where the fixture bugs that bit twice during the build would have been caught.
+**The weekday matrix, weekly rather than per-push.** The suite's behaviour depends on the day: a Saturday offers one placeable date, a Sunday seven, and different tests skip on each. Such a matrix would now vary the **user's** timezone rather than the process's `TZ` — v11 moved the day boundary onto `users.timezone`, so seeding a zone is how you put "today" on a different weekday. Either way, running it on every push doubles browser minutes for a property that only changes when the scheduling rules change. A weekly scheduled run across both is the better trade — and is where the fixture bugs that bit twice during the build would have been caught.
 
 **One retry, in CI only** — `retries: process.env.CI ? 1 : 0`. Playwright
 reports a test that passes on retry as *flaky* rather than as passed, so a real

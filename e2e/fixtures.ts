@@ -99,8 +99,13 @@ export type App = {
   fetch: (path: string, init?: RequestInit) => Promise<Response>
   /** `name=value`, for the rare test that builds a request by hand. */
   cookie: string
-  /** This test's database file. Exposed so a test can assert it is a local one. */
+  /** This test's database file. */
   dbPath: string
+  /**
+   * What the server says it is connected to: 'local' or 'replica'. A contract,
+   * unlike the libSQL file artifact the guard used to infer this from.
+   */
+  database: string
 }
 
 export const test = base.extend<{ app: App; signedIn: boolean }>({
@@ -177,16 +182,19 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
     }
 
     const url = `http://127.0.0.1:${port}`
-    let today = ''
+    let database = ''
     for (;;) {
       try {
         // /api/status rather than /api/day: it is the one endpoint before the
         // auth gate, so this probe works whether or not the test wants a login.
-        // It also carries the date, so nothing here reimplements `today()` — the
-        // suite derives every date from the server's own answer.
+        //
+        // It no longer carries a date. It is ungated, so with per-user zones
+        // there is no user whose day it could name — see `.plan/changes-v11.md`.
+        // `today` comes from /api/day below, after signing in, which is the only
+        // point at which "today" means anything.
         const r = await fetch(`${url}/api/status`)
         if (r.ok) {
-          today = ((await r.json()) as { date: string }).date
+          database = ((await r.json()) as { database: string }).database
           break
         }
       } catch {
@@ -232,7 +240,18 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
         headers: { ...(init.headers ?? {}), ...(cookie === '' ? {} : { cookie }) },
       })
 
-    await use({ url, seed, today, fetch: api, cookie, dbPath })
+    /*
+     * The server's notion of today, for THIS user — read from the view rather
+     * than reimplemented here, so no test computes a date the server did not
+     * give it. Empty for a `signedIn: false` test, which is correct: an
+     * unauthenticated client has no day.
+     */
+    let today = ''
+    if (signedIn) {
+      today = ((await (await api('/api/day')).json()) as { date: string }).date
+    }
+
+    await use({ url, seed, today, fetch: api, cookie, dbPath, database })
 
     proc.kill('SIGKILL')
     rmSync(dir, { recursive: true, force: true })

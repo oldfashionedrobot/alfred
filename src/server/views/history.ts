@@ -10,7 +10,7 @@ import type { DB } from '../db.ts'
 import { completions, days, moods, tasks } from '../schema.ts'
 import { addDays } from '../period.ts'
 import { byBaselineCategoryName } from '../sort.ts'
-import { today } from '../today.ts'
+import { today, type Viewer } from '../today.ts'
 
 const DEFAULT_LIMIT = 60
 
@@ -27,14 +27,15 @@ const DEFAULT_LIMIT = 60
  */
 export async function buildHistoryView(
   db: DB,
-  userId: number,
+  viewer: Viewer,
   opts: { limit?: number; before?: ISODate },
 ): Promise<HistoryView> {
+  const userId = viewer.id
   // routes.ts is the whole query-string boundary: it rejects a limit that is not
   // a positive integer and applies the only ceiling. Nothing is re-validated here.
   const limit = opts.limit ?? DEFAULT_LIMIT
   // `before` is exclusive.
-  const newest = opts.before === undefined ? today() : addDays(opts.before, -1)
+  const newest = opts.before === undefined ? today(viewer.timezone) : addDays(opts.before, -1)
 
   const daily = await db.select()
     .from(tasks)

@@ -621,7 +621,7 @@ describe('completionForPeriod', () => {
 
 describe('today', () => {
   test('returns a well-formed local YYYY-MM-DD string, never a Date', () => {
-    const t = today()
+    const t = today('UTC')
     expect(typeof t).toBe('string')
     expect(isISODate(t)).toBe(true)
     const now = new Date()
@@ -632,7 +632,7 @@ describe('today', () => {
   })
 
   test('feeds the period functions without further parsing', () => {
-    const t = today()
+    const t = today('UTC')
     expect(periodStart(t, 'week')! <= t).toBe(true)
     expect(periodKey(periodStart(t, 'month')!, 'month')).toBe(periodKey(t, 'month'))
   })
@@ -693,5 +693,34 @@ describe('periodEnd', () => {
         expect(start <= d && d <= end).toBe(true)
       }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// today(), against a zone
+// ---------------------------------------------------------------------------
+
+/**
+ * The regression test that did not exist when the container ran UTC and started
+ * calling 8pm Monday "Tuesday". It was awkward to write while the zone came from
+ * the process; with the zone as an argument it is a pure function of an instant.
+ */
+describe('today(zone)', () => {
+  test('two zones can disagree about the date, and that is the point', () => {
+    // 02:35 UTC on the 8th is 22:35 on the 7th in New York — the exact hour that
+    // made the deployed app a day ahead of the household. See changes-v10.md.
+    const instant = new Date('2026-09-08T02:35:00Z')
+    expect(today('UTC', instant)).toBe('2026-09-08')
+    expect(today('America/New_York', instant)).toBe('2026-09-07')
+  })
+
+  test('the far side of the date line is a day ahead of UTC', () => {
+    const instant = new Date('2026-09-07T12:00:00Z')
+    expect(today('UTC', instant)).toBe('2026-09-07')
+    expect(today('Pacific/Kiritimati', instant)).toBe('2026-09-08')
+  })
+
+  test('it still reads the clock when given no instant', () => {
+    expect(today('UTC')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })

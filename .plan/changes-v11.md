@@ -8,86 +8,76 @@ what was rejected. Entries become records as they land.
 
 ---
 
-## 1. Timezone belongs to the user
+## 1. Timezone belongs to the user — BUILT
 
-**What.** `users.timezone`, an IANA name, defaulting to `America/New_York`.
-`today()` takes that zone and derives the date in it.
+**What.** `users.timezone`, an IANA name defaulting to `America/New_York`
+(migration `0004`). `today(zone)` derives the date in it, via
+`Intl.DateTimeFormat('en-CA', { timeZone })` — `en-CA` formats as YYYY-MM-DD,
+which is the only reason that locale is there. No `TZ` variable, no dependency.
 
-```ts
-new Intl.DateTimeFormat('en-CA', {
-  timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
-}).format(new Date())
-```
+**The three deletions promised, all delivered.**
 
-`en-CA` yields `YYYY-MM-DD` directly. Checked, not assumed: run in a process
-whose own local date was already `2026-09-08`, that returns `2026-09-07` for New
-York. No `TZ` environment variable, no dependency.
+- **`fly.toml` lost its `TZ`.** v10 added it because the container ran UTC and
+  called 8pm Monday "Tuesday". With the zone on the user, the container's own
+  zone stopped mattering; the process runs UTC and its logs are the better for it.
+- **The test/clock split is gone.** Each suite now names its zone — `const ZONE
+  = 'UTC'`, chosen because it has no DST, so no test lands on a day that is 23 or
+  25 hours long. Nothing reads the process's `TZ` any more.
+- **The regression test exists**, in `period.test.ts`: at `2026-09-08T02:35:00Z`,
+  `UTC` says the 8th and `America/New_York` says the 7th. That is the exact hour
+  the deployed app was a day ahead of the household.
 
-**Why now, when there is one user.** v10 set `TZ=America/New_York` in
-`fly.toml` — correct while everyone shares a zone, and silently wrong the moment
-somebody does not. It is also small, and doing it now means three things get
-*deleted* rather than added:
+**Three things the plan did not anticipate.**
 
-- **The `fly.toml` `TZ` line goes.** Once the zone comes from the user, the
-  container's own zone is irrelevant. A feature that removes deployment coupling.
-- **The test/clock split goes.** [`changes.md`](changes.md) records that
-  `bun test` runs `TZ=UTC` while the browser suite runs local, so the two
-  disagree about what day it is and the skip count moves with the clock. With an
-  explicit zone parameter, nothing depends on process `TZ`.
-- **The missing regression test becomes trivial.** Nothing today would catch `TZ`
-  being dropped from `fly.toml`. "A user in `America/New_York` sees `2026-09-07`
-  when the instant is `02:35Z`" is a pure unit test — deterministic, no wall
-  clock, which was the objection to testing it through the deployed app.
+**A `Viewer` type, rather than a second parameter.** `{ id, timezone }`, defined
+beside `today()`. The alternative was passing `userId` and `zone` side by side
+through every builder and command — two values that must always agree, and
+eventually would not. `UserRow` satisfies it structurally, so `routes.ts` passes
+the row it already has.
 
-**Cost.** Nineteen `today()` call sites across five server files and five test
-files. `currentUser` already resolves the user in `routes.ts`, and every builder
-and command already takes a `userId`, so the zone travels the path the user id
-already travels. Mechanical, not hard.
+**The clock is read once per command, not per call.** `runCommand` derives the
+date at the top and passes it down. This was going to be five call sites each
+calling `today(viewer.timezone)`; it became one, and that is a correctness
+improvement rather than a tidy-up — `uncomplete` read the clock *twice* in a
+single call path, and two reads either side of midnight would delete a
+completion for a day the check never considered.
 
-**Rejected: the client sends its timezone, or its date.** Sending a *date*
-dissolves the invariant the model rests on — `today.ts`: *no endpoint accepts a
-date meaning "the day to render", which is what makes same-day-only recording
-structural rather than a rule the UI is trusted to follow.* Overdue, period
-satisfaction and the History grid all stand on it.
+**`today(zone, now?)`.** The instant is an optional argument, defaulting to the
+clock. No caller passes it; it exists so the regression test can name an instant
+instead of stubbing the global `Date`, which was the first attempt and did not
+typecheck. This is still the only place a date is read from the clock.
 
-Sending a *zone* is much weaker and genuinely defensible. It is refused for a
-different reason: it makes the day boundary a property of the **device**. A
-laptop in London and a phone in Atlanta would disagree about what day it is for
-the same person, and the same task could be ticked twice on two different todays.
-A day belongs to a person.
-
-**Not a trigger: travel.** A week away does not move somebody's tasks to another
-day. The zone is where you live, not where you are standing.
+**Cost, against the estimate.** The plan said nineteen call sites; the compiler
+found fifteen, across five server files and four test files. Mechanical
+throughout, as predicted.
 
 ---
 
-## 2. `/api/status` drops `date`, and gains the database it is talking to
+## 2. `/api/status` drops `date`, gains `database` — BUILT
 
-**What.** `{ ok, date, sha }` becomes `{ ok, sha, database }`, where `database`
-is `'local'` or `'replica'`.
+**What.** `{ ok, date, sha }` became `{ ok, sha, database }`, where `database` is
+`'local'` or `'replica'`.
 
-**Why `date` goes.** It is ungated, so with per-user zones there is no user to
-derive a date for. A health endpoint should not claim to know what today is for
-somebody it has not identified. It was only ever there because the browser
-fixture needed a date before signing in.
+**Checked before changing it**, because it is a wire contract: the client never
+calls `/api/status` at all, and CI's smoke test reads only `.sha`. The single
+consumer was the browser fixture.
 
-**Why `database` arrives.** This is the durable fix for the guard added in v10.
-That guard infers "local file" from the *absence* of a `-info` file beside the
-database — true today, and an implementation detail of libSQL rather than a
-contract. It is also the only thing standing between us and a repeat of the
-afternoon the suite wrote 206 rows into production, so it should not rest on a
-detail that can change without notice. Asking the server what it is connected to
-is a contract, and it cannot drift.
+**The fixture now learns "today" from `/api/day`, after signing in** — which is
+the only point at which "today" means anything, since it is now a property of a
+user. A `signedIn: false` test gets an empty string.
 
-Exposing it publicly is deliberate: it reveals that the app runs against a
-replica, which is already written down in a public repository, and the value of a
-guard that reads the same field the fixture does outweighs it.
+**The plan said the fixture's types should say so rather than hand back something
+empty, and they do not.** `today` stays `string`. Making it `string | null` would
+force a null check at roughly forty use sites to guard a case no test reaches:
+`auth.spec.ts` is the only `signedIn: false` suite and never touches `app.today`.
+The comment says what the empty string means. Recorded as a deviation rather than
+quietly done.
 
-**Cost.** The fixture reads `app.today` from `/api/status` today; it moves to
-reading from `/api/day` after signing in. Tests constructed with
-`signedIn: false` therefore have no `today`, which is correct — an unauthenticated
-client has no day — but the fixture's types should say so rather than hand back
-something empty.
+**The guard now asks the server.** `harness.spec.ts` asserted the *absence* of a
+libSQL `-info` file beside the database — true at the time, an implementation
+detail that could change without anybody noticing the guard had stopped guarding,
+and the only thing standing between us and a repeat of the afternoon the suite
+wrote 206 rows into production. It reads `database === 'local'` now.
 
 ---
 
@@ -111,23 +101,37 @@ its own.
 
 ---
 
-## 4. The asset paths get a `<base>` tag
+## 4. The asset paths — no fix at this Bun version. Deferred to the upgrade
 
-**What.** `<base href="/" />` in `src/client/index.html`.
+**The plan said `<base href="/" />`. That was wrong, and testing it is how we
+know.** In production `Bun.serve` emits `/../../chunk-x.js` — already absolute, so
+a `<base>` tag never applies to it. The workaround in
+[oven-sh/bun#22690](https://github.com/oven-sh/bun/issues/22690) is for
+`Bun.build` output, which emits *relative* `./chunk-x.js`. Different code path,
+same-looking bug.
 
-**Why this and not the alternatives.** Bun computes chunk paths from the location
-of the file that *imports* the HTML — `src/server/index.ts` — so it emits
-`/../../chunk-y0m076hy.js`. Browsers normalise that to `/chunk-…` and the app
-works; requested literally it falls through to the `/*` route and returns the
-**HTML shell with a 200**, which is a memorable thing to debug at 2am.
+**What the prefix actually tracks is the HTML file's own location.** Measured,
+serving the same app three ways in production mode:
 
-This is [oven-sh/bun#22690](https://github.com/oven-sh/bun/issues/22690), closed
-as a duplicate of #18809 and still open upstream. Two workarounds are documented:
-`<base href="/">`, or `publicPath: "/"`. `publicPath` is confirmed to work in
-`Bun.build` — it emits `/chunk-x.js` — but is not exposed on `Bun.serve`'s HTML
-route, which is what this app uses. So the `<base>` tag is the one available.
+| `index.html` at | emitted |
+|---|---|
+| `src/client/` (today) | `/../../chunk-x.js` |
+| project root | `/chunk-x.js` |
 
----
+So there is a fix available: move the entrypoint to the repository root. It is
+declined. That separates `index.html` from the code it loads, puts a build
+artifact's neighbour in the root directory, and buys a cosmetic improvement —
+browsers normalise the path and the app has always worked.
+
+**What is actually wrong is small and worth stating precisely.** Requested
+*literally*, without normalisation, `/../../chunk-x.js` falls through to the `/*`
+route and returns the HTML shell with a **200**. Anything that normalises — every
+browser, and `curl` without `--path-as-is` — never sees it. The exposure is a
+confusing five minutes for whoever meets it first, not a defect users can reach.
+
+**So it waits for the Bun upgrade**, where it may simply be gone, and where the
+browser suite is the check. Item 5 stops being unscheduled and becomes the home
+for this.
 
 ## 5. The Bun upgrade is its own work, and not yet
 
@@ -211,8 +215,12 @@ That is the actual work of this item — triage, not configuration.
 
 ## Order
 
-1 and 2 are one change and land together — the `/api/status` shape depends on the
-timezone decision. 4 is a line and can go with them. 3 is churn and should follow,
-so a folder move never appears in the same diff as a behaviour change. 6 is the
-largest and is last, because its failure count is unknown until the harness runs.
-5 is not scheduled.
+1 and 2 landed together, as planned — the `/api/status` shape depends on the
+timezone decision.
+
+4 was meant to go with them and did not: the fix in the plan turned out not to
+work, and the fix that does work costs more than the problem. It is folded into 5.
+
+3 follows, so a folder move never appears in the same diff as a behaviour change.
+6 is last and largest, because its failure count is unknown until the harness
+runs — and is known to be substantial.

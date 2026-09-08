@@ -16,7 +16,20 @@ import { closeDb, freshDb, type Harness } from './harness.ts'
  */
 
 const OWNER = 1
-const TODAY = today()
+
+/*
+ * The suite's timezone, explicit and fixed.
+ *
+ * `today()` takes a zone now, so nothing here depends on the process's `TZ` —
+ * which is what closes the gap `changes.md` recorded: `bun test` ran UTC while
+ * the browser suite ran local, the two disagreed about what day it was, and the
+ * skip count moved with the clock. UTC because it has no DST, so no test lands
+ * on a day that is 23 or 25 hours long.
+ */
+const ZONE = 'UTC'
+
+const TODAY = today(ZONE)
+const VIEWER = { id: OWNER, timezone: ZONE }
 
 let h: Harness
 let db: DB
@@ -33,7 +46,7 @@ const rows = () => db.select().from(schema.tasks).all()
 
 describe('create_tasks', () => {
   test('places every name on the given date', async () => {
-    await runCommand(db, OWNER, 'create_tasks', {
+    await runCommand(db, VIEWER, 'create_tasks', {
       names: ['bins', 'washing', 'bread'],
       planned_date: TODAY,
     })
@@ -45,14 +58,14 @@ describe('create_tasks', () => {
   })
 
   test('leaves them unplaced when no date is given', async () => {
-    await runCommand(db, OWNER, 'create_tasks', { names: ['bins', 'washing'] })
+    await runCommand(db, VIEWER, 'create_tasks', { names: ['bins', 'washing'] })
     const made = await rows()
     expect(made).toHaveLength(2)
     expect(made.every((t) => t.planned_date === null)).toBe(true)
   })
 
   test('still collapses repeats within the batch when placing', async () => {
-    await runCommand(db, OWNER, 'create_tasks', {
+    await runCommand(db, VIEWER, 'create_tasks', {
       names: ['bins', 'bins', ' bins '],
       planned_date: TODAY,
     })
@@ -63,14 +76,14 @@ describe('create_tasks', () => {
 
   test('refuses a date it was not offered as a field', async () => {
     await expect(
-      runCommand(db, OWNER, 'create_tasks', { names: ['bins'], when: TODAY }),
+      runCommand(db, VIEWER, 'create_tasks', { names: ['bins'], when: TODAY }),
     ).rejects.toThrow()
   })
 })
 
 describe('create_task', () => {
   test('a daily task cannot hold a date, whatever it is sent', async () => {
-    await runCommand(db, OWNER, 'create_task', {
+    await runCommand(db, VIEWER, 'create_task', {
       name: 'meds',
       cadence: 'day',
       planned_date: TODAY,
@@ -82,7 +95,7 @@ describe('create_task', () => {
   })
 
   test('any other cadence keeps the date it was given', async () => {
-    await runCommand(db, OWNER, 'create_task', {
+    await runCommand(db, VIEWER, 'create_task', {
       name: 'deep clean',
       cadence: 'month',
       planned_date: TODAY,
@@ -94,8 +107,8 @@ describe('create_task', () => {
 
 describe('update_task placement', () => {
   test('an omitted planned_date leaves the stored day alone', async () => {
-    await runCommand(db, OWNER, 'create_task', { name: 'bins', planned_date: TODAY })
-    await runCommand(db, OWNER, 'update_task', { id: 1, name: 'the bins' })
+    await runCommand(db, VIEWER, 'create_task', { name: 'bins', planned_date: TODAY })
+    await runCommand(db, VIEWER, 'update_task', { id: 1, name: 'the bins' })
     const [t] = await rows()
     // The editor sends placement only when it changed; this is what makes that
     // safe rather than a silent rewrite on every save.
@@ -104,8 +117,8 @@ describe('update_task placement', () => {
   })
 
   test('an explicit null clears it', async () => {
-    await runCommand(db, OWNER, 'create_task', { name: 'bins', planned_date: TODAY })
-    await runCommand(db, OWNER, 'update_task', { id: 1, planned_date: null })
+    await runCommand(db, VIEWER, 'create_task', { name: 'bins', planned_date: TODAY })
+    await runCommand(db, VIEWER, 'update_task', { id: 1, planned_date: null })
     const [t] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 1))
     expect(t!.planned_date).toBeNull()
   })

@@ -4,7 +4,7 @@ import type { DB } from './db.ts'
 import { BadRequest, NotFound, Rejected } from './errors.ts'
 import { completionForPeriod, isOverdue } from './period.ts'
 import { completions, days, moods, tasks, type TaskRow } from './schema.ts'
-import { today } from './today.ts'
+import { today, type Viewer } from './today.ts'
 import { loadCurrentCompletions, placementMax } from './views/completions.ts'
 
 /**
@@ -32,24 +32,34 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  */
 export async function runCommand(
   db: DB,
-  userId: number,
+  viewer: Viewer,
   name: string,
   body: unknown,
 ): Promise<void> {
   const b = asObject(body)
+  const userId = viewer.id
+
+  /*
+   * The clock is read ONCE per command, here, and passed down.
+   *
+   * Not tidiness: `uncomplete` used to read it twice in one call path, and two
+   * reads either side of midnight would delete a completion for a day the check
+   * never considered. One date per request cannot disagree with itself.
+   */
+  const now = today(viewer.timezone)
 
   switch (name) {
     // --- Day --------------------------------------------------------------
     case 'complete':
-      return complete(db, userId, b)
+      return complete(db, userId, now, b)
     case 'uncomplete':
-      return uncomplete(db, userId, b)
+      return uncomplete(db, userId, now, b)
     case 'place':
-      return place(db, userId, b)
+      return place(db, userId, now, b)
     case 'unplan':
       return unplan(db, userId, b)
     case 'reset_overdue':
-      return resetOverdue(db, userId, b)
+      return resetOverdue(db, userId, now, b)
 
     // --- Tasks ------------------------------------------------------------
     case 'create_task':
@@ -63,11 +73,11 @@ export async function runCommand(
 
     // --- Day record -------------------------------------------------------
     case 'set_mood':
-      return setMood(db, userId, b)
+      return setMood(db, userId, now, b)
     case 'set_log':
-      return setLog(db, userId, b)
+      return setLog(db, userId, now, b)
     case 'set_task_order':
-      return setTaskOrder(db, userId, b)
+      return setTaskOrder(db, userId, now, b)
 
     default:
       // 400, not 404: the path /api/commands/<name> exists, the name in it is a
@@ -189,7 +199,7 @@ async function loadMoodSlug(db: DB, slug: string): Promise<string> {
 // Day
 // ---------------------------------------------------------------------------
 
-async function complete(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function complete(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
   const task = await loadTask(db, userId, reqId(b, 'task_id'))
   if (!task.active) throw new Rejected('that task is archived')
@@ -197,19 +207,19 @@ async function complete(db: DB, userId: number, b: Record<string, unknown>): Pro
   // The (task_id, completed_on) key absorbs a double tap — a repeat is a
   // no-op, never an error.
   await db.insert(completions)
-    .values({ task_id: task.id, completed_on: today() })
+    .values({ task_id: task.id, completed_on: now })
     .onConflictDoNothing()
     .run()
 }
 
-async function uncomplete(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function uncomplete(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
   const task = await loadTask(db, userId, reqId(b, 'task_id'))
 
   // NOT necessarily today's row: unticking a weekly task on Wednesday that was
   // completed Tuesday must delete Tuesday's, since that is the row making it
   // appear complete.
-  const row = completionForPeriod(task, await completionsFor(db, task.id), today())
+  const row = completionForPeriod(task, await completionsFor(db, task.id), now)
   if (!row) return // already not done — the asked-for end state
 
   await db.delete(completions)
@@ -217,7 +227,7 @@ async function uncomplete(db: DB, userId: number, b: Record<string, unknown>): P
     .run()
 }
 
-async function place(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function place(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id', 'date'])
   const id = reqId(b, 'task_id')
   const date = reqDate(b, 'date')
@@ -235,7 +245,6 @@ async function place(db: DB, userId: number, b: Record<string, unknown>): Promis
   // period. Outside it, `effectiveDate` (backward-only) would never roll the
   // date back, so the task would sit un-overdue, un-unplaced and un-done while
   // its obligation went unmet, invisibly, every period until the date arrived.
-  const now = today()
   const max = placementMax(now, task.cadence)
 
   if (date < now) throw new Rejected('cannot place before today')
@@ -258,9 +267,8 @@ async function unplan(db: DB, userId: number, b: Record<string, unknown>): Promi
  * The read and the clear are one transaction so the set cleared is exactly the
  * set computed.
  */
-async function resetOverdue(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function resetOverdue(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, [])
-  const now = today()
 
   // No transaction, and it does not need one.
   //
@@ -425,12 +433,13 @@ async function archiveTask(db: DB, userId: number, b: Record<string, unknown>): 
 async function upsertDay(
   db: DB,
   userId: number,
+  now: ISODate,
   patch: { mood?: string | null; log?: string | null; task_order?: string | null },
 ): Promise<void> {
   await db.insert(days)
     // The key is (user_id, date), so two people record their own mood on the
     // same date without colliding.
-    .values({ user_id: userId, date: today(), ...patch })
+    .values({ user_id: userId, date: now, ...patch })
     .onConflictDoUpdate({ target: [days.user_id, days.date], set: patch })
     .run()
 }
@@ -439,7 +448,7 @@ async function upsertDay(
  * Records the day's mood. The mood set itself is not editable through the API —
  * it is seeded on first run and changed in the database.
  */
-async function setMood(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function setMood(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['slug'])
   if (!('slug' in b)) throw new BadRequest('slug is required')
 
@@ -447,10 +456,10 @@ async function setMood(db: DB, userId: number, b: Record<string, unknown>): Prom
   if (raw !== null && typeof raw !== 'string') throw new BadRequest('slug must be a string or null')
   const slug = raw === null ? null : await loadMoodSlug(db, raw)
 
-  await upsertDay(db, userId, { mood: slug })
+  await upsertDay(db, userId, now, { mood: slug })
 }
 
-async function setLog(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function setLog(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['text'])
   if (!('text' in b)) throw new BadRequest('text is required')
 
@@ -459,10 +468,10 @@ async function setLog(db: DB, userId: number, b: Record<string, unknown>): Promi
   // An empty entry is the absence of one.
   const text = raw === null || raw === '' ? null : raw
 
-  await upsertDay(db, userId, { log: text })
+  await upsertDay(db, userId, now, { log: text })
 }
 
-async function setTaskOrder(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function setTaskOrder(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_ids'])
   const raw = b['task_ids']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'number' || !Number.isInteger(v))) {
@@ -471,5 +480,5 @@ async function setTaskOrder(db: DB, userId: number, b: Record<string, unknown>):
 
   // Stored opaquely. `.plan/data-model.md` has the order disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
-  await upsertDay(db, userId, { task_order: JSON.stringify(raw) })
+  await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
 }

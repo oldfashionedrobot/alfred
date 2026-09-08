@@ -28,6 +28,12 @@ export const users = sqliteTable('users', {
   /** argon2id, from Bun.password. Never compared by hand. */
   password_hash: text('password_hash').notNull(),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  /**
+   * IANA name. The user's day boundary, and therefore what `today()` means for
+   * them — a day belongs to a person, not to the server and not to the device
+   * they happen to be holding. See `.plan/changes-v11.md`.
+   */
+  timezone: text('timezone').notNull().default('America/New_York'),
 })
 
 export const tasks = sqliteTable('tasks', {

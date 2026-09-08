@@ -31,8 +31,21 @@ import { buildHistoryView } from '../src/server/views/history.ts'
 
 const A = 1
 let B: number
+const viewer = (id: number) => ({ id, timezone: ZONE })
 
-const TODAY: ISODate = today()
+
+/*
+ * The suite's timezone, explicit and fixed.
+ *
+ * `today()` takes a zone now, so nothing here depends on the process's `TZ` —
+ * which is what closes the gap `changes.md` recorded: `bun test` ran UTC while
+ * the browser suite ran local, the two disagreed about what day it was, and the
+ * skip count moved with the clock. UTC because it has no DST, so no test lands
+ * on a day that is 23 or 25 hours long.
+ */
+const ZONE = 'UTC'
+
+const TODAY: ISODate = today(ZONE)
 const shift = (date: ISODate, n: number): ISODate => {
   const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)
@@ -99,7 +112,7 @@ const mine = (names: string[]) => names.every((n) => n.startsWith("A's"))
 describe('a view builder answers for one user and no other', () => {
   test('buildDayView', async () => {
     await seedBoth()
-    const view = await buildDayView(db, A)
+    const view = await buildDayView(db, viewer(A))
     const names = [...view.active, ...view.completed].map((t) => t.name)
     expect(names.length).toBeGreaterThan(0)
     expect(mine(names)).toBe(true)
@@ -108,7 +121,7 @@ describe('a view builder answers for one user and no other', () => {
 
   test('buildTodoView — the complete inventory, and only one person’s', async () => {
     await seedBoth()
-    const view = await buildTodoView(db, A)
+    const view = await buildTodoView(db, viewer(A))
     const names = view.groups.flatMap((g) => g.tasks).map((t) => t.name)
     // The panel is the whole inventory, so if anything leaks it leaks here.
     expect(names).toHaveLength(3)
@@ -122,7 +135,7 @@ describe('a view builder answers for one user and no other', () => {
       { task_id: bTask, completed_on: TODAY },
     ])
 
-    const view = await buildHistoryView(db, A, {})
+    const view = await buildHistoryView(db, viewer(A), {})
     expect(view.columns.map((c) => c.name)).toEqual(["A's daily"])
     const filled = view.rows.flatMap((r) => r.completed)
     expect(filled).toEqual([aTask])
@@ -139,11 +152,11 @@ describe('a view builder answers for one user and no other', () => {
     // mutation test caught the days half being untested here.
     await db.insert(schema.days).values({ user_id: B, date: shift(TODAY, -280), log: 'B was here' })
 
-    expect((await buildHistoryView(db, A, {})).rows).toEqual([])
+    expect((await buildHistoryView(db, viewer(A), {})).rows).toEqual([])
 
     const aTask = await addTask(A, "A's daily", { cadence: 'day' })
     await db.insert(schema.completions).values({ task_id: aTask, completed_on: TODAY })
-    const view = await buildHistoryView(db, A, {})
+    const view = await buildHistoryView(db, viewer(A), {})
     expect(view.rows).toHaveLength(1)
     expect(view.next_before).toBeNull()
   })
@@ -154,11 +167,11 @@ describe('a view builder answers for one user and no other', () => {
       { user_id: B, date: TODAY, mood: 'balanced', log: "B's private note" },
     ])
 
-    const a = await buildDayView(db, A)
+    const a = await buildDayView(db, viewer(A))
     expect(a.mood).toBe('happy')
     expect(a.log).toBe("A's private note")
 
-    const b = await buildDayView(db, B)
+    const b = await buildDayView(db, viewer(B))
     expect(b.mood).toBe('balanced')
     expect(b.log).toBe("B's private note")
   })
@@ -185,7 +198,7 @@ describe("a command cannot touch another user's task", () => {
       await db.insert(schema.completions).values({ task_id: bTask, completed_on: TODAY })
 
       // 404 rather than 403: a 403 would confirm the id exists.
-      await expect(runCommand(db, A, name, body(bTask))).rejects.toThrow(/no task/)
+      await expect(runCommand(db, viewer(A), name, body(bTask))).rejects.toThrow(/no task/)
 
       // And nothing moved.
       const after = await db.select().from(schema.tasks).where(eq(schema.tasks.id, bTask)).get()
@@ -207,7 +220,7 @@ describe("a command cannot touch another user's task", () => {
     const aOverdue = await addTask(A, "A's overdue", { cadence: null, planned_date: YESTERDAY })
     const bOverdue = await addTask(B, "B's overdue", { cadence: null, planned_date: YESTERDAY })
 
-    await runCommand(db, A, 'reset_overdue', {})
+    await runCommand(db, viewer(A), 'reset_overdue', {})
 
     const a = await db.select().from(schema.tasks).where(eq(schema.tasks.id, aOverdue)).get()
     const b = await db.select().from(schema.tasks).where(eq(schema.tasks.id, bOverdue)).get()
@@ -218,23 +231,23 @@ describe("a command cannot touch another user's task", () => {
 
 describe('a command that writes without naming a task stamps the caller', () => {
   test('create_task and create_tasks', async () => {
-    await runCommand(db, B, 'create_task', { name: 'made by B' })
-    await runCommand(db, B, 'create_tasks', { names: ['also B', 'and B'] })
+    await runCommand(db, viewer(B), 'create_task', { name: 'made by B' })
+    await runCommand(db, viewer(B), 'create_tasks', { names: ['also B', 'and B'] })
 
     const owners = await db.select().from(schema.tasks).all()
     expect(owners).toHaveLength(3)
     expect(owners.every((t) => t.user_id === B)).toBe(true)
-    expect((await buildTodoView(db, A)).groups.flatMap((g) => g.tasks)).toEqual([])
+    expect((await buildTodoView(db, viewer(A))).groups.flatMap((g) => g.tasks)).toEqual([])
   })
 
   test('set_mood, set_log and set_task_order write one row per user per day', async () => {
     const aTask = await addTask(A, "A's daily", { cadence: 'day' })
-    await runCommand(db, A, 'set_mood', { slug: 'happy' })
-    await runCommand(db, A, 'set_log', { text: "A's note" })
-    await runCommand(db, A, 'set_task_order', { task_ids: [aTask] })
+    await runCommand(db, viewer(A), 'set_mood', { slug: 'happy' })
+    await runCommand(db, viewer(A), 'set_log', { text: "A's note" })
+    await runCommand(db, viewer(A), 'set_task_order', { task_ids: [aTask] })
 
-    await runCommand(db, B, 'set_mood', { slug: 'balanced' })
-    await runCommand(db, B, 'set_log', { text: "B's note" })
+    await runCommand(db, viewer(B), 'set_mood', { slug: 'balanced' })
+    await runCommand(db, viewer(B), 'set_log', { text: "B's note" })
 
     // Two rows on the same date rather than one overwriting the other — which is
     // what the (user_id, date) key is for.
@@ -247,11 +260,11 @@ describe('a command that writes without naming a task stamps the caller', () => 
 
   test('completing writes a completion the other user cannot see', async () => {
     const bTask = await addTask(B, "B's daily", { cadence: 'day' })
-    await runCommand(db, B, 'complete', { task_id: bTask })
+    await runCommand(db, viewer(B), 'complete', { task_id: bTask })
 
-    const a = await buildDayView(db, A)
+    const a = await buildDayView(db, viewer(A))
     expect([...a.active, ...a.completed]).toEqual([])
-    const b = await buildDayView(db, B)
+    const b = await buildDayView(db, viewer(B))
     expect(b.completed.map((t) => t.name)).toEqual(["B's daily"])
   })
 })

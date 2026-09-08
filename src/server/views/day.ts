@@ -13,7 +13,7 @@ import type { CompletionRow, TaskRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue } from '../period.ts'
 import { loadCurrentCompletions, placeableDates, placementRanges, weekDates } from './completions.ts'
 import { sortTasks } from '../sort.ts'
-import { today } from '../today.ts'
+import { today, type Viewer } from '../today.ts'
 
 /**
  * Everything the Day view renders. Always today — no parameters.
@@ -50,8 +50,9 @@ import { today } from '../today.ts'
  *
  * Both arrays sorted with sortTasks(), using today's days.task_order.
  */
-export async function buildDayView(db: DB, userId: number): Promise<DayView> {
-  const date = today()
+export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
+  const userId = viewer.id
+  const date = today(viewer.timezone)
 
   const taskRows = await db
     .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()

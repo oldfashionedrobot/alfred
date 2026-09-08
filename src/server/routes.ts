@@ -1,7 +1,7 @@
 import { isISODate, type ISODate } from '../shared/types.ts'
 import { authenticate, clearedCookie, currentUser, sessionCookie } from './auth.ts'
 import { runCommand } from './commands.ts'
-import { db } from './db.ts'
+import { db, isReplica } from './db.ts'
 import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
 import { today } from './today.ts'
 import { buildDayView } from './views/day.ts'
@@ -50,7 +50,14 @@ export async function handleApi(req: Request): Promise<Response> {
      * Nothing here is private: a date and a commit hash from a public repository.
      */
     if (req.method === 'GET' && path === '/api/status') {
-      return json({ ok: true, date: today(), sha: process.env.BUILD_SHA ?? 'dev' })
+      return json({
+        ok: true,
+        sha: process.env.BUILD_SHA ?? 'dev',
+        // Which database this process is talking to. The browser fixture asserts
+        // it is 'local', which is the durable version of a guard that used to
+        // infer it from a libSQL file artifact — see `.plan/changes-v11.md`.
+        database: isReplica ? 'replica' : 'local',
+      })
     }
 
     // Signing in and out are the other two things that cannot require a session.
@@ -84,7 +91,7 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)
       if (name !== '' && !name.includes('/')) {
-        await runCommand(db, user.id, name, await readBody(req))
+        await runCommand(db, user, name, await readBody(req))
         return json({ ok: true })
       }
     }
@@ -92,11 +99,11 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'GET') {
       switch (path) {
         case '/api/day':
-          return json(await buildDayView(db, user.id))
+          return json(await buildDayView(db, user))
         case '/api/todo':
-          return json(await buildTodoView(db, user.id))
+          return json(await buildTodoView(db, user))
         case '/api/history':
-          return json(await buildHistoryView(db, user.id, historyOptions(url.searchParams)))
+          return json(await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)))
       }
     }
 
@@ -164,7 +171,7 @@ async function readBody(req: Request): Promise<unknown> {
  * The whole query-string boundary for History, and the only one: `limit` is
  * validated and bounded here, not again downstream.
  */
-function historyOptions(params: URLSearchParams): { limit?: number; before?: ISODate } {
+function historyOptions(params: URLSearchParams, zone: string): { limit?: number; before?: ISODate } {
   const opts: { limit?: number; before?: ISODate } = {}
 
   const limit = params.get('limit')
@@ -181,7 +188,7 @@ function historyOptions(params: URLSearchParams): { limit?: number; before?: ISO
     if (!isISODate(before)) throw new BadRequest('before must be a date in YYYY-MM-DD form')
     // Every view is anchored to now, so History must never be asked to page
     // from a date it could only answer with future-dated rows.
-    if (before > today()) throw new BadRequest('before must not be in the future')
+    if (before > today(zone)) throw new BadRequest('before must not be in the future')
     opts.before = before
   }
 

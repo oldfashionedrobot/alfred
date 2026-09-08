@@ -59,11 +59,17 @@ test('no console errors on load', async ({ page, app }) => {
  * other, not that they are local. See `.plan/changes-v10.md`.
  */
 test('the server under test is a local file, never a Turso replica', async ({ app }) => {
-  const dbFiles = await app.fetch('/api/status').then((r) => r.json())
-  expect(dbFiles).toHaveProperty('ok', true)
+  // Asked, not inferred. This used to check for the absence of a libSQL `-info`
+  // file beside the database — true at the time, and an implementation detail
+  // that could change without anybody noticing this guard had stopped guarding.
+  const status = (await app.fetch('/api/status').then((r) => r.json())) as {
+    ok: boolean
+    database: string
+  }
+  expect(status.ok).toBe(true)
+  expect(status.database).toBe('local')
 
-  // A replica keeps a `-info` file beside the database holding its sync state.
-  // A plain local file has none, and that is the difference worth asserting.
-  const { existsSync } = await import('node:fs')
-  expect(existsSync(`${app.dbPath}-info`)).toBe(false)
+  // And the fixture carries the same answer, so a test can assert on it without
+  // making a request of its own.
+  expect(app.database).toBe('local')
 })
