@@ -124,10 +124,13 @@ export function CaptureSheet({
                   : `Add ${names.length} tasks`}
             </button>
           </form>
+          {/* Both hints name where to go next, and since v15 there is one place
+              to name: the Backlog track below today's list. Anything captured
+              without a cadence lands in its Any time group. */}
           <p className="hint">
             {placing
-              ? 'They all land on today’s list. Give them a cadence afterwards, in the Routine panel.'
-              : 'They all go to the backlog with no date. Give them a cadence or a day afterwards, in the Routine or Backlog panel.'}
+              ? 'They all land on today’s list. Give them a cadence afterwards, in the Backlog below.'
+              : 'They all go to the backlog with no date. Give them a cadence or a day afterwards, under Any time in the Backlog below.'}
           </p>
         </>
       ) : (
@@ -159,6 +162,3 @@ export function CaptureSheet({
     </Sheet>
   )
 }
-
-// --- task editor ------------------------------------------------------------
-// Slow and deliberate. Archive is the only removal in the system.
