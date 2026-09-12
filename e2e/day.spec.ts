@@ -180,7 +180,9 @@ async function dragWithKeyboard(
   // when no move is expected — an arrow that was never received would pass a
   // "it did not move" assertion without proving anything at all.
   await expect
-    .poll(() => page.evaluate(() => (document as unknown as { __keydowns?: number }).__keydowns ?? 0))
+    .poll(() =>
+      page.evaluate(() => (document as unknown as { __keydowns?: number }).__keydowns ?? 0),
+    )
     .toBeGreaterThan(0)
 
   await page.keyboard.press(key)
@@ -203,7 +205,11 @@ async function dragWithKeyboard(
 function row(page: Page, name: string) {
   return page
     .getByRole('listitem')
-    .filter({ has: page.getByRole('checkbox', { name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`) }) })
+    .filter({
+      has: page.getByRole('checkbox', {
+        name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
+      }),
+    })
 }
 
 function escapeRe(s: string): string {
@@ -288,7 +294,7 @@ test('within a band tasks are alphabetical by default', async ({ page, app }) =>
     .toEqual(['Air the room', 'Call the vet', 'Mop the floor', 'Zip the bag'])
 })
 
-test("days.task_order overrides alphabetical order and cannot cross the baseline band", async ({
+test('days.task_order overrides alphabetical order and cannot cross the baseline band', async ({
   page,
   app,
 }) => {
@@ -308,7 +314,10 @@ test("days.task_order overrides alphabetical order and cannot cross the baseline
     .toEqual(['B baseline', 'A baseline', 'D ordinary', 'C ordinary'])
 })
 
-test('dailies and today’s placements appear; a future placement does not', async ({ page, app }) => {
+test('dailies and today’s placements appear; a future placement does not', async ({
+  page,
+  app,
+}) => {
   app.seed.task({ name: 'Feed the dog', cadence: 'day' })
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: app.today })
   app.seed.task({ name: 'Wash the car', cadence: 'week', planned_date: addDays(app.today, 1) })
@@ -316,7 +325,9 @@ test('dailies and today’s placements appear; a future placement does not', asy
   await page.goto(app.url)
 
   await expect.poll(() => activeNames(page)).toEqual(['Feed the dog', 'Grocery run'])
-  await expect(activeRegion(page).getByRole('checkbox', { name: 'Complete Wash the car' })).toHaveCount(0)
+  await expect(
+    activeRegion(page).getByRole('checkbox', { name: 'Complete Wash the car' }),
+  ).toHaveCount(0)
 })
 
 /**
@@ -356,7 +367,9 @@ test('Day fetches its own model and the panel’s, and never the Week model', as
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Fix the fence'])
 
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence').getByRole('button').first()).toBeVisible()
 
   // Exactly two models, still. The whole week rides on DayView since v8, so a
@@ -370,7 +383,12 @@ test('Day fetches its own model and the panel’s, and never the Week model', as
 test('an archived task never appears', async ({ page, app }) => {
   app.seed.task({ name: 'Still here', cadence: 'day' })
   app.seed.task({ name: 'Retired task', cadence: 'day', active: false })
-  app.seed.task({ name: 'Retired placement', cadence: 'week', planned_date: app.today, active: false })
+  app.seed.task({
+    name: 'Retired placement',
+    cadence: 'week',
+    planned_date: app.today,
+    active: false,
+  })
 
   await page.goto(app.url)
 
@@ -419,9 +437,7 @@ test('tapping a completed item unticks it and returns it to the active list', as
   await expect(completedRegion(page)).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Wash up'])
 
-  await expect
-    .poll(async () => (await historyView(app)).rows[0]?.completed ?? [])
-    .not.toContain(id)
+  await expect.poll(async () => (await historyView(app)).rows[0]?.completed ?? []).not.toContain(id)
 })
 
 test('double-tapping complete is idempotent', async ({ page, app }) => {
@@ -498,7 +514,9 @@ test('unplanning an overdue task clears its date and drops it from Day', async (
   app.seed.task({ name: 'Keep me', cadence: 'day' })
 
   await page.goto(app.url)
-  await row(page, 'Descale the kettle').getByRole('button', { name: /^unplan/i }).click()
+  await row(page, 'Descale the kettle')
+    .getByRole('button', { name: /^unplan/i })
+    .click()
 
   await expect(page.getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Keep me'])
@@ -539,10 +557,7 @@ test('completing an overdue task clears the overdue state', async ({ page, app }
  * `is_overdue` false) and drops out of `active` AND `completed` — no row left to
  * tap, and Week cannot correct it either because past days are read-only.
  */
-test('completing an overdue task moves it into the Completed section', async ({
-  page,
-  app,
-}) => {
+test('completing an overdue task moves it into the Completed section', async ({ page, app }) => {
   const id = app.seed.task(overdueSeed(app.today, 'Book the MOT', 4))
 
   await page.goto(app.url)
@@ -562,10 +577,15 @@ test('rescheduling an overdue task onto today resolves it', async ({ page, app }
   const id = app.seed.task(overdueSeed(app.today, 'Ring the plumber', 5))
 
   await page.goto(app.url)
-  await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Ring the plumber')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
 
   // placeable_dates always starts at today, whatever the weekday.
-  await picker(page, 'Ring the plumber').getByRole('button').filter({ hasText: /^Today$/ }).click()
+  await picker(page, 'Ring the plumber')
+    .getByRole('button')
+    .filter({ hasText: /^Today$/ })
+    .click()
 
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Ring the plumber'])
@@ -586,7 +606,9 @@ test('the reschedule picker offers exactly the days the Day model ships', async 
   const id = app.seed.task(overdueSeed(app.today, 'Sweep the yard', 3))
 
   await page.goto(app.url)
-  await row(page, 'Sweep the yard').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Sweep the yard')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
 
   const day = await dayView(app)
   expect(day.placeable_dates[0]).toBe(app.today)
@@ -681,7 +703,9 @@ test('the mood row offers no way to edit the mood set', async ({ page, app }) =>
   await expect(page.getByRole('group', { name: 'Mood' }).getByRole('button')).toHaveCount(
     active.length,
   )
-  await expect(moodAndLog.getByRole('button', { name: /manage|edit mood|add.*mood/i })).toHaveCount(0)
+  await expect(moodAndLog.getByRole('button', { name: /manage|edit mood|add.*mood/i })).toHaveCount(
+    0,
+  )
   await expect(page.getByRole('dialog', { name: 'Moods' })).toHaveCount(0)
 
   // And the endpoints behind it are gone.
@@ -704,14 +728,19 @@ test('the log field saves its text', async ({ page, app }) => {
   await field.fill('Slept badly, still got the bins out.')
   await moodAndLog.getByRole('button', { name: /^save$/i }).click()
 
-  await expect.poll(async () => (await dayView(app)).log).toBe('Slept badly, still got the bins out.')
+  await expect
+    .poll(async () => (await dayView(app)).log)
+    .toBe('Slept badly, still got the bins out.')
   await expect(moodAndLog.getByText('Slept badly, still got the bins out.')).toBeVisible()
 })
 
 test('mood and log survive a reload', async ({ page, app }) => {
   await page.goto(app.url)
 
-  await page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^scattered/ }).click()
+  await page
+    .getByRole('group', { name: 'Mood' })
+    .getByRole('button', { name: /^scattered/ })
+    .click()
   await expect.poll(async () => (await dayView(app)).mood).toBe('scattered')
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
@@ -772,7 +801,10 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
  * opposite of cheap — which is an argument about the name, not about a button
  * you have to aim at.
  */
-test('a Day row name is not a control, though the row has an Edit button', async ({ page, app }) => {
+test('a Day row name is not a control, though the row has an Edit button', async ({
+  page,
+  app,
+}) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })
   await page.goto(app.url)
 
@@ -1015,10 +1047,15 @@ test('no console errors while exercising the main gestures', async ({ page, app 
   await untick(page, 'Gesture daily').click()
   await expect(tick(page, 'Gesture daily')).toBeVisible()
 
-  await page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^balanced/ }).click()
+  await page
+    .getByRole('group', { name: 'Mood' })
+    .getByRole('button', { name: /^balanced/ })
+    .click()
   await expect.poll(async () => (await dayView(app)).mood).toBe('balanced')
 
-  await row(page, 'Gesture overdue').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Gesture overdue')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Gesture overdue')).toBeVisible()
   // The picker is in the top layer now, so it covers whatever is beneath it
   // until it is dismissed — including the panel toggle clicked next.
@@ -1030,7 +1067,10 @@ test('no console errors while exercising the main gestures', async ({ page, app 
   await panelToggle(page).click()
 
   await page.getByRole('button', { name: 'Capture a new item' }).click()
-  await page.getByRole('dialog', { name: 'Capture' }).getByRole('button', { name: /^close$/i }).click()
+  await page
+    .getByRole('dialog', { name: 'Capture' })
+    .getByRole('button', { name: /^close$/i })
+    .click()
 
   await page.getByRole('button', { name: /^reorder$/i }).click()
   await page.getByRole('button', { name: /^done reordering$/i }).click()
@@ -1072,7 +1112,12 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
   page,
   app,
 }) => {
-  const painted = app.seed.task({ name: 'MED', cadence: 'day', is_baseline: true, color: '#c2410c' })
+  const painted = app.seed.task({
+    name: 'MED',
+    cadence: 'day',
+    is_baseline: true,
+    color: '#c2410c',
+  })
   // Same colour stored, but not baseline — the server must not ship it.
   app.seed.task({ name: 'Zebra', cadence: 'day', is_baseline: false, color: '#c2410c' })
 
@@ -1110,11 +1155,27 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
 
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const DOW_FULL = [
-  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
 ] as const
 const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ] as const
 
 function dowOf(iso: string): number {
@@ -1141,7 +1202,18 @@ const strip = (page: Page) => page.getByRole('navigation', { name: 'Days of this
 const dayButtons = (page: Page) => strip(page).getByRole('list').getByRole('button')
 
 const MON_SHORT = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ] as const
 
 /** 'Sat 5 Sep' — a day picker chip, for any date that is not today. */
@@ -1195,7 +1267,7 @@ test('the strip shows all seven days, and the ones already past are disabled', a
   // Disabled exactly where the day is behind today, which is exactly where
   // there is no pane to go to. The count is today's weekday index.
   expect(shown.filter((b) => b.off).length).toBe(day.week_dates.indexOf(day.date))
-  expect(shown.every((b, i) => b.off === (day.week_dates[i]! < day.date))).toBe(true)
+  expect(shown.every((b, i) => b.off === day.week_dates[i]! < day.date)).toBe(true)
 })
 
 test('each day button carries how much is outstanding on it', async ({ page, app }) => {
@@ -1231,7 +1303,7 @@ test('each day button carries how much is outstanding on it', async ({ page, app
   await expect.poll(() => nameOf(app.today)).toContain(', 1 task')
 })
 
-test("today stays marked while you are looking at another day", async ({ page, app }) => {
+test('today stays marked while you are looking at another day', async ({ page, app }) => {
   const day = await dayView(app)
   test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
   const next = day.upcoming[0]!.date
@@ -1348,7 +1420,11 @@ test('a task satisfied for its period is not on the day it was placed', async ({
 test('the track scrolls sideways in itself, never the page body', async ({ page, app }) => {
   const next = await firstUpcoming(app)
   test.skip(next === null, 'on a Saturday there is one pane and nothing to scroll')
-  app.seed.task({ name: 'A very long errand name that would overflow a narrow pane', cadence: 'week', planned_date: next! })
+  app.seed.task({
+    name: 'A very long errand name that would overflow a narrow pane',
+    cadence: 'week',
+    planned_date: next!,
+  })
 
   await page.goto(app.url)
   await page.getByRole('button', { name: 'Next day' }).click()
@@ -1428,7 +1504,10 @@ test('Many drops blank lines and collapses repeats within the paste', async ({ p
   await sheet.getByRole('button', { name: 'Add 2 tasks' }).click()
   await expect(sheet).toHaveCount(0)
 
-  const names = (await todoView(app)).groups.flatMap((g) => g.tasks).map((t) => t.name).sort()
+  const names = (await todoView(app)).groups
+    .flatMap((g) => g.tasks)
+    .map((t) => t.name)
+    .sort()
   expect(names).toEqual(['Bin day', 'Milk'])
 })
 
@@ -1487,7 +1566,9 @@ test('opening the picker does not move anything else on the page', async ({ page
   const panelBox = () => panel(page, 'Routine').boundingBox()
   const before = await panelBox()
 
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
 
   // The whole reason for the move: the picker used to expand inside the row and
@@ -1500,7 +1581,9 @@ test('the picker closes on Escape, and on a click outside it', async ({ page, ap
 
   await page.goto(app.url)
   const open = () =>
-    row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+    row(page, 'Fix the fence')
+      .getByRole('button', { name: /give it a day/i })
+      .click()
 
   await open()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
@@ -1523,14 +1606,18 @@ test('only one picker is open at a time', async ({ page, app }) => {
   app.seed.task(overdueSeed(app.today, 'Ring the plumber', 3))
 
   await page.goto(app.url)
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
 
   // Reached by keyboard rather than by click, because the open picker is sitting
   // over this row — which is what a popover does, and is why light dismiss and
   // Escape both had to work. Focus is not blocked by an overlay, and a keyboard
   // user arrives here exactly this way.
-  await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).focus()
+  await row(page, 'Ring the plumber')
+    .getByRole('button', { name: /give it a day/i })
+    .focus()
   await page.keyboard.press('Enter')
 
   // One at a time comes from React — `pickerFor` is a single id — rather than
@@ -1567,13 +1654,15 @@ test('a picker opened from a future pane is usable, not clipped by the track', a
   await expect(page.getByRole('group', { name: 'Pick a day' })).toHaveCount(0)
 })
 
-test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }) => {
+test("a bulk paste is capped, and the cap is the server's rule", async ({ app }) => {
   const post = (names: string[]) =>
-    app.fetch('/api/commands/create_tasks', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ names }),
-    }).then((r) => r.status)
+    app
+      .fetch('/api/commands/create_tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ names }),
+      })
+      .then((r) => r.status)
 
   const names = (n: number) => Array.from({ length: n }, (_, i) => `Item ${i}`)
 
@@ -1584,11 +1673,13 @@ test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }
   // Shape, not just size: the only field is a list of strings.
   expect(await post(['fine', 7 as unknown as string])).toBe(400)
   expect(
-    await app.fetch('/api/commands/create_tasks', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
-    }).then((r) => r.status),
+    await app
+      .fetch('/api/commands/create_tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
+      })
+      .then((r) => r.status),
   ).toBe(400)
 })
 
@@ -1701,7 +1792,10 @@ test('a daily cadence disables Place today rather than ignoring it', async ({ pa
 
   await page.getByRole('button', { name: 'Add task', exact: true }).click()
   const sheet = page.getByRole('dialog', { name: 'Capture' })
-  await sheet.getByRole('group', { name: 'More' }).count().catch(() => 0)
+  await sheet
+    .getByRole('group', { name: 'More' })
+    .count()
+    .catch(() => 0)
   await sheet.getByRole('textbox', { name: 'Task name' }).fill('Stretch')
   await sheet.getByText('More', { exact: true }).click()
   await sheet.getByLabel('Cadence').selectOption('day')

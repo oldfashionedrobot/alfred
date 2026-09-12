@@ -322,7 +322,9 @@ export default function Day() {
                     key={task.id}
                     className="day-row day-row--done"
                     data-colour={task.color ? '' : undefined}
-                    style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}
+                    style={
+                      task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined
+                    }
                   >
                     <div className="day-row-main">
                       <Tick
@@ -370,7 +372,8 @@ export default function Day() {
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
         busy={busy || reordering}
       />
-      <Todo kind="backlog"
+      <Todo
+        kind="backlog"
         view={todo}
         onChanged={refresh}
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
