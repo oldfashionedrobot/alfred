@@ -1,4 +1,4 @@
-import { test, expect, type App } from './fixtures.ts'
+import { test, expect, dayList, type App } from './fixtures.ts'
 import type { Page } from '@playwright/test'
 
 /**
@@ -113,13 +113,13 @@ test('the right password signs you in and the board appears', async ({ page, app
 
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   // It survives a reload, which is the whole point of a cookie — and the URL
   // never changed, because there is no /login to navigate to.
   expect(new URL(page.url()).pathname).toBe('/')
   await page.reload()
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 })
 
 test('signing out ends the session', async ({ page, app }) => {
@@ -127,7 +127,7 @@ test('signing out ends the session', async ({ page, app }) => {
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   await signOut(page)
   await expect(signInButton(page)).toBeVisible()
@@ -145,12 +145,14 @@ test('two people see their own boards and nothing of each other', async ({ page,
 
   await arrive(page, app)
   await fillIn(page, 'wife')
-  await expect(page.getByRole('checkbox', { name: 'Complete Water the ferns' })).toBeVisible()
+  await expect(
+    dayList(page).getByRole('checkbox', { name: 'Complete Water the ferns' }),
+  ).toBeVisible()
   await expect(page.getByText('Feed Barney')).toHaveCount(0)
 
   await signOut(page)
   await fillIn(page, 'owner')
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
   await expect(page.getByText('Water the ferns')).toHaveCount(0)
 })
 
@@ -162,7 +164,7 @@ test('changing a password invalidates the sessions signed with the old one', asy
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   // The cookie is signed with the user's password hash, so changing the password
   // revokes their cookies — no session table, no sign-out-everywhere command.

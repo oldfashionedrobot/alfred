@@ -41,15 +41,23 @@ type TodoTaskLite = TodoTask
 type TodoGroupLite = TodoGroup
 type TodoLite = TodoView
 
-const CADENCE_ORDER = ['day', 'week', 'month', 'quarter', 'year', null] as const
+// One-off first since v15 — it is where capture lands, so it is the group you
+// look at most.
+const CADENCE_ORDER = [null, 'day', 'week', 'month', 'quarter', 'year'] as const
 
+/*
+ * The group titles, as v15 renamed them: cadence adjectives rather than period
+ * phrases, because they are strip buttons now and share a phone's width. The
+ * period range still renders beside the heading, so "Weekly 6 – 12 Sep 2026"
+ * says what "This week" did and more.
+ */
 const TITLE: Record<string, string> = {
-  day: 'Today',
-  week: 'This week',
-  month: 'This month',
-  quarter: 'This quarter',
-  year: 'This year',
-  once: 'One-off',
+  day: 'Daily',
+  week: 'Weekly',
+  month: 'Monthly',
+  quarter: 'Quarterly',
+  year: 'Yearly',
+  once: 'Any time',
 }
 
 // ---------------------------------------------------------------------------
@@ -58,10 +66,33 @@ const TITLE: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+const MON = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
 const MON_LONG = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ] as const
 
 function parts(iso: string): { y: number; m: number; d: number } {
@@ -161,57 +192,45 @@ function taskOf(todo: TodoLite, name: string): TodoTaskLite {
 // ---------------------------------------------------------------------------
 
 /** The two instances of the one panel, by the label each is given. */
-type PanelName = 'Routine' | 'Backlog'
-
-const PANELS = ['Routine', 'Backlog'] as const
-
-/** Which of the six groups each instance draws — the only difference. */
-const DRAWS: Record<PanelName, (cadence: string | null) => boolean> = {
-  'Routine': (c) => c !== null,
-  Backlog: (c) => c === null,
-}
-
-function panelOf(page: Page, name: PanelName = 'Routine'): Locator {
-  return page.getByRole('region', { name, exact: true })
-}
-
-/**
- * The panel's collapse toggle.
+/*
+ * ONE section since v15, called Backlog, holding a track of six cadence panes.
  *
- * Its accessible name carries the count ("Routine 3 not done"), so it is anchored
- * at the start rather than matched exactly. Anchoring also keeps it clear of
- * "Reset to backlog", which contains "backlog" and would otherwise match — role
- * names are compared case-insensitively.
+ * It was two collapsed accordions — Routine drawing the five recurring groups
+ * and Backlog the one-off group — so the helpers below used to take which panel
+ * they meant and had to open it first. There is nothing to open now: every pane
+ * is rendered, and the strip pages between them.
  */
-function panelToggle(panel: Locator, name: PanelName): Locator {
-  return panel.getByRole('button', { name: new RegExp(`^${name}`, 'i') })
+function panelOf(page: Page): Locator {
+  return page.getByRole('region', { name: 'Backlog', exact: true })
 }
 
-/** Day hosts both panels collapsed. Open one. */
-async function openPanel(page: Page, name: PanelName = 'Routine'): Promise<Locator> {
-  const panel = panelOf(page, name)
-  const toggle = panelToggle(panel, name)
-  await expect(toggle).toBeVisible()
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+/** The strip of six group buttons above the track. */
+const groupStrip = (page: Page): Locator => page.getByRole('navigation', { name: 'Backlog groups' })
+
+/*
+ * Every pane is rendered, so there is nothing to open — this just hands back the
+ * one section. It keeps its name and its shape so the tests below read the same
+ * as they did, and stays async because every call site awaits it.
+ */
+async function openPanel(page: Page): Promise<Locator> {
+  const panel = panelOf(page)
+  await expect(panel).toBeVisible()
   return panel
 }
 
-/** One of the six groups, by its heading title, inside the panel that draws it. */
+/** One of the six groups, by its heading title. */
 function group(panel: Locator, title: string): Locator {
   return panel.getByRole('region', { name: title, exact: true })
 }
 
-/** The headings one panel should render, read off the model. */
-function headings(todo: TodoLite, name: PanelName): string[] {
-  return todo.groups
-    .filter((g) => DRAWS[name](g.cadence))
-    .map((g) => {
-      const title = TITLE[g.cadence ?? 'once'] as string
-      return g.period_start !== null && g.period_end !== null
-        ? `${title} ${periodLabel(g.period_start, g.period_end)}`
-        : title
-    })
+/** All six headings the track should render, read off the model. */
+function headings(todo: TodoLite): string[] {
+  return todo.groups.map((g) => {
+    const title = TITLE[g.cadence ?? 'once'] as string
+    return g.period_start !== null && g.period_end !== null
+      ? `${title} ${periodLabel(g.period_start, g.period_end)}`
+      : title
+  })
 }
 
 /**
@@ -239,27 +258,21 @@ function listing(scope: Locator): Promise<string[]> {
 // The map of the periods
 // ---------------------------------------------------------------------------
 
-test('renders all six groups in cadence order — five in Routine, one in Backlog', async ({
-  page,
-  app,
-}) => {
+test('renders all six groups in cadence order, one-off first', async ({ page, app }) => {
   const todo = await fetchTodo(app)
-  // One response, still all six groups in cadence order. The split is a
-  // rendering decision; the model did not change.
+  // One response, all six groups. v15 put the one-off group FIRST — it is where
+  // capture lands — which is a change to TODO_GROUPS, not to the model.
   expect(todo.groups.map((g) => g.cadence)).toEqual([...CADENCE_ORDER])
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const panel = await openPanel(page)
 
-  // Five headings in Routine and one in Backlog, in order, each carrying its
-  // current period. The one-off group is unbounded and shows none.
-  await expect(periodic.getByRole('heading', { level: 3 })).toHaveText(headings(todo, 'Routine'))
-  await expect(backlog.getByRole('heading', { level: 3 })).toHaveText(headings(todo, 'Backlog'))
+  // Six headings, in order, each carrying its current period. The one-off group
+  // is unbounded and shows none.
+  await expect(panel.getByRole('heading', { level: 3 })).toHaveText(headings(todo))
 
-  // Empty groups are not hidden — the panels are a map of the periods.
-  await expect(periodic.getByText('Nothing here.')).toHaveCount(5)
-  await expect(backlog.getByText('Nothing here.')).toHaveCount(1)
+  // Empty groups are not hidden — the track is a map of the periods.
+  await expect(panel.getByText('Nothing here.')).toHaveCount(6)
 })
 
 test('the week is a date range, never a week number', async ({ page, app }) => {
@@ -270,141 +283,110 @@ test('the week is a date range, never a week number', async ({ page, app }) => {
   await page.goto(app.url)
   const panel = await openPanel(page)
 
-  await expect(group(panel, 'This week').getByRole('heading', { level: 3 })).toHaveText(
-    `This week ${periodLabel(week.period_start!, week.period_end!)}`,
+  await expect(group(panel, 'Weekly').getByRole('heading', { level: 3 })).toHaveText(
+    `Weekly ${periodLabel(week.period_start!, week.period_end!)}`,
   )
-  // 'W36' or 'W2026-08-30' would both trip this; 'Wed' and 'This week' do not.
+  // 'W36' or 'W2026-08-30' would both trip this; 'Wed' and 'Weekly' do not.
   await expect(panel).not.toContainText(/W\d/)
 })
 
-test('the Today group is labelled with today, and the one-off group with nothing', async ({
-  page,
-  app,
-}) => {
+test('the Daily group is labelled with today, and Any time with nothing', async ({ page, app }) => {
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
 
-  await expect(group(periodic, 'Today').getByRole('heading', { level: 3 })).toHaveText(
-    `Today ${shortDate(app.today)}`,
+  await expect(group(periodic, 'Daily').getByRole('heading', { level: 3 })).toHaveText(
+    `Daily ${shortDate(app.today)}`,
   )
-  await expect(group(backlog, 'One-off').getByRole('heading', { level: 3 })).toHaveText('One-off')
+  await expect(group(backlog, 'Any time').getByRole('heading', { level: 3 })).toHaveText('Any time')
 })
 
 // ---------------------------------------------------------------------------
 // Two panels, one model
 // ---------------------------------------------------------------------------
 
-test('a one-off is drawn in Backlog and never in Routine, a weekly task the other way round', async ({
-  page,
-  app,
-}) => {
+test('each task is drawn once, in the group its cadence names', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
   app.seed.task({ name: 'Call the vet', cadence: null })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const panel = await openPanel(page)
 
-  await expect(group(periodic, 'This week').getByText('Vacuum downstairs', { exact: true })).toBeVisible()
-  await expect(group(backlog, 'One-off').getByText('Call the vet', { exact: true })).toBeVisible()
+  await expect(group(panel, 'Weekly').getByText('Vacuum downstairs', { exact: true })).toBeVisible()
+  await expect(group(panel, 'Any time').getByText('Call the vet', { exact: true })).toBeVisible()
 
-  // Each row is drawn once, in one panel. The split moved the one-off group;
-  // it did not duplicate anything.
-  await expect(periodic.getByText('Call the vet', { exact: true })).toHaveCount(0)
-  await expect(backlog.getByText('Vacuum downstairs', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('Vacuum downstairs', { exact: true })).toHaveCount(1)
-  await expect(page.getByText('Call the vet', { exact: true })).toHaveCount(1)
+  // Once each, and in the right pane. Six panes in one track rather than six
+  // split across two panels did not duplicate anything.
+  await expect(group(panel, 'Weekly').getByText('Call the vet', { exact: true })).toHaveCount(0)
+  await expect(
+    group(panel, 'Any time').getByText('Vacuum downstairs', { exact: true }),
+  ).toHaveCount(0)
+  await expect(panel.getByText('Vacuum downstairs', { exact: true })).toHaveCount(1)
+  await expect(panel.getByText('Call the vet', { exact: true })).toHaveCount(1)
 
-  // And the period groups are not drawn twice either: One-off exists in exactly
-  // one panel, This week in the other.
-  await expect(periodic.getByRole('region', { name: 'One-off', exact: true })).toHaveCount(0)
-  await expect(backlog.getByRole('region', { name: 'This week', exact: true })).toHaveCount(0)
+  // And no group is drawn twice: each cadence has exactly one pane in the track.
+  await expect(panel.getByRole('region', { name: 'Any time', exact: true })).toHaveCount(1)
+  await expect(panel.getByRole('region', { name: 'Weekly', exact: true })).toHaveCount(1)
 })
 
-test('both panels are hosted by Day, collapsed', async ({ page, app }) => {
+/*
+ * These two replace "both panels are hosted by Day, collapsed" and "the two
+ * panels collapse independently". Neither premise survives v15 — there is one
+ * section and nothing folds — but what they were really guarding does: that the
+ * track is secondary to today's list, that its controls are real tap targets and
+ * keyboard-operable, and that each group holds what its cadence names.
+ */
+test('the backlog is hosted by Day as one track of six groups', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
   app.seed.task({ name: 'Call the vet', cadence: null })
 
   await page.goto(app.url)
-
-  // On Day both are deliberately secondary.
-  for (const name of PANELS) {
-    const panel = panelOf(page, name)
-    await expect(panel).toHaveCount(1)
-    const toggle = panelToggle(panel, name)
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(panel.getByRole('heading', { level: 3 })).toHaveCount(0)
-
-    const box = await toggle.boundingBox()
-    expect(box!.height, `the ${name} toggle is a full tap target`).toBeGreaterThanOrEqual(44)
-
-    // Keyboard-operable, not a click-only div.
-    await toggle.focus()
-    await toggle.press('Enter')
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  }
+  await expect(panelOf(page)).toHaveCount(1)
 
   const todo = await fetchTodo(app)
-  await expect(panelOf(page, 'Routine').getByRole('heading', { level: 3 })).toHaveText(
-    headings(todo, 'Routine'),
-  )
-  await expect(panelOf(page, 'Backlog').getByRole('heading', { level: 3 })).toHaveText(
-    headings(todo, 'Backlog'),
-  )
+  await expect(panelOf(page).getByRole('heading', { level: 3 })).toHaveText(headings(todo))
 
-  // Same groups, same rows, from the one host there now is.
+  // Each group holds what its cadence names, and nothing else.
   await expect(
-    group(panelOf(page, 'Routine'), 'This week').getByText('Vacuum downstairs', { exact: true }),
+    group(panelOf(page), 'Weekly').getByText('Vacuum downstairs', { exact: true }),
   ).toBeVisible()
   await expect(
-    group(panelOf(page, 'Backlog'), 'One-off').getByText('Call the vet', { exact: true }),
+    group(panelOf(page), 'Any time').getByText('Call the vet', { exact: true }),
   ).toBeVisible()
+  await expect(group(panelOf(page), 'Any time').getByText('Vacuum downstairs')).toHaveCount(0)
 })
 
-test('the two panels collapse independently', async ({ page, app }) => {
+test('the group strip pages the track, and is a real control', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
-  app.seed.task({ name: 'Call the vet', cadence: null })
 
   await page.goto(app.url)
-  const periodic = panelOf(page, 'Routine')
-  const backlog = panelOf(page, 'Backlog')
-  const periodicToggle = panelToggle(periodic, 'Routine')
-  const backlogToggle = panelToggle(backlog, 'Backlog')
+  const buttons = groupStrip(page).getByRole('list').getByRole('button')
+  await expect(buttons).toHaveCount(6)
 
-  await expect(periodicToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(backlogToggle).toHaveAttribute('aria-expanded', 'false')
+  // The count rides in the accessible NAME, not only in the badge — the badge is
+  // aria-hidden, and "Weekly, 1 task" is the point of it.
+  await expect(buttons.nth(2)).toHaveAccessibleName(/^Weekly, 1 task/)
 
-  // Opening one leaves the other shut.
-  await periodicToggle.click()
-  await expect(periodicToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(backlogToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(periodic.getByText('Vacuum downstairs', { exact: true })).toBeVisible()
-  await expect(backlog.getByRole('heading', { level: 3 })).toHaveCount(0)
-  await expect(page.getByText('Call the vet')).toHaveCount(0)
+  const box = await buttons.nth(2).boundingBox()
+  expect(box!.height, 'a group button is a full tap target').toBeGreaterThanOrEqual(44)
 
-  await backlogToggle.click()
-  await expect(backlogToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(periodicToggle).toHaveAttribute('aria-expanded', 'true')
-
-  // And closing one leaves the other open.
-  await periodicToggle.click()
-  await expect(periodicToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(backlogToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(group(backlog, 'One-off').getByText('Call the vet', { exact: true })).toBeVisible()
-  await expect(page.getByText('Vacuum downstairs')).toHaveCount(0)
+  // Keyboard-operable, not a click-only div — and it moves the track.
+  await buttons.nth(2).focus()
+  await buttons.nth(2).press('Enter')
+  await expect(buttons.nth(2)).toHaveAttribute('aria-current', 'true')
+  await expect(group(panelOf(page), 'Weekly')).toBeInViewport({ ratio: 0.5 })
 })
 
 // ---------------------------------------------------------------------------
 // Membership
 // ---------------------------------------------------------------------------
 
-test('a daily task lands in Today and is tickable from the panel', async ({ page, app }) => {
+test('a daily task lands in Daily and is tickable from the track', async ({ page, app }) => {
   app.seed.task({ name: 'Feed Barney 1', cadence: 'day' })
 
   await page.goto(app.url)
   const panel = await openPanel(page)
-  const today = group(panel, 'Today')
+  const today = group(panel, 'Daily')
 
   await expect(today.getByText('Feed Barney 1', { exact: true })).toBeVisible()
   // Daily tasks are never placed, so the panel does not offer to place one.
@@ -430,8 +412,8 @@ test('a one-off completed this week is still listed, struck through', async ({ p
   app.seed.completion(id, weekStart)
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
-  const oneOff = group(backlog, 'One-off')
+  const backlog = await openPanel(page)
+  const oneOff = group(backlog, 'Any time')
 
   await expect(oneOff.getByText('Fix the gate', { exact: true })).toBeVisible()
   await expect(oneOff.getByText('Fix the gate', { exact: true })).toHaveCSS(
@@ -450,14 +432,14 @@ test('a one-off completed before this week is gone', async ({ page, app }) => {
   expect(groupOf(todo, null).tasks.map((t) => t.name)).not.toContain('Renew the passport')
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
 
   // Gone from the screen entirely, not merely moved to the other panel.
   await expect(page.getByText('Renew the passport')).toHaveCount(0)
   await expect(periodic.getByText('Renew the passport')).toHaveCount(0)
   // ...and the group is empty rather than missing.
-  await expect(group(backlog, 'One-off').getByText('Nothing here.')).toBeVisible()
+  await expect(group(backlog, 'Any time').getByText('Nothing here.')).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -485,8 +467,8 @@ test('rows band by state, not alphabetically', async ({ page, app }) => {
   ])
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
-  await expect(group(backlog, 'One-off').getByRole('listitem')).toHaveText([
+  const backlog = await openPanel(page)
+  await expect(group(backlog, 'Any time').getByRole('listitem')).toHaveText([
     /^Zebra overdue/,
     /^Yak placed/,
     /^Xerus unplaced/,
@@ -494,13 +476,16 @@ test('rows band by state, not alphabetically', async ({ page, app }) => {
   ])
 })
 
-test('an overdue row asks for a day and shows the date it fell behind on', async ({ page, app }) => {
+test('an overdue row asks for a day and shows the date it fell behind on', async ({
+  page,
+  app,
+}) => {
   const missed = addDays(app.today, -2)
   app.seed.task({ name: 'Grocery run', cadence: null, planned_date: missed })
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
-  const row = group(backlog, 'One-off').getByRole('listitem').filter({ hasText: 'Grocery run' })
+  const backlog = await openPanel(page)
+  const row = group(backlog, 'Any time').getByRole('listitem').filter({ hasText: 'Grocery run' })
 
   await expect(row.getByText('Needs a day', { exact: true })).toBeVisible()
   await expect(row.getByText(shortDate(missed))).toBeVisible()
@@ -531,7 +516,7 @@ test('a category renders no heading, chip or label anywhere', async ({ page, app
   expect((await fetchTodo(app)).categories).toEqual(['Dog', 'House'])
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
+  const periodic = await openPanel(page)
 
   // The rows are all there...
   await expect(periodic.getByRole('button', { name: 'Edit Brush Ringo' })).toBeVisible()
@@ -559,11 +544,11 @@ test('rows order by category, and category outranks name', async ({ page, app })
   ])
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
+  const periodic = await openPanel(page)
 
   // Row order is the only place the category is observable on screen.
   await expect
-    .poll(() => listing(group(periodic, 'This week')))
+    .poll(() => listing(group(periodic, 'Weekly')))
     .toEqual(['Brush Ringo', 'Aardvark admin', 'Air the room'])
 })
 
@@ -572,13 +557,11 @@ test('uncategorised rows sort last, whatever their name', async ({ page, app }) 
   await createTask(app, { name: 'Dishes', cadence: 'week' })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
+  const periodic = await openPanel(page)
 
   // "Dishes" sorts after "Aardvark admin" despite A < D, because having no
   // category puts it last.
-  await expect
-    .poll(() => listing(group(periodic, 'This week')))
-    .toEqual(['Aardvark admin', 'Dishes'])
+  await expect.poll(() => listing(group(periodic, 'Weekly'))).toEqual(['Aardvark admin', 'Dishes'])
 
   // And it really has no category — it is last by the rule, not by an empty
   // string that happens to sort late.
@@ -586,7 +569,6 @@ test('uncategorised rows sort last, whatever their name', async ({ page, app }) 
   expect(groupOf(todo, 'week').tasks.find((t) => t.name === 'Dishes')!.category).toBeNull()
   expect(todo.categories).toEqual(['House'])
 })
-
 
 test('a baseline task sorts above every category', async ({ page, app }) => {
   // The baseline task carries a category that would sort LAST and a name that
@@ -601,10 +583,10 @@ test('a baseline task sorts above every category', async ({ page, app }) => {
   await createTask(app, { name: 'Dishes', cadence: 'day' })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
+  const periodic = await openPanel(page)
 
   await expect
-    .poll(() => listing(group(periodic, 'Today')))
+    .poll(() => listing(group(periodic, 'Daily')))
     .toEqual(['Zzz vital', 'Aardvark admin', 'Dishes'])
 })
 
@@ -642,8 +624,8 @@ test('setting a category in the editor persists and reorders the row', async ({ 
   await createTask(app, { name: 'Aardvark admin', cadence: 'week' })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const week = group(periodic, 'This week')
+  const periodic = await openPanel(page)
+  const week = group(periodic, 'Weekly')
 
   // Uncategorised sorts last, so the alphabet loses to start with.
   await expect.poll(() => listing(week)).toEqual(['Zebra chore', 'Aardvark admin'])
@@ -658,21 +640,26 @@ test('setting a category in the editor persists and reorders the row', async ({ 
   // Now both are in Admin, so the alphabet decides and the row moves up.
   await expect.poll(() => listing(week)).toEqual(['Aardvark admin', 'Zebra chore'])
   const todo = await fetchTodo(app)
-  expect(groupOf(todo, 'week').tasks.find((t) => t.name === 'Aardvark admin')!.category).toBe('Admin')
+  expect(groupOf(todo, 'week').tasks.find((t) => t.name === 'Aardvark admin')!.category).toBe(
+    'Admin',
+  )
 })
 
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
 
-test('placing from the panel offers exactly placeable_dates, and persists', async ({ page, app }) => {
+test('placing from the panel offers exactly placeable_dates, and persists', async ({
+  page,
+  app,
+}) => {
   app.seed.task({ name: 'Grocery run', cadence: null })
   const before = await fetchTodo(app)
   const dates = before.placeable_dates
   expect(dates.length).toBeGreaterThan(0)
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
+  const backlog = await openPanel(page)
 
   await backlog.getByRole('button', { name: 'Place Grocery run' }).click()
   const picker = backlog.getByRole('group', { name: 'Pick a day' })
@@ -683,7 +670,7 @@ test('placing from the panel offers exactly placeable_dates, and persists', asyn
   const target = dates[dates.length - 1]!
   await picker.getByRole('button', { name: chip(target, app.today), exact: true }).click()
 
-  await expect(group(backlog, 'One-off').getByText(shortDate(target))).toBeVisible()
+  await expect(group(backlog, 'Any time').getByText(shortDate(target))).toBeVisible()
   expect(taskOf(await fetchTodo(app), 'Grocery run').effective_date).toBe(target)
 })
 
@@ -691,8 +678,8 @@ test('unplan clears the day', async ({ page, app }) => {
   app.seed.task({ name: 'Grocery run', cadence: null, planned_date: app.today })
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
-  const oneOff = group(backlog, 'One-off')
+  const backlog = await openPanel(page)
+  const oneOff = group(backlog, 'Any time')
 
   await expect(oneOff.getByText(shortDate(app.today))).toBeVisible()
   await backlog.getByRole('button', { name: 'Unplan Grocery run' }).click()
@@ -707,7 +694,7 @@ test('ticking and unticking a weekly task round-trips', async ({ page, app }) =>
 
   await page.goto(app.url)
   const panel = await openPanel(page)
-  const week = group(panel, 'This week')
+  const week = group(panel, 'Weekly')
 
   await week.getByRole('checkbox', { name: 'Complete Vacuum downstairs' }).click()
   await expect(week.getByRole('checkbox', { name: 'Untick Vacuum downstairs' })).toBeChecked()
@@ -739,8 +726,8 @@ test('reset to backlog clears every overdue day and leaves a future one alone', 
   expect((await fetchTodo(app)).has_overdue).toBe(true)
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
   await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(2)
 
   await periodic.getByRole('button', { name: 'Reset to backlog' }).click()
@@ -755,37 +742,37 @@ test('reset to backlog clears every overdue day and leaves a future one alone', 
   expect(taskOf(after, 'Still ahead').effective_date).toBe(ahead)
 
   // Thursday's plan is still a good plan on Wednesday.
-  await expect(group(backlog, 'One-off').getByText(shortDate(ahead))).toBeVisible()
+  await expect(group(backlog, 'Any time').getByText(shortDate(ahead))).toBeVisible()
   // Nothing overdue left, so the control goes away with it.
   await expect(periodic.getByRole('button', { name: 'Reset to backlog' })).toHaveCount(0)
 })
 
-test('the reset control is in Routine, not in Backlog, even when every overdue row is a one-off', async ({
-  page,
-  app,
-}) => {
+/*
+ * This used to assert the control was in Routine and not in Backlog, on a count
+ * that spanned both — the arrangement that once made it offer to clear 0 items
+ * and then clear two. v15 put it on the heading that names the whole track, so
+ * scope and label finally agree and the test says the simpler thing: one
+ * control, and it reaches every group.
+ */
+test('one reset control clears every overdue day, wherever the rows are', async ({ page, app }) => {
   app.seed.task({ name: 'Overdue one', cadence: null, planned_date: addDays(app.today, -2) })
   app.seed.task({ name: 'Overdue two', cadence: null, planned_date: addDays(app.today, -5) })
   expect((await fetchTodo(app)).has_overdue).toBe(true)
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const panel = await openPanel(page)
 
-  // Every row wanting a day is in Backlog...
-  await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(2)
-  await expect(periodic.getByText('Needs a day', { exact: true })).toHaveCount(0)
+  // Both rows wanting a day are one-offs, so both are in Any time...
+  await expect(group(panel, 'Any time').getByText('Needs a day', { exact: true })).toHaveCount(2)
 
-  // ...and the one control that clears them is in Routine, and nowhere else.
-  await expect(periodic.getByRole('button', { name: 'Reset to backlog' })).toBeVisible()
-  await expect(backlog.getByRole('button', { name: 'Reset to backlog' })).toHaveCount(0)
+  // ...and the one control that clears them is on the heading, once.
   await expect(page.getByRole('button', { name: 'Reset to backlog' })).toHaveCount(1)
 
-  await periodic.getByRole('button', { name: 'Reset to backlog' }).click()
-  await periodic.getByRole('button', { name: 'Reset', exact: true }).click()
+  await panel.getByRole('button', { name: 'Reset to backlog' }).click()
+  await panel.getByRole('button', { name: 'Reset', exact: true }).click()
 
-  // It reaches across the split: the rows it took are the ones next door.
-  await expect(backlog.getByText('Needs a day', { exact: true })).toHaveCount(0)
+  // It reaches every group, not just the one showing.
+  await expect(panel.getByText('Needs a day', { exact: true })).toHaveCount(0)
   const after = await fetchTodo(app)
   expect(after.has_overdue).toBe(false)
   expect(taskOf(after, 'Overdue one').effective_date).toBeNull()
@@ -809,7 +796,7 @@ test('the reset bar counts the overdue items it will actually clear', async ({ p
   app.seed.task({ name: 'Overdue two', cadence: null, planned_date: addDays(app.today, -5) })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
+  const periodic = await openPanel(page)
 
   await expect(periodic.getByText('2 items are waiting for a day')).toBeVisible()
   await periodic.getByRole('button', { name: 'Reset to backlog' }).click()
@@ -822,8 +809,8 @@ test('there is no reset control when nothing is overdue', async ({ page, app }) 
   expect((await fetchTodo(app)).has_overdue).toBe(false)
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
 
   await expect(backlog.getByText('Grocery run', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reset to backlog' })).toHaveCount(0)
@@ -843,7 +830,7 @@ test('a command fired from the panel refreshes the host too', async ({ page, app
   const panel = await openPanel(page)
 
   await panel
-    .getByRole('region', { name: 'This week', exact: true })
+    .getByRole('region', { name: 'Weekly', exact: true })
     .getByRole('checkbox', { name: 'Complete Vacuum downstairs' })
     .click()
 
@@ -864,8 +851,8 @@ test('a command fired from Backlog refreshes both panels', async ({ page, app })
   app.seed.task({ name: 'Grocery run', cadence: null, planned_date: addDays(app.today, -2) })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
 
   await expect(periodic.getByRole('button', { name: 'Reset to backlog' })).toBeVisible()
   await backlog.getByRole('button', { name: 'Unplan Grocery run' }).click()
@@ -888,7 +875,7 @@ test('a long task name never scrolls the page sideways', async ({ page, app }) =
   })
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
+  const backlog = await openPanel(page)
   await expect(backlog.getByText('Needs a day', { exact: true })).toBeVisible()
 
   const overflow = await page.evaluate(
@@ -896,7 +883,6 @@ test('a long task name never scrolls the page sideways', async ({ page, app }) =
   )
   expect(overflow).toBeLessThanOrEqual(0)
 })
-
 
 test('no console errors opening both panels and working them', async ({ page, app }) => {
   const errors: string[] = []
@@ -907,8 +893,8 @@ test('no console errors opening both panels and working them', async ({ page, ap
   app.seed.task({ name: 'Grocery run', cadence: null, planned_date: addDays(app.today, -2) })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
+  const periodic = await openPanel(page)
+  const backlog = await openPanel(page)
 
   await periodic.getByRole('checkbox', { name: 'Complete Feed Barney 1' }).click()
   await expect(periodic.getByRole('checkbox', { name: 'Untick Feed Barney 1' })).toBeChecked()
@@ -917,12 +903,8 @@ test('no console errors opening both panels and working them', async ({ page, ap
   await expect(backlog.getByRole('group', { name: 'Pick a day' })).toBeVisible()
 
   const todo = await fetchTodo(app)
-  await expect(panelOf(page, 'Routine').getByRole('heading', { level: 3 })).toHaveCount(
-    headings(todo, 'Routine').length,
-  )
-  await expect(panelOf(page, 'Backlog').getByRole('heading', { level: 3 })).toHaveCount(
-    headings(todo, 'Backlog').length,
-  )
+  await expect(panelOf(page).getByRole('heading', { level: 3 })).toHaveCount(headings(todo).length)
+  await expect(panelOf(page).getByRole('heading', { level: 3 })).toHaveCount(headings(todo).length)
 
   await page.waitForLoadState('networkidle')
   expect(errors).toEqual([])
@@ -936,7 +918,10 @@ test('no console errors opening both panels and working them', async ({ page, ap
 // lives here. Both panels open the same editor: same component, same actions.
 // ---------------------------------------------------------------------------
 
-test('tapping a name in the panel opens the editor, and a rename persists', async ({ page, app }) => {
+test('tapping a name in the panel opens the editor, and a rename persists', async ({
+  page,
+  app,
+}) => {
   const id = app.seed.task({ name: 'Vacuum', cadence: 'week' })
 
   await page.goto(app.url)
@@ -957,7 +942,7 @@ test('the editor opens from Backlog too, and a rename persists', async ({ page, 
   const id = app.seed.task({ name: 'Call the vet', cadence: null })
 
   await page.goto(app.url)
-  const backlog = await openPanel(page, 'Backlog')
+  const backlog = await openPanel(page)
   await backlog.getByRole('button', { name: 'Edit Call the vet' }).click()
 
   const editor = page.getByRole('dialog', { name: 'Edit task' })
@@ -975,7 +960,7 @@ test('the editor changes cadence, which moves the task to another group', async 
 
   await page.goto(app.url)
   const panel = await openPanel(page)
-  await expect(group(panel, 'This week').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
+  await expect(group(panel, 'Weekly').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
 
   await panel.getByRole('button', { name: 'Edit Descale the kettle' }).click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
@@ -984,32 +969,36 @@ test('the editor changes cadence, which moves the task to another group', async 
   await expect(editor).toHaveCount(0)
 
   // The group a task sits in is its cadence — so the row moves.
-  await expect(group(panel, 'This month').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
-  await expect(group(panel, 'This week').getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
+  await expect(group(panel, 'Monthly').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
+  await expect(group(panel, 'Weekly').getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
   expect(taskOf(await fetchTodo(app), 'Descale the kettle').cadence).toBe('month')
 })
 
-test('clearing the cadence moves the task from Routine into Backlog', async ({ page, app }) => {
-  // The panel boundary is the cadence, so the editor moves a row across it.
+test('clearing the cadence moves the task into the Any time group', async ({ page, app }) => {
+  // A group is a cadence, so the editor moves a row between them.
   app.seed.task({ name: 'Descale the kettle', cadence: 'week' })
 
   await page.goto(app.url)
-  const periodic = await openPanel(page, 'Routine')
-  const backlog = await openPanel(page, 'Backlog')
-  await expect(group(periodic, 'This week').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
+  const panel = await openPanel(page)
+  await expect(group(panel, 'Weekly').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
 
-  await periodic.getByRole('button', { name: 'Edit Descale the kettle' }).click()
+  await panel.getByRole('button', { name: 'Edit Descale the kettle' }).click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
   await editor.getByRole('combobox', { name: 'Cadence' }).selectOption('')
   await editor.getByRole('button', { name: /^save$/i }).click()
   await expect(editor).toHaveCount(0)
 
-  await expect(group(backlog, 'One-off').getByRole('button', { name: /^Edit Descale/ })).toBeVisible()
-  await expect(periodic.getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
+  await expect(
+    group(panel, 'Any time').getByRole('button', { name: /^Edit Descale/ }),
+  ).toBeVisible()
+  await expect(group(panel, 'Weekly').getByRole('button', { name: /^Edit Descale/ })).toHaveCount(0)
   expect(taskOf(await fetchTodo(app), 'Descale the kettle').cadence).toBeNull()
 })
 
-test('archiving from the editor removes the task but keeps its completions', async ({ page, app }) => {
+test('archiving from the editor removes the task but keeps its completions', async ({
+  page,
+  app,
+}) => {
   const yesterday = addDays(app.today, -1)
   const id = app.seed.task({ name: 'Old habit', cadence: 'day' })
   app.seed.completion(id, yesterday)
@@ -1051,15 +1040,11 @@ test('a colour stripe does not indent the row, and baseline reads heavier', asyn
 
   // Alignment: a coloured row must sit on the same left edge as its neighbours.
   // A border plus padding shifted it right; an inset shadow does not.
-  const [plain, coloured] = await Promise.all([
-    row('EAT').boundingBox(),
-    row('EXC').boundingBox(),
-  ])
+  const [plain, coloured] = await Promise.all([row('EAT').boundingBox(), row('EXC').boundingBox()])
   expect(plain && coloured).toBeTruthy()
   expect(coloured!.x).toBeCloseTo(plain!.x, 0)
 
-  const tickX = async (name: string) =>
-    (await row(name).getByRole('checkbox').boundingBox())!.x
+  const tickX = async (name: string) => (await row(name).getByRole('checkbox').boundingBox())!.x
   expect(await tickX('EXC')).toBeCloseTo(await tickX('EAT'), 0)
 
   // Weight: baseline heavier than the rest.
@@ -1069,8 +1054,6 @@ test('a colour stripe does not indent the row, and baseline reads heavier', asyn
       .evaluate((el) => getComputedStyle(el.querySelector('span')!).fontWeight)
   expect(Number(await weight('EAT'))).toBeGreaterThan(Number(await weight('Zebra chore')))
 })
-
-
 
 /**
  * Every row has a plain solid stripe on its left edge. It carries only WHOSE
@@ -1087,7 +1070,7 @@ test('the row stripe is plain, and carries no cadence pattern', async ({ page, a
   await createTask(app, { name: 'Daily thing', cadence: 'day' })
 
   await page.goto(app.url)
-  const panel = await openPanel(page, 'Routine')
+  const panel = await openPanel(page)
 
   const read = (name: string) =>
     panel
@@ -1140,7 +1123,7 @@ test('a completed baseline task keeps its colour in the tick and the name', asyn
   })
 
   await page.goto(app.url)
-  const panel = await openPanel(page, 'Routine')
+  const panel = await openPanel(page)
   const row = panel.locator('li').filter({ hasText: 'MED' }).first()
 
   await row.getByRole('checkbox').click()
@@ -1220,7 +1203,7 @@ test('a one-off has no far edge, and can be placed months out', async ({ page, a
   expect(todo.placement.find((p) => p.cadence === null)!.max).toBeNull()
 
   await page.goto(app.url)
-  const panel = await openPanel(page, 'Backlog')
+  const panel = await openPanel(page)
   await panel.getByRole('button', { name: 'Place Renew the passport' }).click()
 
   // Unbounded, so the field carries no max attribute at all.

@@ -1,4 +1,4 @@
-import { test, expect, addDays } from './fixtures.ts'
+import { test, expect, addDays, dayList } from './fixtures.ts'
 
 /**
  * Proves the harness itself: an isolated server per test, direct DB seeding for
@@ -18,12 +18,12 @@ test('app boots and renders the Day view', async ({ page, app }) => {
 test('each test gets an isolated database', async ({ page, app }) => {
   app.seed.task({ name: 'ISOLATION MARKER', cadence: 'day' })
   await page.goto(app.url)
-  await expect(page.getByText('ISOLATION MARKER')).toBeVisible()
+  await expect(dayList(page).getByText('ISOLATION MARKER')).toBeVisible()
 })
 
 test("the previous test's data is gone", async ({ page, app }) => {
   await page.goto(app.url)
-  await expect(page.getByText('ISOLATION MARKER')).toHaveCount(0)
+  await expect(dayList(page).getByText('ISOLATION MARKER')).toHaveCount(0)
 })
 
 test('a past-dated placement seeds an overdue task', async ({ page, app }) => {
@@ -38,7 +38,7 @@ test('a past-dated placement seeds an overdue task', async ({ page, app }) => {
   const day = await (await app.fetch('/api/day')).json()
   expect(day.tasks.find((t: any) => t.name === 'SEEDED OVERDUE').state).toBe('overdue')
   await page.goto(app.url)
-  await expect(page.getByText('SEEDED OVERDUE')).toBeVisible()
+  await expect(dayList(page).getByText('SEEDED OVERDUE')).toBeVisible()
 })
 
 test('no console errors on load', async ({ page, app }) => {

@@ -19,10 +19,14 @@ export class Seed {
   constructor(private readonly dbPath: string) {}
 
   private run(op: Record<string, unknown>): Record<string, any> {
-    const out = execFileSync('bun', ['--no-env-file', 'e2e/seed-cli.ts', this.dbPath, JSON.stringify(op)], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    })
+    const out = execFileSync(
+      'bun',
+      ['--no-env-file', 'e2e/seed-cli.ts', this.dbPath, JSON.stringify(op)],
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+      },
+    )
     return JSON.parse(out.trim() || '{}')
   }
 
@@ -74,12 +78,23 @@ export class Seed {
 
   day(
     date: string,
-    d: { mood?: string | null; log?: string | null; task_order?: number[] | null; user_id?: number },
+    d: {
+      mood?: string | null
+      log?: string | null
+      task_order?: number[] | null
+      user_id?: number
+    },
   ): void {
     this.run({ kind: 'day', date, ...d })
   }
 
-  mood(m: { slug: string; emoji: string; label: string; sort_order: number; active?: boolean }): void {
+  mood(m: {
+    slug: string
+    emoji: string
+    label: string
+    sort_order: number
+    active?: boolean
+  }): void {
     this.run({ kind: 'mood', ...m })
   }
 
@@ -239,9 +254,7 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
       }
       cookie = header.split(';')[0]!
       const eq = cookie.indexOf('=')
-      await context.addCookies([
-        { name: cookie.slice(0, eq), value: cookie.slice(eq + 1), url },
-      ])
+      await context.addCookies([{ name: cookie.slice(0, eq), value: cookie.slice(eq + 1), url }])
     }
 
     const api = (path: string, init: RequestInit = {}): Promise<Response> =>
@@ -267,6 +280,21 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
     rmSync(dir, { recursive: true, force: true })
   },
 })
+
+/**
+ * Today's list, as a scope for row locators.
+ *
+ * v15 replaced the two collapsed backlog accordions with one always-rendered
+ * track of six cadence groups, so a task is now in the document TWICE — once on
+ * today's list and once in the group its cadence names. An unscoped
+ * `getByRole('checkbox', { name: 'Complete X' })` matches both and trips strict
+ * mode, which is how this surfaced rather than as a silent wrong-element click.
+ *
+ * Scope to this when a test means "on today's board"; scope to the Backlog
+ * region when it means the inventory.
+ */
+export const dayList = (page: import('@playwright/test').Page) =>
+  page.getByRole('region', { name: 'This week, day by day', exact: true })
 
 export { expect }
 

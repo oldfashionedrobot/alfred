@@ -1,4 +1,4 @@
-import { test, expect, addDays, type App } from './fixtures.ts'
+import { test, expect, addDays, dayList, type App } from './fixtures.ts'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -464,8 +464,10 @@ test("a filled cell wears the baseline task's colour, and a plain one does not",
   // Tick both from the Day list so the completions are real.
   await page.goto(app.url)
   for (const name of ['MED', 'Zebra']) {
-    await page.getByRole('checkbox', { name: `Complete ${name}` }).click()
-    await expect(page.getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
+    await dayList(page)
+      .getByRole('checkbox', { name: `Complete ${name}` })
+      .click()
+    await expect(dayList(page).getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
   }
 
   await page.getByRole('button', { name: /^tracker$/i }).click()
