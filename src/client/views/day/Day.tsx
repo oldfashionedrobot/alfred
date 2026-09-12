@@ -211,22 +211,28 @@ export default function Day() {
           data-locked freezes it during a reorder: that edit state is today-only,
           so there is nowhere to swipe to, and a dnd-kit context inside a snapping
           scroller is the interaction that cost two wrong fixes in v4. */}
-      {/* Only when there is somewhere to go. On a Saturday there is one pane and
-          the screen is exactly what it was before v8. */}
-      {view.upcoming.length > 0 && (
-        <DayStrip
-          dates={view.week_dates}
-          today={view.date}
-          panes={view.placeable_dates}
-          // Index-aligned with placeable_dates, like the panes themselves: today
-          // is what is still to do, and an upcoming pane is already filtered to
-          // what is outstanding on it.
-          counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
-          index={paneIndex}
-          onGo={goTo}
-          disabled={busy || reordering}
-        />
-      )}
+      {/* ALWAYS, including a Saturday — where it draws one enabled button, six
+          disabled ones and two disabled arrows.
+
+          It used to render only when `upcoming` was non-empty, which meant the
+          week navigation disappeared entirely one day in seven. That was the
+          deliberate "one pane, no special case" seen from the wrong end: the
+          special case it avoided in this file it created on the screen, where a
+          Saturday looked like breakage. `week_dates` always holds seven days and
+          `DayStrip` already disables the ones without a pane, so there is
+          nothing here to guard. */}
+      <DayStrip
+        dates={view.week_dates}
+        today={view.date}
+        panes={view.placeable_dates}
+        // Index-aligned with placeable_dates, like the panes themselves: today
+        // is what is still to do, and an upcoming pane is already filtered to
+        // what is outstanding on it.
+        counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
+        index={paneIndex}
+        onGo={goTo}
+        disabled={busy || reordering}
+      />
 
       <div
         className="day-track"

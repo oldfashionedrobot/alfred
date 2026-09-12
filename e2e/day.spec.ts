@@ -203,13 +203,11 @@ async function dragWithKeyboard(
 
 /** The <li> for one task, for the controls that live on the row. */
 function row(page: Page, name: string) {
-  return page
-    .getByRole('listitem')
-    .filter({
-      has: page.getByRole('checkbox', {
-        name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
-      }),
-    })
+  return page.getByRole('listitem').filter({
+    has: page.getByRole('checkbox', {
+      name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
+    }),
+  })
 }
 
 function escapeRe(s: string): string {
@@ -1237,14 +1235,24 @@ async function firstUpcoming(app: App): Promise<string | null> {
   return (await dayView(app)).upcoming[0]?.date ?? null
 }
 
+/*
+ * Runs every day of the week, Saturday included — which is the point of it.
+ *
+ * It asserts against `week_dates` and `date` only, never `upcoming`, so it needs
+ * no future pane: on a Saturday it proves the strip still draws seven buttons
+ * with six disabled. That is the case the strip used to hide entirely, and this
+ * is the test standing over it.
+ */
 test('the strip shows all seven days, and the ones already past are disabled', async ({
   page,
   app,
 }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
 
   await page.goto(app.url)
+  // Seven buttons INSIDE the strip is already the assertion that the strip
+  // rendered — a separate toBeVisible() on the nav asserts nothing this does
+  // not, and only adds a second thing that can time out under a loaded machine.
   await expect(dayButtons(page)).toHaveCount(7)
 
   const shown = await dayButtons(page).evaluateAll((els) =>
@@ -1270,31 +1278,41 @@ test('the strip shows all seven days, and the ones already past are disabled', a
   expect(shown.every((b, i) => b.off === day.week_dates[i]! < day.date)).toBe(true)
 })
 
+/*
+ * Today's own badge is asserted every day of the week; the future days' badges
+ * need a pane to count, and on a Saturday there is none. Split rather than
+ * skipped, so the half that can run does — a Saturday still proves that today
+ * carries a count and that completing something takes it back out.
+ */
 test('each day button carries how much is outstanding on it', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
-  const next = day.upcoming[0]!.date
+  const next = day.upcoming[0]?.date ?? null
 
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   app.seed.task({ name: 'Water the plants', cadence: 'week', planned_date: app.today })
-  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next })
-  app.seed.task({ name: 'Bins out', cadence: 'week', planned_date: next })
   // On no day at all, so it is in no count.
   app.seed.task({ name: 'Call the vet', cadence: null })
+  if (next !== null) {
+    app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next })
+    app.seed.task({ name: 'Bins out', cadence: 'week', planned_date: next })
+  }
 
   await page.goto(app.url)
   const button = (date: string) => dayButtons(page).nth(day.week_dates.indexOf(date))
   const nameOf = async (date: string) => (await button(date).getAttribute('aria-label')) ?? ''
 
   expect(await nameOf(app.today)).toContain(', 2 tasks') // the daily and the placed one
-  expect(await nameOf(next)).toContain(', 2 tasks')
   await expect(button(app.today)).toHaveText(new RegExp(`^${weekdayShortLabel(app.today)}2$`))
 
-  // A day with nothing on it shows no number rather than a zero.
-  const bare = day.upcoming[1]?.date
-  if (bare !== undefined) {
-    expect(await nameOf(bare)).toContain(', 0 tasks')
-    await expect(button(bare)).toHaveText(new RegExp(`^${weekdayShortLabel(bare)}$`))
+  if (next !== null) {
+    expect(await nameOf(next)).toContain(', 2 tasks')
+
+    // A day with nothing on it shows no number rather than a zero.
+    const bare = day.upcoming[1]?.date
+    if (bare !== undefined) {
+      expect(await nameOf(bare)).toContain(', 0 tasks')
+      await expect(button(bare)).toHaveText(new RegExp(`^${weekdayShortLabel(bare)}$`))
+    }
   }
 
   // Completing something takes it out of the count, so the badge tracks what is
@@ -1305,7 +1323,7 @@ test('each day button carries how much is outstanding on it', async ({ page, app
 
 test('today stays marked while you are looking at another day', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   const next = day.upcoming[0]!.date
 
   await page.goto(app.url)
@@ -1328,7 +1346,7 @@ test('today stays marked while you are looking at another day', async ({ page, a
 
 test('next and previous move between the panes', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is nowhere to go')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
 
   await page.goto(app.url)
   await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
@@ -1343,7 +1361,7 @@ test('next and previous move between the panes', async ({ page, app }) => {
 
 test('a day button jumps straight to that day', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   const target = day.upcoming[day.upcoming.length - 1]!.date
 
   await page.goto(app.url)
@@ -1353,7 +1371,7 @@ test('a day button jumps straight to that day', async ({ page, app }) => {
 
 test('a task placed on a future day is on that pane and not on today', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday nothing can be placed later this week')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
 
@@ -1369,7 +1387,7 @@ test('a task placed on a future day is on that pane and not on today', async ({ 
 
 test('a future row cannot be ticked', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is no future pane')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
 
   await page.goto(app.url)
@@ -1406,7 +1424,7 @@ test('a future row moves to another day, and unplans', async ({ page, app }) => 
 
 test('a task satisfied for its period is not on the day it was placed', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is no future pane')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   // Placed later this week, but ticked today: the week's obligation is met, so
   // that day carries no load and the row is dropped rather than struck through.
   const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
@@ -1419,7 +1437,7 @@ test('a task satisfied for its period is not on the day it was placed', async ({
 
 test('the track scrolls sideways in itself, never the page body', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is one pane and nothing to scroll')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({
     name: 'A very long errand name that would overflow a narrow pane',
     cadence: 'week',
@@ -1685,7 +1703,7 @@ test("a bulk paste is capped, and the cap is the server's rule", async ({ app })
 
 test('the week track is frozen while reordering', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
 
