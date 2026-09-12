@@ -1,0 +1,14 @@
+# Not a style opinion — a description of the code that is already here.
+#
+# The three values below were measured against the existing source rather than
+# chosen: semicolons and quotes are what every file but one already uses, and
+# 100 is where reformatting costs least (90 churns 60% more lines, 110 saves
+# almost nothing). Everything else is Prettier's default on purpose.
+#
+# This file exists because an editor-level Prettier with its own defaults was
+# rewriting Todo.tsx to 80 columns with semicolons every time somebody opened
+# it. A repo config is what stops that.
+
+semi: false
+singleQuote: true
+printWidth: 100
