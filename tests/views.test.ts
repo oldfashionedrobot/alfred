@@ -63,7 +63,6 @@ function lastDayOfMonth(year: number, month: number): ISODate {
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
 }
 
-
 /*
  * The suite's timezone, explicit and fixed.
  *
@@ -146,7 +145,8 @@ async function addTask(spec: TaskSpec): Promise<number> {
     .all()
   const id = row!.id
   if (spec.done_on?.length) {
-    await db.insert(schema.completions)
+    await db
+      .insert(schema.completions)
       .values(spec.done_on.map((completed_on) => ({ task_id: id, completed_on })))
       .run()
   }
@@ -157,7 +157,8 @@ async function setDay(
   date: ISODate,
   fields: { mood?: string; log?: string; task_order?: number[]; user_id?: number },
 ): Promise<void> {
-  await db.insert(schema.days)
+  await db
+    .insert(schema.days)
     .values({
       user_id: fields.user_id ?? USER,
       date,
@@ -237,7 +238,12 @@ describe('buildDayView', () => {
     'D1 REGRESSION — completing an overdue WEEKLY task keeps it on the screen',
     async () => {
       const past = EARLIER_THIS_WEEK!
-      const id = await addTask({ name: 'Vacuum', cadence: 'week', planned_date: past, done_on: [TODAY] })
+      const id = await addTask({
+        name: 'Vacuum',
+        cadence: 'week',
+        planned_date: past,
+        done_on: [TODAY],
+      })
 
       const view = await buildDayView(db, VIEWER)
 
@@ -249,7 +255,11 @@ describe('buildDayView', () => {
   )
 
   test('an overdue task not yet done is on the list and marked overdue', async () => {
-    const id = await addTask({ name: 'Call the vet', cadence: null, planned_date: shift(TODAY, -3) })
+    const id = await addTask({
+      name: 'Call the vet',
+      cadence: null,
+      planned_date: shift(TODAY, -3),
+    })
 
     const view = await buildDayView(db, VIEWER)
 
@@ -323,7 +333,12 @@ describe('buildDayView', () => {
 
   test('archived tasks appear in no view', async () => {
     await addTask({ name: 'Gone daily', cadence: 'day', active: false })
-    await addTask({ name: 'Gone overdue', cadence: null, planned_date: shift(TODAY, -3), active: false })
+    await addTask({
+      name: 'Gone overdue',
+      cadence: null,
+      planned_date: shift(TODAY, -3),
+      active: false,
+    })
     await addTask({ name: 'Gone placed', cadence: 'week', planned_date: TODAY, active: false })
     await addTask({ name: 'Gone ticked', cadence: 'day', active: false, done_on: [TODAY] })
 
@@ -347,7 +362,7 @@ describe('buildDayView', () => {
     expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Zebra', 'Apple', 'Banana'])
   })
 
-  test("days.task_order is respected, and never moves a task across the baseline band", async () => {
+  test('days.task_order is respected, and never moves a task across the baseline band', async () => {
     const apple = await addTask({ name: 'Apple', cadence: 'day' })
     const banana = await addTask({ name: 'Banana', cadence: 'day' })
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true })
@@ -513,8 +528,15 @@ const FUTURE_NEXT_MONTH: ISODate | null =
  */
 describe('doneness at a period boundary', () => {
   const monthly = {
-    id: 1, user_id: USER, name: 'Change the filter', is_baseline: false, cadence: 'month' as const,
-    planned_date: '2026-10-01', color: null, category: null, active: true,
+    id: 1,
+    user_id: USER,
+    name: 'Change the filter',
+    is_baseline: false,
+    cadence: 'month' as const,
+    planned_date: '2026-10-01',
+    color: null,
+    category: null,
+    active: true,
   }
   const doneInSeptember = [{ task_id: 1, completed_on: '2026-09-15' }]
 
@@ -551,15 +573,18 @@ describe('DayView.upcoming', () => {
     expect((await buildDayView(db, VIEWER)).upcoming).toEqual([])
   })
 
-  test.skipIf(NO_FUTURE_DAY)('a task placed on a future day is on that day, and not on today', async () => {
-    await addTask({ name: 'Grocery run', cadence: 'week', planned_date: NEXT_DAY! })
+  test.skipIf(NO_FUTURE_DAY)(
+    'a task placed on a future day is on that day, and not on today',
+    async () => {
+      await addTask({ name: 'Grocery run', cadence: 'week', planned_date: NEXT_DAY! })
 
-    const view = await buildDayView(db, VIEWER)
-    const pane = view.upcoming.find((u) => u.date === NEXT_DAY)!
-    expect(pane.tasks.map((t) => t.name)).toEqual(['Grocery run'])
-    // Tomorrow's plan is not today's business.
-    expect(view.tasks).toEqual([])
-  })
+      const view = await buildDayView(db, VIEWER)
+      const pane = view.upcoming.find((u) => u.date === NEXT_DAY)!
+      expect(pane.tasks.map((t) => t.name)).toEqual(['Grocery run'])
+      // Tomorrow's plan is not today's business.
+      expect(view.tasks).toEqual([])
+    },
+  )
 
   test.skipIf(NO_FUTURE_DAY)('a future row is planned, and dated the pane it is on', async () => {
     await addTask({ name: 'Grocery run', cadence: 'week', planned_date: NEXT_DAY! })
@@ -595,22 +620,25 @@ describe('DayView.upcoming', () => {
     expect(view.tasks.map((t) => t.state)).toEqual(['overdue'])
   })
 
-  test.skipIf(NO_FUTURE_DAY)('a task already satisfied for its period is dropped, not struck through', async () => {
-    // Placed tomorrow, ticked today: the week's obligation is met, so tomorrow
-    // carries no load and the row is simply not there.
-    await addTask({
-      name: 'Grocery run',
-      cadence: 'week',
-      planned_date: NEXT_DAY!,
-      done_on: [TODAY],
-    })
+  test.skipIf(NO_FUTURE_DAY)(
+    'a task already satisfied for its period is dropped, not struck through',
+    async () => {
+      // Placed tomorrow, ticked today: the week's obligation is met, so tomorrow
+      // carries no load and the row is simply not there.
+      await addTask({
+        name: 'Grocery run',
+        cadence: 'week',
+        planned_date: NEXT_DAY!,
+        done_on: [TODAY],
+      })
 
-    const view = await buildDayView(db, VIEWER)
-    expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
-  })
+      const view = await buildDayView(db, VIEWER)
+      expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
+    },
+  )
 
   test.skipIf(FUTURE_NEXT_MONTH === null)(
-    'doneness is asked about the pane period, not today\'s',
+    "doneness is asked about the pane period, not today's",
     async () => {
       // A monthly task placed in NEXT month and completed in THIS one. It is done
       // for today's period and NOT for the pane's, so it must still be shown:
@@ -639,10 +667,17 @@ describe('DayView.upcoming', () => {
 
   test.skipIf(NO_FUTURE_DAY)('colour is carried on a future row, baseline only', async () => {
     await addTask({
-      name: 'Painted', cadence: 'week', planned_date: NEXT_DAY!, is_baseline: true, color: '#aabbcc',
+      name: 'Painted',
+      cadence: 'week',
+      planned_date: NEXT_DAY!,
+      is_baseline: true,
+      color: '#aabbcc',
     })
     await addTask({
-      name: 'Unpainted', cadence: 'week', planned_date: NEXT_DAY!, color: '#ddeeff',
+      name: 'Unpainted',
+      cadence: 'week',
+      planned_date: NEXT_DAY!,
+      color: '#ddeeff',
     })
 
     const pane = (await buildDayView(db, VIEWER)).upcoming.find((u) => u.date === NEXT_DAY)!
@@ -714,10 +749,7 @@ describe('buildTodoView', () => {
       day: [TODAY, TODAY],
       week: [SUNDAY, SATURDAY],
       month: [`${TODAY.slice(0, 7)}-01`, lastDayOfMonth(y, m)],
-      quarter: [
-        `${y}-${String(q1).padStart(2, '0')}-01`,
-        lastDayOfMonth(y, q1 + 2),
-      ],
+      quarter: [`${y}-${String(q1).padStart(2, '0')}-01`, lastDayOfMonth(y, q1 + 2)],
       year: [`${y}-01-01`, `${y}-12-31`],
       once: [null, null],
     }
@@ -734,10 +766,20 @@ describe('buildTodoView', () => {
     await addTask({ name: 'Unplaced', cadence: 'week' })
     await addTask({ name: 'Placed', cadence: 'week', planned_date: TODAY })
     await addTask({ name: 'Done', cadence: 'week', done_on: [SUNDAY] })
-    await addTask({ name: 'Placed and done', cadence: 'week', planned_date: TODAY, done_on: [TODAY] })
+    await addTask({
+      name: 'Placed and done',
+      cadence: 'week',
+      planned_date: TODAY,
+      done_on: [TODAY],
+    })
 
     const week = groupFor(await buildTodoView(db, VIEWER), 'week')
-    expect(await names(week.tasks).sort()).toEqual(['Done', 'Placed', 'Placed and done', 'Unplaced'])
+    expect(await names(week.tasks).sort()).toEqual([
+      'Done',
+      'Placed',
+      'Placed and done',
+      'Unplaced',
+    ])
   })
 
   test('marks: is_done, is_overdue and effective_date ride on the row', async () => {
@@ -828,7 +870,11 @@ describe('buildTodoView', () => {
     await addTask({ name: 'Apple', cadence: 'year' })
     await addTask({ name: 'Mongoose', cadence: 'year' })
 
-    expect(await names(groupFor(await buildTodoView(db, VIEWER), 'year').tasks)).toEqual(['Apple', 'Mongoose', 'Zebra'])
+    expect(await names(groupFor(await buildTodoView(db, VIEWER), 'year').tasks)).toEqual([
+      'Apple',
+      'Mongoose',
+      'Zebra',
+    ])
   })
 
   test('daily tasks are in the panel even though they are never in Week', async () => {
@@ -888,7 +934,10 @@ describe('buildHistoryView', () => {
     await addTask({ name: 'One-off', cadence: null })
     await addTask({ name: 'Archived', cadence: 'day', active: false })
 
-    expect((await buildHistoryView(db, VIEWER, {})).columns.map((c) => c.name)).toEqual(['Zebra', 'Apple'])
+    expect((await buildHistoryView(db, VIEWER, {})).columns.map((c) => c.name)).toEqual([
+      'Zebra',
+      'Apple',
+    ])
   })
 
   test('every date in range gets a row, including days with nothing recorded', async () => {
@@ -1066,7 +1115,7 @@ describe('history — columns and log', () => {
     expect(panel).toEqual(names)
   })
 
-  test('a row carries that day\'s log, and null when there is none', async () => {
+  test("a row carries that day's log, and null when there is none", async () => {
     await addTask({ name: 'MED', cadence: 'day' })
     await setDay(TODAY, { log: 'Long day.\nThe gate is fixed.' })
 
@@ -1080,7 +1129,9 @@ describe('history — columns and log', () => {
     await addTask({ name: 'MED', cadence: 'day' })
     await setDay(TODAY, { log: '' })
 
-    expect((await buildHistoryView(db, VIEWER, {})).rows.find((r) => r.date === TODAY)!.log).toBeNull()
+    expect(
+      (await buildHistoryView(db, VIEWER, {})).rows.find((r) => r.date === TODAY)!.log,
+    ).toBeNull()
   })
 })
 

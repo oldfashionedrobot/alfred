@@ -8,8 +8,16 @@ type Row = TaskRow & { is_done: boolean }
 function task(id: number, name: string, is_baseline = false): Row {
   // user_id is never read by sortTasks; it is here because a TaskRow has one.
   return {
-    id, user_id: 1, name, is_baseline, is_done: false,
-    cadence: null, planned_date: null, color: null, category: null, active: true,
+    id,
+    user_id: 1,
+    name,
+    is_baseline,
+    is_done: false,
+    cadence: null,
+    planned_date: null,
+    color: null,
+    category: null,
+    active: true,
   }
 }
 
@@ -70,12 +78,7 @@ describe('sortTasks', () => {
   })
 
   test('unlisted items fall below listed ones and sort by name among themselves', () => {
-    const tasks = [
-      task(1, 'Zucchini'),
-      task(2, 'Apple'),
-      task(3, 'Mango'),
-      task(4, 'Banana'),
-    ]
+    const tasks = [task(1, 'Zucchini'), task(2, 'Apple'), task(3, 'Mango'), task(4, 'Banana')]
     // Only 3 and 1 are arranged; 2 and 4 fall below, alphabetically.
     const out = sortTasks(tasks, [3, 1])
     expect(names(out)).toEqual(['Mango', 'Zucchini', 'Apple', 'Banana'])
@@ -171,22 +174,14 @@ describe('sortTasks', () => {
   test('DONE OUTRANKS BASELINE — a ticked baseline task sinks below live ones', () => {
     // The `byBand` argument, applied here: a struck-through row at the top is
     // not what "the bare minimum to function" should look like.
-    const tasks = [
-      ticked(task(1, 'Meds', true)),
-      task(2, 'Bins'),
-      task(3, 'Sleep', true),
-    ]
+    const tasks = [ticked(task(1, 'Meds', true)), task(2, 'Bins'), task(3, 'Sleep', true)]
     expect(names(sortTasks(tasks, null))).toEqual(['Sleep', 'Bins', 'Meds'])
   })
 
   test('baseline still leads inside the done band', () => {
     // Done is a band of its own, not a flattening: the rest of the order still
     // applies within it, which is what makes a ticked list readable.
-    const tasks = [
-      ticked(task(1, 'Apple')),
-      ticked(task(2, 'Zebra', true)),
-      task(3, 'Bins'),
-    ]
+    const tasks = [ticked(task(1, 'Apple')), ticked(task(2, 'Zebra', true)), task(3, 'Bins')]
     expect(names(sortTasks(tasks, null))).toEqual(['Bins', 'Zebra', 'Apple'])
   })
 

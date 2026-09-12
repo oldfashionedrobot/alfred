@@ -101,9 +101,7 @@ export default function History() {
     <div className="hist">
       <header className="hist-head">
         <h1 className="hist-head__title">Tracker</h1>
-        <p className="hist-head__sub">
-          Daily tasks, most recent first. A record, not a checklist.
-        </p>
+        <p className="hist-head__sub">Daily tasks, most recent first. A record, not a checklist.</p>
       </header>
 
       {columns.length === 0 && rows.length === 0 ? (

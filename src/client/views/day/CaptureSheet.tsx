@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-
   TaskFields,
   draftIsValid,
   draftToPatch,
@@ -20,7 +19,14 @@ import { Sheet } from '../../ui.tsx'
  * the number that will actually be created rather than the number of lines typed.
  */
 export function parseNames(text: string): string[] {
-  return [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
+  return [
+    ...new Set(
+      text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l !== ''),
+    ),
+  ]
 }
 
 export function CaptureSheet({
@@ -116,7 +122,11 @@ export function CaptureSheet({
               />
             </label>
 
-            <button className="btn btn--primary" type="submit" disabled={names.length === 0 || busy}>
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={names.length === 0 || busy}
+            >
               {names.length === 0
                 ? 'Add'
                 : names.length === 1
@@ -148,7 +158,11 @@ export function CaptureSheet({
                 costs nothing closed. */}
             <TaskFields draft={draft} onChange={setDraft} collapseExtras autoFocusName />
 
-            <button className="btn btn--primary" type="submit" disabled={!draftIsValid(draft) || busy}>
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={!draftIsValid(draft) || busy}
+            >
               Add
             </button>
           </form>

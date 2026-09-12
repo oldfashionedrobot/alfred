@@ -9,7 +9,10 @@ import { test, expect, addDays } from './fixtures.ts'
 test('app boots and renders the Day view', async ({ page, app }) => {
   await page.goto(app.url)
   await expect(page.locator('#root')).not.toBeEmpty()
-  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
 })
 
 test('each test gets an isolated database', async ({ page, app }) => {

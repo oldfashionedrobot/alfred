@@ -1,6 +1,5 @@
 import type { CSSProperties } from 'react'
 import {
-
   DndContext,
   KeyboardSensor,
   PointerSensor,

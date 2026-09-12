@@ -27,7 +27,20 @@ type HistoryLite = {
 // ---------------------------------------------------------------------------
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+const MON = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
 
 function parts(iso: string): { y: number; m: number; d: number } {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number]
@@ -119,14 +132,17 @@ test('columns are the active daily tasks only, in sort order', async ({ page, ap
 
   // Baseline is band 1; alphabetical within a band. Weekly, one-off and
   // archived tasks are not columns at all.
-  expect(headers).toEqual(['Log', 'Date', 'Mood', 'Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
-
-  const h = await getHistory(app)
-  expect(h.columns.map((c) => c.name)).toEqual([
+  expect(headers).toEqual([
+    'Log',
+    'Date',
+    'Mood',
     'Zzz Baseline Daily',
     'Alpha Daily',
     'Beta Daily',
   ])
+
+  const h = await getHistory(app)
+  expect(h.columns.map((c) => c.name)).toEqual(['Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
 })
 
 // ===========================================================================
@@ -202,7 +218,9 @@ test("the mood column renders the day's emoji", async ({ page, app }) => {
 
   // The glyph is labelled, not decorative.
   await expect(rowFor(page, app.today).getByRole('img', { name: 'happy' })).toBeVisible()
-  await expect(rowFor(page, addDays(app.today, -2)).getByRole('img', { name: 'angry' })).toBeVisible()
+  await expect(
+    rowFor(page, addDays(app.today, -2)).getByRole('img', { name: 'angry' }),
+  ).toBeVisible()
 
   const h = await getHistory(app)
   expect(h.rows.find((r) => r.date === app.today)!.mood?.slug).toBe('happy')
@@ -391,7 +409,10 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   await page.getByRole('button', { name: /^tracker$/i }).click()
   await page.getByRole('button', { name: /^Read the log for/ }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('dialog').getByRole('button', { name: /^close$/i }).click()
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^close$/i })
+    .click()
 
   const after = await (await app.fetch('/api/history')).json()
   expect(after).toEqual(before)
@@ -427,7 +448,7 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
  * A filled cell takes the task's colour where the column has one, so a
  * completion reads the same here as it does in the Day list and the panel.
  */
-test('a filled cell wears the baseline task\'s colour, and a plain one does not', async ({
+test("a filled cell wears the baseline task's colour, and a plain one does not", async ({
   page,
   app,
 }) => {

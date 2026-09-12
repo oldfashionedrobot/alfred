@@ -11,7 +11,12 @@ import type { DB } from '../db.ts'
 import { days, moods, tasks } from '../schema.ts'
 import type { CompletionRow, TaskRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue } from '../period.ts'
-import { loadCurrentCompletions, placeableDates, placementRanges, weekDates } from './completions.ts'
+import {
+  loadCurrentCompletions,
+  placeableDates,
+  placementRanges,
+  weekDates,
+} from './completions.ts'
 import { sortTasks } from '../sort.ts'
 import { today, type Viewer } from '../today.ts'
 
@@ -55,7 +60,10 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
   const date = today(viewer.timezone)
 
   const taskRows = await db
-    .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.user_id, userId), eq(tasks.active, true)))
+    .all()
 
   const byTask = await loadCurrentCompletions(db, taskRows, date)
 
@@ -77,8 +85,7 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     // A daily task is never placed, so it can never be overdue — the two
     // states cannot collide. A member that is neither is planned, including one
     // that is here only because it was ticked today.
-    const state: DayTaskState =
-      task.cadence === 'day' ? 'daily' : overdue ? 'overdue' : 'planned'
+    const state: DayTaskState = task.cadence === 'day' ? 'daily' : overdue ? 'overdue' : 'planned'
 
     members.push(toDayTask(task, state, effective, isDone(task, own, date)))
   }

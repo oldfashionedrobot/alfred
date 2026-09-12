@@ -33,7 +33,6 @@ const A = 1
 let B: number
 const viewer = (id: number) => ({ id, timezone: ZONE })
 
-
 /*
  * The suite's timezone, explicit and fixed.
  *
@@ -114,7 +113,12 @@ describe('a view builder answers for one user and no other', () => {
     const names = view.tasks.map((t) => t.name)
     expect(names.length).toBeGreaterThan(0)
     expect(mine(names)).toBe(true)
-    expect(view.upcoming.flatMap((u) => u.tasks).map((t) => t.name).every((n) => n.startsWith("A's"))).toBe(true)
+    expect(
+      view.upcoming
+        .flatMap((u) => u.tasks)
+        .map((t) => t.name)
+        .every((n) => n.startsWith("A's")),
+    ).toBe(true)
   })
 
   test('buildTodoView — the complete inventory, and only one person’s', async () => {
