@@ -2,10 +2,21 @@ import { test, expect, describe } from 'bun:test'
 import type { TaskRow } from '../src/server/schema.ts'
 import { sortTasks } from '../src/server/sort.ts'
 
-function task(id: number, name: string, is_baseline = false): TaskRow {
+/** What a view passes in: a task row plus the doneness it derived for it. */
+type Row = TaskRow & { is_done: boolean }
+
+function task(id: number, name: string, is_baseline = false): Row {
   // user_id is never read by sortTasks; it is here because a TaskRow has one.
-  return { id, user_id: 1, name, is_baseline, cadence: null, planned_date: null, color: null, category: null, active: true }
+  return {
+    id, user_id: 1, name, is_baseline, is_done: false,
+    cadence: null, planned_date: null, color: null, category: null, active: true,
+  }
 }
+
+/** The same row, ticked. Doneness is derived per view, never a column. */
+const ticked = (t: Row): Row => ({ ...t, is_done: true })
+/** The same row, filed under a category. */
+const filed = (t: Row, category: string): Row => ({ ...t, category })
 
 const names = (tasks: Pick<TaskRow, 'name'>[]) => tasks.map((t) => t.name)
 const ids = (tasks: Pick<TaskRow, 'id'>[]) => tasks.map((t) => t.id)
@@ -132,14 +143,80 @@ describe('sortTasks', () => {
     ])
   })
 
-  test('runs over any array with id, name and is_baseline', () => {
+  test('runs over any array carrying the five fields it compares', () => {
     // Views pass their own row shapes, not TaskRow — the signature is structural.
+    // `is_done` is in it and NOT on TaskRow: every caller derives it.
     const rows = [
-      { id: 1, name: 'Vacuum', is_baseline: false, state: 'planned' as const },
-      { id: 2, name: 'Meds', is_baseline: true, state: 'daily' as const },
+      { id: 1, name: 'Bins', is_baseline: false, category: null, is_done: false, state: 'planned' },
+      { id: 2, name: 'Meds', is_baseline: true, category: null, is_done: false, state: 'daily' },
     ]
     const out = sortTasks(rows, null)
     expect(out.map((r) => r.state)).toEqual(['daily', 'planned'])
+  })
+
+  test('a done task sinks below every live one, whatever its name says', () => {
+    const tasks = [
+      ticked(task(1, 'Aardvark')), // alphabetically first, and finished
+      task(2, 'Zebra'),
+    ]
+    expect(names(sortTasks(tasks, null))).toEqual(['Zebra', 'Aardvark'])
+  })
+
+  test('a done task sinks even when the arrangement puts it first', () => {
+    const tasks = [ticked(task(1, 'Bins')), task(2, 'Vacuum')]
+    // The arrangement is obeyed inside a band, never across one.
+    expect(ids(sortTasks(tasks, [1, 2]))).toEqual([2, 1])
+  })
+
+  test('DONE OUTRANKS BASELINE — a ticked baseline task sinks below live ones', () => {
+    // The `byBand` argument, applied here: a struck-through row at the top is
+    // not what "the bare minimum to function" should look like.
+    const tasks = [
+      ticked(task(1, 'Meds', true)),
+      task(2, 'Bins'),
+      task(3, 'Sleep', true),
+    ]
+    expect(names(sortTasks(tasks, null))).toEqual(['Sleep', 'Bins', 'Meds'])
+  })
+
+  test('baseline still leads inside the done band', () => {
+    // Done is a band of its own, not a flattening: the rest of the order still
+    // applies within it, which is what makes a ticked list readable.
+    const tasks = [
+      ticked(task(1, 'Apple')),
+      ticked(task(2, 'Zebra', true)),
+      task(3, 'Bins'),
+    ]
+    expect(names(sortTasks(tasks, null))).toEqual(['Bins', 'Zebra', 'Apple'])
+  })
+
+  test('the done band keeps its own arrangement, so tick and untick returns a task', () => {
+    // set_task_order stores the whole rendered list, done ids included, and this
+    // is why: the position survives the round trip through the done band.
+    const tasks = [ticked(task(1, 'Aaa')), ticked(task(2, 'Bbb')), task(3, 'Ccc')]
+    expect(ids(sortTasks(tasks, [2, 1]))).toEqual([3, 2, 1])
+  })
+
+  test('category orders before name, and uncategorised falls last', () => {
+    // Alphabetically this is Aardvark, Brush, Feed. By category it is Dog first,
+    // and the loose end last however early its name sorts.
+    const tasks = [
+      filed(task(1, 'Aardvark admin'), 'House'),
+      filed(task(2, 'Feed Barney'), 'Dog'),
+      filed(task(3, 'Brush Ringo'), 'Dog'),
+      task(4, 'Aaa loose end'),
+    ]
+    expect(names(sortTasks(tasks, null))).toEqual([
+      'Brush Ringo',
+      'Feed Barney',
+      'Aardvark admin',
+      'Aaa loose end',
+    ])
+  })
+
+  test('the arrangement outranks category, which only ever breaks a tie', () => {
+    const tasks = [filed(task(1, 'Zzz'), 'Zebra'), filed(task(2, 'Aaa'), 'Admin')]
+    expect(ids(sortTasks(tasks, [1, 2]))).toEqual([1, 2])
   })
 
   test('a full Day-view shaped list: bands, arrangement, then names', () => {
