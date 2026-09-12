@@ -186,6 +186,15 @@ icon buttons using the same approach already in the codebase — a glyph in an
 `aria-hidden` span with an `aria-label` on the button, as `☰`, `✎`, `≡` and
 `‹ ›` already do. No icon library, no new package.
 
+**One bug this iteration introduced, found by running it.** Both surfaces
+declared the CSS anchor name `--pick-<id>` for their day picker. That was safe
+only while the backlog was collapsed and the two could never be in the document
+together; rendered at once, one name resolved to two elements and Day's picker
+anchored to the backlog's button somewhere down the page, where it could not be
+clicked. Anchor names are namespaced per surface — `--pick-day-` and
+`--pick-group-`. Worth recording because nothing in the type system or the plan
+would have caught it: it took a browser.
+
 **The day strip renders on a Saturday.** Today it does not: `placeable_dates` on
 a Saturday is one date, `upcoming` is therefore empty, and
 [`Day.tsx`](../src/client/views/day/Day.tsx) hides the strip behind
@@ -325,11 +334,18 @@ the grip and losing the large target.
 ### The Tracker fills the window
 
 The grid is not capped by the table — it is capped by `.app`, which is
-`max-width: 720px` for reading width, and by task columns fixed at `74px`. Two
-changes: the Tracker view opts out of the `.app` cap, and the task columns take a
-flexible basis with `74px` as a minimum rather than as the width. Narrow enough
-to still need horizontal scroll on a phone, which the grid already handles in its
-own box.
+`max-width: 720px` for reading width, and by fixed column widths. Two changes:
+the Tracker view opts out of the `.app` cap, and the task columns take a minimum
+rather than a width, so the table hands them its spare room.
+
+**Correction found while building this.** Task columns are pinned at `30px`, not
+`74px` — `74px` is the DATE column, which stays pinned. The floor still has to be
+`74px` rather than `30px`, for a reason the arithmetic only gives up when you do
+it: at 1280px with the cap lifted the grid is ~1233px wide, and the 24 seeded
+columns in *"the grid scrolls sideways in its own box"* would total 862px, so the
+box would stop scrolling and that test would fail. The cost is real and is
+recorded in the CSS: a phone shows about three task columns where 30px showed
+seven.
 
 This is a deliberate exception to a global decision, and the only view that takes
 it. A grid of days by task is the one screen here that is better wide.
