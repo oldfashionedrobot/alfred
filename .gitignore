@@ -20,3 +20,6 @@ test-results/
 
 # scratch file for `fly secrets import` — never commit one of these
 secrets.txt
+
+# Agent worktrees — scratch checkouts, never part of the repo.
+.claude/worktrees/
