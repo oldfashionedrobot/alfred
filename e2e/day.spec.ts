@@ -88,25 +88,47 @@ function plannedDate(app: App, id: number): string | null {
 // The name itself is plain text here: since v3 nothing on a Day row opens a form,
 // and the task editor lives in the Routine panel. See e2e/todo.spec.ts.
 
+/*
+ * ONE region now, named by its own heading.
+ *
+ * v15 merged the Active and Completed sections: a done row is struck through in
+ * place at the foot of the same list, so there is no second section to address
+ * and no second locator to keep.
+ */
 function activeRegion(page: Page) {
-  return page.getByRole('region', { name: 'Active tasks' })
+  return page.getByRole('region', { name: 'Today', exact: true })
 }
 
-function completedRegion(page: Page) {
-  return page.getByRole('region', { name: 'Completed tasks' })
-}
-
-function namesIn(page: Page, region: 'Active tasks' | 'Completed tasks') {
-  return page
-    .getByRole('region', { name: region })
+/*
+ * Which half a row is in is still legible without two regions: the tick's
+ * accessible name says `Complete X` while it is outstanding and `Untick X` once
+ * it is done. Partitioning on that prefix is what lets every call site below
+ * keep both its name and its meaning across the merge.
+ */
+function namesIn(page: Page, want: 'Complete' | 'Untick') {
+  return activeRegion(page)
     .getByRole('checkbox')
-    .evaluateAll((els) =>
-      els.map((e) => (e.getAttribute('aria-label') ?? '').replace(/^(Complete|Untick) /, '')),
+    .evaluateAll(
+      (els, prefix: string) =>
+        els
+          .map((e) => e.getAttribute('aria-label') ?? '')
+          .filter((n) => n.startsWith(`${prefix} `))
+          .map((n) => n.slice(prefix.length + 1)),
+      want,
     )
 }
 
-const activeNames = (page: Page) => namesIn(page, 'Active tasks')
-const completedNames = (page: Page) => namesIn(page, 'Completed tasks')
+/**
+ * The mood and log moved behind a button on the date heading in v15, so every
+ * test that touches them opens the sheet first. The button wears the selected
+ * mood, which is why its name is anchored rather than matched whole.
+ */
+async function openMood(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Mood and log/ }).click()
+}
+
+const activeNames = (page: Page) => namesIn(page, 'Complete')
+const completedNames = (page: Page) => namesIn(page, 'Untick')
 
 /**
  * Row order while the reorder edit state is open.
@@ -121,8 +143,12 @@ function sortableRows(page: Page) {
 }
 
 function reorderNames(page: Page) {
+  // Read the name element rather than stripping glyphs out of the row's text.
+  // The grip used to be the only one; v15 adds move-to-top and send-to-bottom,
+  // and aria-hidden does not keep a glyph out of textContent — so a strip list
+  // would have to grow every time a row gains a control.
   return sortableRows(page).evaluateAll((els) =>
-    els.map((e) => (e.textContent ?? '').replace('≡', '').trim()),
+    els.map((e) => (e.querySelector('.day-name-text')?.textContent ?? '').trim()),
   )
 }
 
@@ -429,6 +455,13 @@ test('ticking a task completes it against today', async ({ page, app }) => {
   expect(done(day).map((t) => t.id)).toEqual([id])
 })
 
+/*
+ * "Returns it to the active list" is now a move within one list rather than
+ * between two, so the assertion that the completed SECTION disappeared has
+ * nothing left to check — there is no second section. What still holds, and is
+ * the thing the test is actually about, is that the row goes back to being
+ * outstanding and the completion is gone from the record.
+ */
 test('tapping a completed item unticks it and returns it to the active list', async ({
   page,
   app,
@@ -442,7 +475,7 @@ test('tapping a completed item unticks it and returns it to the active list', as
   await untick(page, 'Wash up').click()
 
   await expect(tick(page, 'Wash up')).toBeVisible()
-  await expect(completedRegion(page)).toHaveCount(0)
+  await expect.poll(() => completedNames(page)).toEqual([])
   await expect.poll(() => activeNames(page)).toEqual(['Wash up'])
 
   await expect.poll(async () => (await historyView(app)).rows[0]?.completed ?? []).not.toContain(id)
@@ -671,6 +704,7 @@ test('Day offers no reset-to-backlog control of its own', async ({ page, app }) 
 
 test('tapping a mood records it and tapping the selected one clears it', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moods = page.getByRole('group', { name: 'Mood' })
   const happy = moods.getByRole('button', { name: /^happy/ })
@@ -701,6 +735,7 @@ test('tapping a mood records it and tapping the selected one clears it', async (
  */
 test('the mood row offers no way to edit the mood set', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
   await expect(page.getByRole('group', { name: 'Mood' })).toBeVisible()
@@ -728,6 +763,7 @@ test('the mood row offers no way to edit the mood set', async ({ page, app }) =>
 
 test('the log field saves its text', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
   await moodAndLog.getByRole('button', { name: /log for today/i }).click()
@@ -744,6 +780,7 @@ test('the log field saves its text', async ({ page, app }) => {
 
 test('mood and log survive a reload', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   await page
     .getByRole('group', { name: 'Mood' })
@@ -758,6 +795,9 @@ test('mood and log survive a reload', async ({ page, app }) => {
   await expect.poll(async () => (await dayView(app)).log).toBe('Two loads of washing.')
 
   await page.reload()
+  // The sheet does not survive a reload, and should not — what is being asserted
+  // is that the RECORD survived, which means going back in to look at it.
+  await openMood(page)
 
   await expect(
     page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^scattered/ }),
@@ -953,23 +993,27 @@ test('a failed reorder keeps the arrangement instead of discarding it', async ({
  * held id list against a new model, and rows get silently dropped. The mood row
  * and the panel are both frozen while reordering so that cannot happen.
  */
-test('the mood row and the panel are frozen while reordering', async ({ page, app }) => {
+/*
+ * The freeze moved outward with the mood itself. The controls used to sit on the
+ * page and be disabled individually; now the button that opens them is disabled,
+ * so the sheet cannot be reached at all while an arrangement is unsaved. Same
+ * guarantee — a mood tap refetches, and reconciling the held id list against a
+ * fresh model drops rows (D7) — enforced one step earlier.
+ */
+test('the mood button and the panel are frozen while reordering', async ({ page, app }) => {
   app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo job'])
 
+  const moodButton = page.getByRole('button', { name: /^Mood and log/ })
+
   await page.getByRole('button', { name: /^reorder$/i }).click()
-  await expect(
-    page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^happy/ }),
-  ).toBeDisabled()
-  await expect(page.getByRole('button', { name: /log for today/i })).toBeDisabled()
+  await expect(moodButton).toBeDisabled()
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect(
-    page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^happy/ }),
-  ).toBeEnabled()
+  await expect(moodButton).toBeEnabled()
 })
 
 // ---------------------------------------------------------------------------
@@ -1055,10 +1099,14 @@ test('no console errors while exercising the main gestures', async ({ page, app 
   await untick(page, 'Gesture daily').click()
   await expect(tick(page, 'Gesture daily')).toBeVisible()
 
+  await openMood(page)
   await page
     .getByRole('group', { name: 'Mood' })
     .getByRole('button', { name: /^balanced/ })
     .click()
+  // The sheet is modal — leaving it open puts its scrim over every gesture
+  // below, which is the rest of this test.
+  await page.keyboard.press('Escape')
   await expect.poll(async () => (await dayView(app)).mood).toBe('balanced')
 
   await row(page, 'Gesture overdue')

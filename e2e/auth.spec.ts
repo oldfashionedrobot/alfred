@@ -213,7 +213,7 @@ test('an invited person sets a password and lands signed in', async ({ page, app
   await page.getByRole('button', { name: 'Set up' }).click()
 
   // Claiming signs you in — it is the only reason to be on that page.
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute('aria-current', 'page')
   // And the URL no longer carries a spent token, so a refresh is not confusing.
   expect(new URL(page.url()).pathname).toBe('/')
 })
@@ -225,7 +225,7 @@ test('the chosen timezone is what the server then calls today', async ({ page, a
   await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
   await page.getByRole('combobox', { name: 'Your timezone' }).selectOption('Pacific/Kiritimati')
   await page.getByRole('button', { name: 'Set up' }).click()
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute('aria-current', 'page')
 
   // A day belongs to a person: the far side of the date line is a day ahead of
   // UTC, and this account's Day view has to agree with that rather than with
@@ -243,7 +243,7 @@ test('a spent token cannot be used twice, and says nothing useful', async ({ pag
   await page.goto(`${app.url}/claim?t=${token}`)
   await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
   await page.getByRole('button', { name: 'Set up' }).click()
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute('aria-current', 'page')
 
   // Second attempt with the same link.
   await page.goto(`${app.url}/claim?t=${token}`)

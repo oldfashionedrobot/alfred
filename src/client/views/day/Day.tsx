@@ -7,11 +7,12 @@ import { command, errorText, getDay, getTodo } from '../../api.ts'
 import { longDate } from '../../dates.ts'
 import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
 import Todo from '../Todo.tsx'
-import { MoodAndLog } from './MoodAndLog.tsx'
+import { MoodAndLog, MoodButton } from './MoodAndLog.tsx'
 import { TaskRow } from './TaskRow.tsx'
 import { DayStrip } from './DayStrip.tsx'
 import { UpcomingPane } from './UpcomingPane.tsx'
 import { CaptureSheet } from './CaptureSheet.tsx'
+import { Sheet } from '../../ui.tsx'
 import { DragBand } from './DragBand.tsx'
 import { Track, usePagedTrack } from './PagedTrack.tsx'
 
@@ -49,6 +50,8 @@ export default function Day() {
   const [notice, setNotice] = useState<Notice>(null)
 
   const [capturing, setCapturing] = useState(false)
+  /** The mood and log sheet, opened from the date heading. */
+  const [moodOpen, setMoodOpen] = useState(false)
   /** Capture opened from "Add task" precheck it; the FAB does not. */
   const [captureToday, setCaptureToday] = useState(false)
   /** The row whose editor is open. Resolved at render, never held — see below. */
@@ -176,6 +179,18 @@ export default function Day() {
     setOrderIds(band === 'baseline' ? [...moved, ...other] : [...other, ...moved])
   }
 
+  /*
+   * Move to top and send to bottom are a drag expressed as a button, so they go
+   * through the same `reorderBand` a drag does — which is what keeps them inside
+   * the row's own band. Bands never mix, and neither end of a band is the end of
+   * the list.
+   */
+  const moveWithinBand = (band: 'baseline' | 'rest', id: number, to: 'top' | 'bottom') => {
+    const from = bands[band].findIndex((t) => t.id === id)
+    if (from < 0) return
+    reorderBand(band, from, to === 'top' ? 0 : bands[band].length - 1)
+  }
+
   const maxFor = (cadence: Cadence | null): ISODate | null =>
     placementMaxFor(view.placement, view.placeable_dates, cadence)
 
@@ -203,8 +218,18 @@ export default function Day() {
 
   return (
     <div className="day-root" aria-busy={busy}>
+      {/* The mood sits on the heading rather than in the page, because it is a
+          once-a-day gesture at the end of the day and the list is what the screen
+          is for. The button wears the mood so moving it out of sight does not
+          also hide whether today has one. */}
       <header className="day-header">
         <h1 className="day-date">{longDate(view.date)}</h1>
+        <MoodButton
+          mood={view.mood}
+          moods={view.moods}
+          disabled={busy || reordering}
+          onClick={() => setMoodOpen(true)}
+        />
       </header>
 
       {/* ALWAYS, including a Saturday — where it draws one enabled button, six
@@ -284,6 +309,8 @@ export default function Day() {
                       key={band}
                       tasks={bands[band]}
                       onReorder={(from, to) => reorderBand(band, from, to)}
+                      onMoveToTop={(id) => moveWithinBand(band, id, 'top')}
+                      onMoveToBottom={(id) => moveWithinBand(band, id, 'bottom')}
                     />
                   ),
                 )}
@@ -299,9 +326,8 @@ export default function Day() {
                       today={view.date}
                       bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
                       busy={busy}
-                      onComplete={() =>
-                        run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id })
-                      }
+                      onComplete={() => run('complete', { task_id: task.id })}
+                      onUncomplete={() => run('uncomplete', { task_id: task.id })}
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
@@ -363,14 +389,19 @@ export default function Day() {
         busy={busy || reordering}
       />
 
-      <MoodAndLog
-        view={view}
-        // Frozen during a reorder: a mood tap refetches, and the id list would
-        // then be reconciled against a new model by dropping rows (D7).
-        disabled={busy || reordering}
-        onSetMood={(slug) => run('set_mood', { slug })}
-        onSetLog={(text) => run('set_log', { text })}
-      />
+      {moodOpen && (
+        <Sheet title="Mood and log" onClose={() => setMoodOpen(false)}>
+          <MoodAndLog
+            view={view}
+            // Frozen during a reorder: a mood tap refetches, and the id list would
+            // then be reconciled against a new model by dropping rows (D7). The
+            // button that opens this is frozen for the same reason.
+            disabled={busy || reordering}
+            onSetMood={(slug) => run('set_mood', { slug })}
+            onSetLog={(text) => run('set_log', { text })}
+          />
+        </Sheet>
+      )}
 
       <button
         className="day-fab"

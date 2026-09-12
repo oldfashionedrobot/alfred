@@ -60,8 +60,10 @@ export function UpcomingPane({
                 bandStart={false}
                 busy={busy}
                 future
-                // Unreachable: a future pane's tick is not a control.
+                // Unreachable: a future pane's tick is not a control, and a
+                // future row is never done — the server drops those from a pane.
                 onComplete={() => undefined}
+                onUncomplete={() => undefined}
                 onUnplan={() => onUnplan(task.id)}
                 onEdit={() => onEdit(task.id)}
                 placeable={placeable}

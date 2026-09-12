@@ -265,7 +265,13 @@
 }
 
 /* .picker brings its own vertical rhythm; this only indents it. */
-.day-move {
+/* The two reorder buttons. This rule is the old `.day-move`, which had been
+   dead since the control it styled was removed — revived under the name the
+   markup now uses rather than written again beside it.
+
+   align-items: center is load-bearing: `.day-row-main` is align-items: stretch,
+   which would otherwise stretch a 44px button to the row's full height. */
+.day-row-move {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -273,17 +279,25 @@
   padding-right: var(--gap-1);
 }
 
-.day-move-btn {
+/* The button on the date heading that opens the mood and log sheet. It wears the
+   selected mood, so the glyph is content rather than decoration and is sized to
+   be read at a glance. */
+.day-mood-btn {
   width: var(--tap);
-  min-height: var(--tap);
-  border: 1px solid var(--border);
+  height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  font-size: 1rem;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
-.day-move-btn:disabled {
-  opacity: 0.3;
+.day-mood-btn:disabled {
+  opacity: 0.45;
   cursor: default;
 }
 

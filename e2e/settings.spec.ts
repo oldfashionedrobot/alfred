@@ -58,7 +58,7 @@ test.describe('the account menu', () => {
 
   test('carries sign out, which used to be reachable only from Day', async ({ page, app }) => {
     await page.goto(app.url)
-    await page.getByRole('button', { name: 'History' }).click()
+    await page.getByRole('button', { name: 'Tracker' }).click()
     await openMenu(page)
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
@@ -122,7 +122,7 @@ test.describe('password', () => {
     // The cookie is signed with the password hash, so without the re-issue this
     // is exactly where the app would throw the person back to the login form.
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeHidden()
-    await page.getByRole('button', { name: 'Day' }).click()
+    await page.getByRole('button', { name: 'To do' }).click()
     await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible()
   })
 
@@ -134,6 +134,11 @@ test.describe('password', () => {
 
     await openMenu(page)
     await page.getByRole('button', { name: 'Sign out' }).click()
+    // Sign out posts before it swaps the view, so the Settings form is still
+    // mounted for a moment after the click — and `getByLabel('Name')` resolves
+    // against whatever is on screen when it is asked, which in that moment is
+    // the timezone select. Wait for the form that is actually being filled.
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
     await page.getByLabel('Name').fill('owner')
     await page.getByLabel('Password').fill(NEXT)
     await page.getByRole('button', { name: 'Sign in' }).click()

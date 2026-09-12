@@ -63,8 +63,8 @@ async function completionCount(app: App): Promise<number> {
 
 async function openHistory(page: Page, app: App): Promise<void> {
   await page.goto(app.url)
-  await page.getByRole('navigation').getByRole('button', { name: 'History', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
+  await page.getByRole('navigation').getByRole('button', { name: 'Tracker', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Tracker' })).toBeVisible()
 }
 
 const dataRows = (page: Page): Locator =>
@@ -96,7 +96,7 @@ function cells(row: Locator): Promise<string[]> {
     .evaluateAll((els) => els.slice(1).map((e) => (e.textContent ?? '').trim()))
 }
 
-const scroller = (page: Page): Locator => page.getByRole('region', { name: 'History grid' })
+const scroller = (page: Page): Locator => page.getByRole('region', { name: 'Tracker grid' })
 
 // ===========================================================================
 // Columns
@@ -362,7 +362,7 @@ test('a day with a log offers a control that opens it; a day without offers none
   app.seed.day(addDays(app.today, -1), { mood: 'balanced' }) // a day, but no log
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
 
   const opener = page.getByRole('button', { name: new RegExp(`^Read the log for`) })
   await expect(opener).toHaveCount(1) // only the day that has one
@@ -388,7 +388,7 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   const before = await (await app.fetch('/api/history')).json()
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
   await page.getByRole('button', { name: /^Read the log for/ }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: /^close$/i }).click()
@@ -412,7 +412,7 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
   await post('Dishes', {})
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
 
   const heads = await page.locator('.hist-h--task').allInnerTexts()
   expect(heads.map((h) => h.trim())).toEqual([
@@ -447,7 +447,7 @@ test('a filled cell wears the baseline task\'s colour, and a plain one does not'
     await expect(page.getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
   }
 
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
   const cells = page.locator('.hist-cell--on')
   await expect(cells).toHaveCount(2)
 

@@ -686,6 +686,20 @@ select {
   }
 }
 
+/* A button whose whole label is a glyph. Square at --tap so it keeps the 44px
+   target the text buttons get from their padding, which that padding would
+   otherwise make far too wide for one character.
+
+   The glyph is aria-hidden and the button carries an aria-label, so nothing here
+   is the accessible name. Composes with --quiet. */
+.btn--icon {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
 /* --- paged track ---------------------------------------------------------
    A snapping horizontal scroller and the panes inside it, shared by the week's
    days and the backlog's cadence groups. Here rather than in day.css because
