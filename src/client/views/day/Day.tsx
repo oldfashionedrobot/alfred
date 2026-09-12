@@ -6,7 +6,7 @@ import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shar
 import { command, errorText, getDay, getTodo } from '../../api.ts'
 import { longDate } from '../../dates.ts'
 import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
-import Todo from '../Todo.tsx'
+import Backlog from '../Todo.tsx'
 import { MoodAndLog, MoodButton } from './MoodAndLog.tsx'
 import { TaskRow } from './TaskRow.tsx'
 import { DayStrip } from './DayStrip.tsx'
@@ -26,7 +26,7 @@ import { Track, usePagedTrack } from './PagedTrack.tsx'
  * `orderIds`, the reorder edit state, which holds a locally rearranged id list
  * until the toggle closes.
  *
- * Day fetches TWO models: its own and the To do panel's. `placeable_dates` rides
+ * Day fetches TWO models: its own and the backlog's. `placeable_dates` rides
  * on DayView exactly so that the picker and the server's 409 on `place` cannot
  * disagree — and it is also the list of PANES,
  * so the days you can swipe to and the days you can place on are one derivation.
@@ -373,16 +373,11 @@ export default function Day() {
         ))}
       </Track>
 
-      {/* Collapsed here: the list above is arranged for doing, and the panel is
-          for the moment you ask "what else is there?" */}
-      <Todo
-        view={todo}
-        onChanged={refresh}
-        onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
-        busy={busy || reordering}
-      />
-      <Todo
-        kind="backlog"
+      {/* Everything that is not today, as one track of six groups — the list
+          above is arranged for doing, and this is the moment you ask "what else
+          is there?". It was two collapsed accordions over the same model, and
+          the model did not change. */}
+      <Backlog
         view={todo}
         onChanged={refresh}
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
@@ -440,7 +435,7 @@ export default function Day() {
       {/*
         The editor, opened from a row's edit button. Resolved from the live model
         at render rather than held, so a refetch behind an open sheet cannot leave
-        it editing a stale row — the same rule the To do panel follows.
+        it editing a stale row — the same rule the backlog track follows.
 
         A distinct button rather than the row: a tap on Day is a tap you make
         while working, so a name is not an edit target here.

@@ -144,7 +144,12 @@ export function TaskRow({
         <div className="day-row-actions">
           <button
             className="btn btn--small pop-anchor"
-            style={{ '--pop-anchor': `--pick-${task.id}` } as CSSProperties}
+            /* Namespaced per SURFACE, not just per task. The backlog below
+               renders the same task with its own picker, and since v15 both are
+               in the document at once — two elements declaring one anchor name
+               make the name ambiguous, and this picker was resolving to the
+               backlog's button somewhere down the page. */
+            style={{ '--pop-anchor': `--pick-day-${task.id}` } as CSSProperties}
             onClick={onOpenPicker}
             aria-expanded={pickerOpen}
             aria-label={overdue ? `Give it a day — ${task.name}` : `Move ${task.name}`}
@@ -166,7 +171,7 @@ export function TaskRow({
       {/* In the top layer, so it neither pushes the row's neighbours down nor
           gets clipped by the pane's horizontal scroll box. */}
       {asksForADay && pickerOpen && (
-        <Popover anchor={`--pick-${task.id}`} onClose={onClosePicker}>
+        <Popover anchor={`--pick-day-${task.id}`} onClose={onClosePicker}>
           <DayPicker
             dates={placeable}
             max={placeableMax}

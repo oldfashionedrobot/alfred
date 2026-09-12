@@ -237,38 +237,67 @@ async function dragWithKeyboard(
   await expect(row).not.toHaveAttribute('aria-pressed', 'true')
 }
 
-/** The <li> for one task, for the controls that live on the row. */
+/*
+ * The <li> for one task on TODAY'S list, for the controls that live on the row.
+ *
+ * Scoped to the day track since v15. The backlog below it is no longer two
+ * collapsed accordions but an always-rendered track of six panes, so a daily
+ * task is now in the document twice — once on today's list and once in its
+ * cadence group — and an unscoped locator matches both.
+ */
 function row(page: Page, name: string) {
-  return page.getByRole('listitem').filter({
-    has: page.getByRole('checkbox', {
-      name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
-    }),
-  })
+  return dayTrack(page)
+    .getByRole('listitem')
+    .filter({
+      // `has` is resolved INSIDE each candidate <li>, so it must stay
+      // page-relative: scoping it to the track as well would look for a region
+      // within the row and match nothing at all.
+      has: page.getByRole('checkbox', {
+        name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
+      }),
+    })
 }
+
+/** The week's panes. The backlog track is a sibling, and is not this. */
+const dayTrack = (page: Page) =>
+  page.getByRole('region', { name: 'This week, day by day', exact: true })
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-const tick = (page: Page, name: string) => page.getByRole('checkbox', { name: `Complete ${name}` })
-const untick = (page: Page, name: string) => page.getByRole('checkbox', { name: `Untick ${name}` })
+// Scoped for the same reason `row` is: the same task appears in the backlog.
+const tick = (page: Page, name: string) =>
+  dayTrack(page).getByRole('checkbox', { name: `Complete ${name}` })
+const untick = (page: Page, name: string) =>
+  dayTrack(page).getByRole('checkbox', { name: `Untick ${name}` })
 
 /**
- * The panels Day hosts. Since v5 there are two — one component rendered twice,
- * "Routine" drawing the five period groups and "Backlog" the one-off group. Both
- * are collapsed here, so their rows are absent until opened, and each collapses
- * on its own. What is inside them is e2e/todo.spec.ts's business.
+ * The backlog Day hosts. v15 replaced two collapsed accordions with one track of
+ * six cadence groups, always rendered — so its rows are always in the document
+ * and every row-level locator above is scoped to the day track to stay clear of
+ * them. What is inside it is e2e/todo.spec.ts's business.
  */
-type PanelName = 'Routine' | 'Backlog'
-const panel = (page: Page, name: PanelName = 'Routine') =>
-  page.getByRole('region', { name, exact: true })
-/** Anchored at the start: the toggle's name carries a count ("Routine 2 not done"). */
-const panelToggle = (page: Page, name: PanelName = 'Routine') =>
-  panel(page, name).getByRole('button', { name: new RegExp(`^${name}`, 'i') })
+const backlog = (page: Page) => page.getByRole('region', { name: 'Backlog', exact: true })
+
+/** One cadence group's pane inside the backlog track. */
+const backlogGroup = (page: Page, title: string) =>
+  page.getByRole('region', { name: title, exact: true })
 
 /** The reschedule picker on one overdue row. Its days come from view.placeable_dates. */
 const picker = (page: Page, name: string) =>
   row(page, name).getByRole('group', { name: 'Pick a day' })
+
+/*
+ * The edit control on a DAY row.
+ *
+ * Two buttons answer to `Edit <name>` since v15: this icon, and the backlog
+ * row's own name button, which has always opened the editor. They are different
+ * gestures on different surfaces and both are correct — so this names which one
+ * it means rather than either being renamed.
+ */
+const editButton = (page: Page, name: string) =>
+  row(page, name).getByRole('button', { name: `Edit ${name}` })
 
 /** The Sunday on or before `iso`. Weeks run Sunday to Saturday. */
 function weekStartOf(iso: string): string {
@@ -559,7 +588,9 @@ test('unplanning an overdue task clears its date and drops it from Day', async (
     .getByRole('button', { name: /^unplan/i })
     .click()
 
-  await expect(page.getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
+  // Off the DAY, not out of the app — it is still in the backlog below, which is
+  // the point of unplanning rather than archiving.
+  await expect(dayTrack(page).getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Keep me'])
 
   const day = await dayView(app)
@@ -1027,10 +1058,13 @@ test('the mood button and the panel are frozen while reordering', async ({ page,
  * never placed: on no day's list, and before the panel existed, on no screen at
  * all — and a one-off with no date, which is now next door in Backlog.
  */
-test('both panels are hosted here, collapsed, holding what Day does not show', async ({
-  page,
-  app,
-}) => {
+/*
+ * v15 replaced the two collapsed accordions with one always-rendered track. What
+ * this test is about survives the change — the backlog holds what today's list
+ * does not — but "collapsed" and "each opens on its own" do not, because there
+ * is nothing left to open.
+ */
+test('the backlog is hosted here, holding what today does not show', async ({ page, app }) => {
   app.seed.task({ name: 'Feed the dog', cadence: 'day' })
   app.seed.task({ name: 'Grocery run', cadence: 'week' })
   app.seed.task({ name: 'Call the vet', cadence: null })
@@ -1043,25 +1077,15 @@ test('both panels are hosted here, collapsed, holding what Day does not show', a
   expect(inventory(await todoView(app), 'Grocery run')!.effective_date).toBeNull()
   expect(inventory(await todoView(app), 'Call the vet')!.effective_date).toBeNull()
 
-  for (const name of ['Routine', 'Backlog'] as const) {
-    await expect(panel(page, name)).toHaveCount(1)
-    await expect(panelToggle(page, name)).toHaveAttribute('aria-expanded', 'false')
-  }
-  await expect(page.getByText('Grocery run')).toHaveCount(0)
-  await expect(page.getByText('Call the vet')).toHaveCount(0)
+  await expect(backlog(page)).toHaveCount(1)
 
-  // Each opens on its own: the period groups are in one panel, the one-off
-  // group in the other, and opening one does not open the other.
-  await panelToggle(page, 'Routine').click()
-  await expect(panelToggle(page, 'Routine')).toHaveAttribute('aria-expanded', 'true')
-  await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'false')
-  await expect(panel(page, 'Routine').getByText('Grocery run')).toBeVisible()
-  await expect(page.getByText('Call the vet')).toHaveCount(0)
-
-  await panelToggle(page, 'Backlog').click()
-  await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'true')
-  await expect(panel(page, 'Backlog').getByText('Call the vet')).toBeVisible()
-  await expect(panel(page, 'Backlog').getByText('Grocery run')).toHaveCount(0)
+  // Neither is on today's list, and both are in the backlog — each in the group
+  // its cadence names, which is what the track is a map of.
+  await expect(dayTrack(page).getByText('Grocery run')).toHaveCount(0)
+  await expect(dayTrack(page).getByText('Call the vet')).toHaveCount(0)
+  await expect(backlogGroup(page, 'Weekly').getByText('Grocery run')).toHaveCount(1)
+  await expect(backlogGroup(page, 'Any time').getByText('Call the vet')).toHaveCount(1)
+  await expect(backlogGroup(page, 'Weekly').getByText('Call the vet')).toHaveCount(0)
 })
 
 test('a command fired from the panel refetches Day as well', async ({ page, app }) => {
@@ -1070,8 +1094,7 @@ test('a command fired from the panel refetches Day as well', async ({ page, app 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Feed the dog'])
 
-  await panelToggle(page).click()
-  await panel(page).getByRole('checkbox', { name: 'Complete Feed the dog' }).click()
+  await backlogGroup(page, 'Daily').getByRole('checkbox', { name: 'Complete Feed the dog' }).click()
 
   // Both models are refetched and replaced wholesale, so the host moves the row
   // into its own completed section without being told what changed.
@@ -1114,13 +1137,14 @@ test('no console errors while exercising the main gestures', async ({ page, app 
     .click()
   await expect(picker(page, 'Gesture overdue')).toBeVisible()
   // The picker is in the top layer now, so it covers whatever is beneath it
-  // until it is dismissed — including the panel toggle clicked next.
+  // until it is dismissed — including the backlog gesture made next.
   await page.keyboard.press('Escape')
   await expect(picker(page, 'Gesture overdue')).toHaveCount(0)
 
-  await panelToggle(page).click()
-  await expect(panel(page).getByRole('region', { name: 'This week' })).toBeVisible()
-  await panelToggle(page).click()
+  await backlog(page)
+    .getByRole('button', { name: /^Next group/ })
+    .click()
+  await expect(backlogGroup(page, 'Weekly')).toBeVisible()
 
   await page.getByRole('button', { name: 'Capture a new item' }).click()
   await page
@@ -1639,7 +1663,7 @@ test('opening the picker does not move anything else on the page', async ({ page
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Fix the fence')
 
-  const panelBox = () => panel(page, 'Routine').boundingBox()
+  const panelBox = () => backlog(page).boundingBox()
   const before = await panelBox()
 
   await row(page, 'Fix the fence')
@@ -1891,7 +1915,7 @@ test('a row on the day list opens the editor, and a rename persists', async ({ p
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Bins')
 
-  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  await editButton(page, 'Bins').click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
   await editor.getByRole('textbox', { name: 'Task name' }).fill('The bins')
   await editor.getByRole('button', { name: 'Save' }).click()
@@ -1905,7 +1929,7 @@ test('the editor can clear a placement, which drops the task off today', async (
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Bins')
 
-  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  await editButton(page, 'Bins').click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
   await editor.getByRole('button', { name: 'Clear day' }).click()
   await editor.getByRole('button', { name: 'Save' }).click()

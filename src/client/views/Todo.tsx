@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { Cadence, ISODate, TodoTask, TodoView } from '../../shared/types.ts'
 import { TODO_GROUPS } from '../../shared/types.ts'
 import { ApiError, command } from '../api.ts'
@@ -6,6 +6,8 @@ import { periodLabel, shortDate } from '../dates.ts'
 import { Confirm, DayPicker, Popover, Sheet, Tick, placementMaxFor } from '../ui.tsx'
 import { TaskFields, draftIsValid, draftToPatch, type TaskDraft } from '../TaskFields.tsx'
 import { TaskEditor } from '../TaskEditor.tsx'
+import { GroupStrip } from './day/GroupStrip.tsx'
+import { Track, usePagedTrack } from './day/PagedTrack.tsx'
 import './todo.css'
 
 /**
@@ -95,7 +97,8 @@ function TodoRow({
             <button
               type="button"
               className="btn btn--small btn--quiet pop-anchor"
-              style={{ '--pop-anchor': `--pick-${task.id}` } as CSSProperties}
+              /* See TaskRow: one anchor name per surface, not per task. */
+              style={{ '--pop-anchor': `--pick-group-${task.id}` } as CSSProperties}
               aria-expanded={picking}
               aria-label={`${placed ? 'Move' : 'Place'} ${task.name}`}
               disabled={locked}
@@ -121,7 +124,7 @@ function TodoRow({
       {/* In the top layer: it neither pushes the rows below it down the panel
           nor gets clipped by anything the panel scrolls inside. */}
       {picking && canPlace && (
-        <Popover anchor={`--pick-${task.id}`} onClose={() => onPicking(false)}>
+        <Popover anchor={`--pick-group-${task.id}`} onClose={() => onPicking(false)}>
           <DayPicker
             dates={placeable}
             max={placeableMax}
@@ -144,43 +147,43 @@ function TodoRow({
 // --- the panel ------------------------------------------------------------
 
 /**
- * Which half of the model this instance draws. One component, rendered twice:
- * six groups in one column is hard to read, and nothing about the model changed
- * to split them — `GET /api/todo` still returns all six in one response.
+ * Everything that is not today, as a track of six panes.
+ *
+ * This was two collapsed accordions — Routine drawing the five recurring groups
+ * and Backlog the one-off group — which is what made the complete list of what
+ * you have to do two taps away and drawn in the least prominent part of the
+ * screen. It is now one section with the same paging the week above it uses:
+ * a button per group, one pane at a time.
+ *
+ * BACKLOG NAMES THE WHOLE TRACK, and "Any time" names the one-off group inside
+ * it. The word moved outward; `cadence: null` is still a one-off in the model.
+ *
+ * Nothing in here computes. The six groups, their period boundaries, their
+ * membership, the order inside them and the placeable dates all arrive from the
+ * server; this file reads fields and renders them.
  */
-export type TodoKind = 'periodic' | 'backlog'
-
-const KIND: Record<TodoKind, { title: string; shows: (cadence: unknown) => boolean }> = {
-  periodic: { title: 'Routine', shows: (c) => c !== null },
-  backlog: { title: 'Backlog', shows: (c) => c === null },
-}
-
-export default function Todo({
+export default function Backlog({
   view,
-  kind = 'periodic',
   onChanged,
   onError,
   busy,
 }: {
-  view: TodoView | null
-  kind?: TodoKind
-  /** Refetch the panel AND the host view. Awaited before the panel re-renders. */
+  /** Non-null: Day renders this only after both its models have loaded. */
+  view: TodoView
+  /** Refetch this AND the host view. Awaited before re-rendering. */
   onChanged: () => Promise<void>
   /** Report a command failure to the host's notice bar. */
   onError: (e: unknown) => void
-  /** Day collapses it by default; Week expands it. */
   busy?: boolean
 }) {
-  // Collapsed by default. Week opened both panels expanded on the grounds that
-  // there the panel WAS the planning surface; Day is now the only surface, and
-  // its first screen is the day's list.
-  const [open, setOpen] = useState(false)
-  // One picker open at a time: a long panel with six of them fanned out is not
-  // a picker, it is a mess.
+  // One picker open at a time: six of them fanned out is not a picker, it is a
+  // mess.
   const [picking, setPicking] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
-  const bodyId = useId()
+  // The second instance of the hook on this screen — the week's days are the
+  // first. Same mechanics, different buttons.
+  const groups = usePagedTrack()
   const locked = busy === true || pending
 
   const run: Run = (name, body = {}) => {
@@ -206,141 +209,119 @@ export default function Todo({
   // Resolved at render from the live model, never held. Holding the row would
   // let it go stale behind an open sheet after any refetch.
   const editing =
-    view === null || editingId === null
+    editingId === null
       ? null
       : (view.groups.flatMap((g) => g.tasks).find((t) => t.id === editingId) ?? null)
 
-  const { title, shows } = KIND[kind]
-  // Which of the six groups this instance draws. Not a filter over tasks — the
-  // groups themselves are split, so each panel keeps the model's own order.
-  const groups = TODO_GROUPS.filter((g) => shows(g.cadence))
+  const maxFor = (cadence: Cadence | null): ISODate | null =>
+    placementMaxFor(view.placement, view.placeable_dates, cadence)
 
   // Counting for a label, not deriving state: nothing here is held.
-  const tally = (pick: (t: TodoTask) => boolean, scope: 'panel' | 'view') =>
-    view === null
-      ? 0
-      : view.groups
-          .filter((g) => scope === 'view' || shows(g.cadence))
-          .reduce((n, g) => n + g.tasks.filter(pick).length, 0)
+  const tally = (pick: (t: TodoTask) => boolean) =>
+    view.groups.reduce((n, g) => n + g.tasks.filter(pick).length, 0)
 
-  // The header count labels THIS panel, so it counts this panel's groups.
-  const remaining = tally((t) => !t.is_done, 'panel')
+  /*
+   * One count per group, index-aligned with TODO_GROUPS — the strip's badges.
+   * Index-aligned rather than keyed, like the day strip's, because the panes are
+   * in the same order and the two must not be able to disagree.
+   */
+  const counts = TODO_GROUPS.map(
+    (meta) =>
+      view.groups.find((g) => g.cadence === meta.cadence)?.tasks.filter((t) => !t.is_done).length ??
+      0,
+  )
 
-  const maxFor = (cadence: Cadence | null): ISODate | null =>
-    view === null ? null : placementMaxFor(view.placement, view.placeable_dates, cadence)
-
-  // The overdue count labels a command that clears the WHOLE view, so it counts
-  // the whole view — as `has_overdue`, which decides whether the control shows
-  // at all, already does. Counting the panel's own half instead made the To do
-  // panel offer to "clear the day from 0 overdue items" and then clear two,
-  // whenever every overdue task happened to be a one-off drawn in Backlog.
-  const overdue = tally((t) => t.is_overdue, 'view')
+  // The reset control clears the WHOLE view, so it counts the whole view. It now
+  // sits on a heading that names the whole view too, which is what this move
+  // fixes: the control used to live inside Routine while counting past it, and
+  // once offered to "clear the day from 0 overdue items" and then cleared two.
+  const overdue = tally((t) => t.is_overdue)
 
   return (
-    <section className="todo" aria-label={title} data-busy={locked || undefined}>
-      <h2 className="todo__head">
-        <button
-          type="button"
-          className="todo__toggle"
-          aria-expanded={open}
-          aria-controls={open ? bodyId : undefined}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <span className="todo__chevron" aria-hidden="true">
-            ›
-          </span>
-          <span className="todo__title">{title}</span>
-          {view !== null && (
-            <span className="todo__count">
-              {remaining}
-              <span className="sr"> not done</span>
-            </span>
-          )}
-        </button>
-      </h2>
+    <section className="todo" aria-label="Backlog" data-busy={locked || undefined}>
+      {/* The heading names the whole track, and carries the one control that
+          acts on the whole track. */}
+      <div className="todo__head">
+        <h2 className="todo__title">Backlog</h2>
+        {view.has_overdue && (
+          <div className="todo__bar">
+            {/* Deliberately not the row's own words: "Needs a day" is a mark on
+                a task, and a summary that reads identically makes the two
+                indistinguishable by voice or by search. */}
+            <p className="todo__bar-text">
+              {overdue === 1
+                ? '1 item is waiting for a day'
+                : `${overdue} items are waiting for a day`}
+            </p>
+            <Confirm
+              label="Reset to backlog"
+              question={`Clear the day from ${overdue} overdue ${
+                overdue === 1 ? 'item' : 'items'
+              }?`}
+              confirmLabel="Reset"
+              disabled={locked}
+              onConfirm={() => run('reset_overdue')}
+            />
+          </div>
+        )}
+      </div>
 
-      {open && (
-        <div className="todo__body" id={bodyId}>
-          {view === null ? (
-            <p className="todo__quiet">Loading…</p>
-          ) : (
-            <>
-              {/* Reset to backlog lives here and only here — one control, both
-                  hosts. It clears every overdue day at once and never touches a
-                  day still ahead, so the confirm says how many it takes. */}
-              {view.has_overdue && kind === 'periodic' && (
-                <div className="todo__bar">
-                  {/* Deliberately not the row's own words: "Needs a day" is a
-                      mark on a task, and a summary that reads identically makes
-                      the two indistinguishable by voice or by search. */}
-                  <p className="todo__bar-text">
-                    {overdue === 1
-                      ? '1 item is waiting for a day'
-                      : `${overdue} items are waiting for a day`}
-                  </p>
-                  <Confirm
-                    label="Reset to backlog"
-                    question={`Clear the day from ${overdue} overdue ${
-                      overdue === 1 ? 'item' : 'items'
-                    }?`}
-                    confirmLabel="Reset"
-                    disabled={locked}
-                    onConfirm={() => run('reset_overdue')}
-                  />
-                </div>
-              )}
+      <GroupStrip
+        groups={TODO_GROUPS}
+        counts={counts}
+        index={groups.index}
+        onGo={groups.goTo}
+        disabled={locked}
+      />
 
-              {/* Always all six, always in this order, empty or not: the panel is
-                  a map of the periods as much as a list of tasks. */}
-              {groups.map((meta) => {
-                const group = view.groups.find((g) => g.cadence === meta.cadence)
-                const tasks = group?.tasks ?? []
-                const from = group?.period_start ?? null
-                const to = group?.period_end ?? null
-                return (
-                  <section
-                    className="todo-group"
-                    key={meta.cadence ?? 'once'}
-                    aria-label={meta.title}
-                  >
-                    <h3 className="todo-group__head">
-                      <span className="todo-group__title">{meta.title}</span>{' '}
-                      {/* The one-off group is unbounded and shows no period. A
+      <Track label="Backlog groups" trackRef={groups.trackRef} onScroll={groups.onScroll}>
+        {/* Always all six, always in this order, empty or not: the track is a
+            map of the periods as much as a list of tasks. */}
+        {TODO_GROUPS.map((meta) => {
+          const group = view.groups.find((g) => g.cadence === meta.cadence)
+          const tasks = group?.tasks ?? []
+          const from = group?.period_start ?? null
+          const to = group?.period_end ?? null
+          return (
+            <section
+              className="pane todo-group"
+              key={meta.cadence ?? 'once'}
+              aria-label={meta.title}
+            >
+              <h3 className="todo-group__head">
+                <span className="todo-group__title">{meta.title}</span>{' '}
+                {/* The one-off group is unbounded and shows no period. A
                           week is a date range — there is no week number here. */}
-                      {from !== null && to !== null && (
-                        <span className="todo-group__period">{periodLabel(from, to)}</span>
-                      )}
-                    </h3>
-                    {tasks.length === 0 ? (
-                      <p className="todo-group__empty">Nothing here.</p>
-                    ) : (
-                      <ul className="todo-list">
-                        {tasks.map((task) => (
-                          <TodoRow
-                            key={task.id}
-                            task={task}
-                            today={view.today}
-                            placeable={view.placeable_dates}
-                            placeableMax={maxFor(task.cadence)}
-                            picking={picking === task.id}
-                            onPicking={(o) => setPicking(o ? task.id : null)}
-                            onEdit={() => setEditingId(task.id)}
-                            run={run}
-                            locked={locked}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                )
-              })}
-            </>
-          )}
-        </div>
-      )}
+                {from !== null && to !== null && (
+                  <span className="todo-group__period">{periodLabel(from, to)}</span>
+                )}
+              </h3>
+              {tasks.length === 0 ? (
+                <p className="todo-group__empty">Nothing here.</p>
+              ) : (
+                <ul className="todo-list">
+                  {tasks.map((task) => (
+                    <TodoRow
+                      key={task.id}
+                      task={task}
+                      today={view.today}
+                      placeable={view.placeable_dates}
+                      placeableMax={maxFor(task.cadence)}
+                      picking={picking === task.id}
+                      onPicking={(o) => setPicking(o ? task.id : null)}
+                      onEdit={() => setEditingId(task.id)}
+                      run={run}
+                      locked={locked}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          )
+        })}
+      </Track>
 
-      {/* `view !== null` is implied by `editing`, and stated so the types agree. */}
-      {view !== null && editing !== null && (
+      {editing !== null && (
         <TaskEditor
           task={editing}
           categories={view.categories}
