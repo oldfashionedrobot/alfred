@@ -6,9 +6,14 @@ import { NoticeBar, Sheet, type Notice } from '../ui.tsx'
 import './history.css'
 
 /**
- * History — the grid. Dates down, active daily tasks across, filled cells for
- * completions, one mood column. Read-only: nothing in the system writes to a
- * past date, so there is nothing here to edit.
+ * The Tracker — the grid. Dates down, active daily tasks across, filled cells
+ * for completions, one mood column. Read-only: nothing in the system writes to
+ * a past date, so there is nothing here to edit.
+ *
+ * The screen is called Tracker; the component, the file, `/api/history` and
+ * `HistoryView` are not. v15 renamed the label and nothing else — carrying the
+ * new name through the stack would touch every browser spec and both reference
+ * documents to change no behaviour.
  *
  * Dates are formatted by `../dates.ts` and nowhere else.
  */
@@ -75,13 +80,27 @@ export default function History() {
     })()
   }, [nextBefore, loadingMore])
 
-  if (loading) return <div className="state">Loading history…</div>
-  if (error) return <div className="state state--error">{error}</div>
+  /* Both states keep the `.hist` root. history.css hangs the Tracker's escape
+     from the 720px reading column off `.app:has(> .hist)`, so a state that
+     drops the wrapper is drawn in the narrow column and the whole screen snaps
+     wide the moment the grid lands. */
+  if (loading)
+    return (
+      <div className="hist">
+        <div className="state">Loading the tracker…</div>
+      </div>
+    )
+  if (error)
+    return (
+      <div className="hist">
+        <div className="state state--error">{error}</div>
+      </div>
+    )
 
   return (
     <div className="hist">
       <header className="hist-head">
-        <h1 className="hist-head__title">History</h1>
+        <h1 className="hist-head__title">Tracker</h1>
         <p className="hist-head__sub">
           Daily tasks, most recent first. A record, not a checklist.
         </p>
@@ -90,7 +109,7 @@ export default function History() {
       {columns.length === 0 && rows.length === 0 ? (
         <p className="state">Nothing recorded yet.</p>
       ) : (
-        <div className="hist-scroll" tabIndex={0} role="region" aria-label="History grid">
+        <div className="hist-scroll" tabIndex={0} role="region" aria-label="Tracker grid">
           <table className="hist-grid">
             <thead>
               <tr>
