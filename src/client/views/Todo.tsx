@@ -23,7 +23,12 @@ import './todo.css'
  * out where a quarter begins, never sorts, and never touches `placeable_dates`.
  */
 
-type Run = (name: string, body?: Record<string, unknown>) => void
+type Run = (
+  name: string,
+  body?: Record<string, unknown>,
+  /** Runs once the command has settled, however it settled. */
+  done?: () => void,
+) => void
 
 // --- one task -------------------------------------------------------------
 
@@ -35,6 +40,7 @@ function TodoRow({
   picking,
   onPicking,
   onEdit,
+  onToggleDone,
   run,
   locked,
 }: {
@@ -47,6 +53,8 @@ function TodoRow({
   picking: boolean
   onPicking: (open: boolean) => void
   onEdit: () => void
+  /** Fires the right command AND holds the predicted box. See `Backlog`. */
+  onToggleDone: () => void
   run: Run
   locked: boolean
 }) {
@@ -69,10 +77,7 @@ function TodoRow({
           done={task.is_done}
           label={`${task.is_done ? 'Untick' : 'Complete'} ${task.name}`}
           onToggle={() => {
-            if (!locked)
-              run(task.is_done ? 'uncomplete' : 'complete', {
-                task_id: task.id,
-              })
+            if (!locked) onToggleDone()
           }}
         />
 
@@ -179,6 +184,12 @@ export default function Backlog({
   // One picker open at a time: six of them fanned out is not a picker, it is a
   // mess.
   const [picking, setPicking] = useState<number | null>(null)
+  /*
+   * Ids with a tick in flight. Same mechanism as the day list's, because a box
+   * that behaves differently here than three inches above it would be worse than
+   * the latency it hides. See Day.tsx for why only the box is predicted.
+   */
+  const [pendingTicks, setPendingTicks] = useState<ReadonlySet<number>>(new Set())
   const [editingId, setEditingId] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
   // The second instance of the hook on this screen — the week's days are the
@@ -186,7 +197,22 @@ export default function Backlog({
   const groups = usePagedTrack()
   const locked = busy === true || pending
 
-  const run: Run = (name, body = {}) => {
+  /** A task as the screen should draw it: the model, or the tick being predicted. */
+  const asShown = (task: TodoTask): TodoTask =>
+    pendingTicks.has(task.id) ? { ...task, is_done: !task.is_done } : task
+
+  const toggleDone = (task: TodoTask): void => {
+    setPendingTicks((ids) => new Set(ids).add(task.id))
+    run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id }, () =>
+      setPendingTicks((ids) => {
+        const next = new Set(ids)
+        next.delete(task.id)
+        return next
+      }),
+    )
+  }
+
+  const run: Run = (name, body = {}, done) => {
     setPending(true)
     void (async () => {
       try {
@@ -197,12 +223,14 @@ export default function Backlog({
         // what is on screen is still accurate. Anything else may have landed.
         if (e instanceof ApiError && e.rejected) {
           setPending(false)
+          done?.()
           return
         }
       }
       setPicking(null)
       await onChanged()
       setPending(false)
+      done?.()
     })()
   }
 
@@ -303,13 +331,14 @@ export default function Backlog({
                   {tasks.map((task) => (
                     <TodoRow
                       key={task.id}
-                      task={task}
+                      task={asShown(task)}
                       today={view.today}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
                       picking={picking === task.id}
                       onPicking={(o) => setPicking(o ? task.id : null)}
                       onEdit={() => setEditingId(task.id)}
+                      onToggleDone={() => toggleDone(task)}
                       run={run}
                       locked={locked}
                     />

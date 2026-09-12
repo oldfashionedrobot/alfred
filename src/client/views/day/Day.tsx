@@ -61,6 +61,20 @@ export default function Day() {
   // The reorder edit state — the one locally held arrangement in the client.
   const [orderIds, setOrderIds] = useState<number[] | null>(null)
 
+  /*
+   * Ids with a tick in flight, rendered as though it had already landed.
+   *
+   * `complete` is a round trip to a machine that may have just woken from
+   * scale-to-zero, and until it answers the box does not move — which reads as a
+   * tap that missed. This is the SECOND thing the client holds that it did not
+   * derive from a model, `orderIds` being the first, and it is named here so it
+   * stays the second. Nothing else is predicted.
+   *
+   * Only the box is predicted, not the position: the re-sort waits for the
+   * refetch, or the row would leave from under the finger that tapped it.
+   */
+  const [pendingTicks, setPendingTicks] = useState<ReadonlySet<number>>(new Set())
+
   // The week's panes. Named rather than destructured flat, because the backlog
   // track below is a second instance of the same hook and `index` cannot mean
   // both.
@@ -194,6 +208,25 @@ export default function Day() {
   const maxFor = (cadence: Cadence | null): ISODate | null =>
     placementMaxFor(view.placement, view.placeable_dates, cadence)
 
+  const toggleDone = async (task: DayTask): Promise<void> => {
+    setPendingTicks((ids) => new Set(ids).add(task.id))
+    try {
+      await run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id })
+    } finally {
+      // Dropped either way. On success the refetched model already says so; on
+      // failure the prediction was wrong and the row must go back to the truth.
+      setPendingTicks((ids) => {
+        const next = new Set(ids)
+        next.delete(task.id)
+        return next
+      })
+    }
+  }
+
+  /** A task as the screen should draw it: the model, or the tick we are predicting. */
+  const asShown = (task: DayTask): DayTask =>
+    pendingTicks.has(task.id) ? { ...task, is_done: !task.is_done } : task
+
   const toggleReorder = async () => {
     if (!reordering) {
       setPickerFor(null)
@@ -322,12 +355,12 @@ export default function Day() {
                   return (
                     <TaskRow
                       key={task.id}
-                      task={task}
+                      task={asShown(task)}
                       today={view.date}
                       bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
                       busy={busy}
-                      onComplete={() => run('complete', { task_id: task.id })}
-                      onUncomplete={() => run('uncomplete', { task_id: task.id })}
+                      onComplete={() => toggleDone(task)}
+                      onUncomplete={() => toggleDone(task)}
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}

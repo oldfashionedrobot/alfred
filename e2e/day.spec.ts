@@ -510,6 +510,38 @@ test('tapping a completed item unticks it and returns it to the active list', as
   await expect.poll(async () => (await historyView(app)).rows[0]?.completed ?? []).not.toContain(id)
 })
 
+/*
+ * The box fills before the server answers.
+ *
+ * Proved by holding the command open: the route is stalled, so the only thing
+ * that could have checked the box is the prediction. Without it the box does not
+ * move until the round trip lands, which on a machine waking from scale-to-zero
+ * reads as a tap that missed.
+ */
+test('the box checks before the command lands, and reverts if it fails', async ({ page, app }) => {
+  app.seed.task({ name: 'Slow tick', cadence: 'day' })
+  await page.goto(app.url)
+  await expect(tick(page, 'Slow tick')).toBeVisible()
+
+  // Hold every complete open until this test lets go of it.
+  let release: (() => void) | undefined
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/commands/complete', async (route) => {
+    await held
+    await route.abort()
+  })
+
+  await tick(page, 'Slow tick').click()
+
+  // Checked, with the command still in flight and nothing refetched.
+  await expect(untick(page, 'Slow tick')).toHaveAttribute('aria-checked', 'true')
+  expect((await dayView(app)).tasks.find((t) => t.name === 'Slow tick')!.is_done).toBe(false)
+
+  // The write failed, so the prediction was wrong and the row goes back.
+  release!()
+  await expect(tick(page, 'Slow tick')).toHaveAttribute('aria-checked', 'false')
+})
+
 test('double-tapping complete is idempotent', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Twice tapped', cadence: 'day' })
 
