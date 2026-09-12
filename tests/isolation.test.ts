@@ -111,7 +111,7 @@ describe('a view builder answers for one user and no other', () => {
   test('buildDayView', async () => {
     await seedBoth()
     const view = await buildDayView(db, viewer(A))
-    const names = [...view.active, ...view.completed].map((t) => t.name)
+    const names = view.tasks.map((t) => t.name)
     expect(names.length).toBeGreaterThan(0)
     expect(mine(names)).toBe(true)
     expect(view.upcoming.flatMap((u) => u.tasks).map((t) => t.name).every((n) => n.startsWith("A's"))).toBe(true)
@@ -261,8 +261,8 @@ describe('a command that writes without naming a task stamps the caller', () => 
     await runCommand(db, viewer(B), 'complete', { task_id: bTask })
 
     const a = await buildDayView(db, viewer(A))
-    expect([...a.active, ...a.completed]).toEqual([])
+    expect(a.tasks).toEqual([])
     const b = await buildDayView(db, viewer(B))
-    expect(b.completed.map((t) => t.name)).toEqual(["B's daily"])
+    expect(b.tasks.filter((t) => t.is_done).map((t) => t.name)).toEqual(["B's daily"])
   })
 })

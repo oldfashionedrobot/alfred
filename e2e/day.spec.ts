@@ -25,6 +25,16 @@ async function dayView(app: App): Promise<DayView> {
   return (await r.json()) as DayView
 }
 
+/*
+ * v15 merged DayView.active and DayView.completed into one sorted `tasks` array
+ * with `is_done` on each row, so doneness is a field rather than an address.
+ * These two read the model the way the old field names did — they are the
+ * MODEL's halves, not the screen's, and stay separate from `activeNames` /
+ * `completedNames`, which partition what is rendered.
+ */
+const notDone = (day: DayView) => day.tasks.filter((t) => !t.is_done)
+const done = (day: DayView) => day.tasks.filter((t) => t.is_done)
+
 /** The panel Day hosts. Used to assert where a task LANDED, not how it renders. */
 async function todoView(app: App): Promise<TodoView> {
   const r = await app.fetch('/api/todo')
@@ -416,7 +426,7 @@ test('ticking a task completes it against today', async ({ page, app }) => {
   expect(history.rows[0]!.completed).toContain(id)
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
+  expect(done(day).map((t) => t.id)).toEqual([id])
 })
 
 test('tapping a completed item unticks it and returns it to the active list', async ({
@@ -475,8 +485,8 @@ test('a weekly task completed earlier this week loads as completed, not active',
   await expect.poll(() => activeNames(page)).toEqual(['Ordinary daily'])
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
-  expect(day.active.map((t) => t.id)).not.toContain(id)
+  expect(done(day).map((t) => t.id)).toEqual([id])
+  expect(notDone(day).map((t) => t.id)).not.toContain(id)
 })
 
 // ---------------------------------------------------------------------------
@@ -504,7 +514,7 @@ test('an overdue task sits in the same flat list, marked, offering a day or an u
   await expect(row(page, 'Aardvark daily').getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Change the sheets')!.state).toBe('overdue')
+  expect(notDone(day).find((t) => t.name === 'Change the sheets')!.state).toBe('overdue')
 })
 
 test('unplanning an overdue task clears its date and drops it from Day', async ({ page, app }) => {
@@ -520,7 +530,7 @@ test('unplanning an overdue task clears its date and drops it from Day', async (
   await expect.poll(() => activeNames(page)).toEqual(['Keep me'])
 
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).not.toContain('Descale the kettle')
+  expect(notDone(day).map((t) => t.name)).not.toContain('Descale the kettle')
 
   // Cleared, not deleted. It is off every day's list and still in the inventory,
   // which is the whole reason the panel exists.
@@ -563,7 +573,7 @@ test('completing an overdue task moves it into the Completed section', async ({ 
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
+  expect(done(day).map((t) => t.id)).toEqual([id])
   await expect.poll(() => completedNames(page)).toEqual(['Book the MOT'])
 
   // And it can be taken back, like anything else in the Completed section.
@@ -589,7 +599,7 @@ test('rescheduling an overdue task onto today resolves it', async ({ page, app }
   await expect.poll(() => activeNames(page)).toEqual(['Ring the plumber'])
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.id === id)!.state).toBe('planned')
+  expect(notDone(day).find((t) => t.id === id)!.state).toBe('planned')
   expect(plannedDate(app, id)).toBe(app.today)
 })
 
@@ -634,7 +644,7 @@ test('a daily task with a past planned_date is never overdue', async ({ page, ap
   await expect(row(page, 'Brush teeth').getByRole('button', { name: /^unplan/i })).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Brush teeth')!.state).toBe('daily')
+  expect(notDone(day).find((t) => t.name === 'Brush teeth')!.state).toBe('daily')
 })
 
 /**
@@ -783,8 +793,8 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
   // rather than the page: the confirmation notice quotes the name.)
   await expect.poll(() => activeNames(page)).toEqual(['Existing daily'])
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).not.toContain('Replace the shower hose')
-  expect(day.completed.map((t) => t.name)).not.toContain('Replace the shower hose')
+  expect(notDone(day).map((t) => t.name)).not.toContain('Replace the shower hose')
+  expect(done(day).map((t) => t.name)).not.toContain('Replace the shower hose')
 })
 
 // ---------------------------------------------------------------------------
@@ -836,7 +846,7 @@ test('dragging a task in the reorder state persists days.task_order', async ({ p
   await expect.poll(() => activeNames(page)).toEqual(['Bravo job', 'Alpha job', 'Charlie job'])
 
   const day = await dayView(app)
-  expect(day.active.map((t) => t.id)).toEqual([bravo, alpha, charlie])
+  expect(notDone(day).map((t) => t.id)).toEqual([bravo, alpha, charlie])
 
   await page.reload()
   await expect.poll(() => activeNames(page)).toEqual(['Bravo job', 'Alpha job', 'Charlie job'])
@@ -863,7 +873,7 @@ test('a drag cannot move a task across the baseline boundary', async ({ page, ap
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
 })
 
 test('a task moves freely inside its own band, below a baseline one', async ({ page, app }) => {
@@ -883,7 +893,7 @@ test('a task moves freely inside its own band, below a baseline one', async ({ p
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
 })
 
 test('a pointer drag reorders too', async ({ page, app }) => {
@@ -1101,7 +1111,7 @@ test('capture can set cadence and baseline from the More section', async ({ page
   // A daily baseline task, so it lands on today's list rather than the backlog.
   await expect.poll(() => activeNames(page)).toContain('Water the plants')
   const day = await dayView(app)
-  const made = day.active.find((t) => t.name === 'Water the plants')!
+  const made = notDone(day).find((t) => t.name === 'Water the plants')!
   expect(made.cadence).toBe('day')
   expect(made.is_baseline).toBe(true)
 })
@@ -1121,8 +1131,8 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
 
   await page.goto(app.url)
   const day = await dayView(app)
-  expect(day.active.find((t) => t.id === painted)!.color).toBe('#c2410c')
-  expect(day.active.find((t) => t.name === 'Zebra')!.color).toBeNull()
+  expect(notDone(day).find((t) => t.id === painted)!.color).toBe('#c2410c')
+  expect(notDone(day).find((t) => t.name === 'Zebra')!.color).toBeNull()
 
   const row = page.getByRole('listitem').filter({ hasText: 'MED' }).first()
   await expect(row).toHaveAttribute('data-colour', '')
@@ -1759,7 +1769,7 @@ test('Add task opens capture with the day already chosen, and it lands on today'
 
   await expect.poll(() => activeNames(page)).toContain('Ring the plumber')
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Ring the plumber')?.planned_date).toBe(day.date)
+  expect(notDone(day).find((t) => t.name === 'Ring the plumber')?.planned_date).toBe(day.date)
 })
 
 test('the capture button leaves the box clear, and still captures to the backlog', async ({
@@ -1800,7 +1810,7 @@ test('Place today survives the switch to Many, and places every line', async ({ 
   await expect(sheet).toHaveCount(0)
 
   const day = await dayView(app)
-  const names = day.active.map((t) => t.name)
+  const names = notDone(day).map((t) => t.name)
   expect(names).toContain('Milk')
   expect(names).toContain('Bin day')
 })

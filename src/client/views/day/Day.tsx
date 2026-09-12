@@ -1,14 +1,14 @@
 import './day.css'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../../api.ts'
 import { longDate } from '../../dates.ts'
-import { NoticeBar, Tick, placementMaxFor, type Notice } from '../../ui.tsx'
+import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
 import Todo from '../Todo.tsx'
 import { MoodAndLog } from './MoodAndLog.tsx'
-import { TaskName, TaskRow } from './TaskRow.tsx'
+import { TaskRow } from './TaskRow.tsx'
 import { DayStrip } from './DayStrip.tsx'
 import { UpcomingPane } from './UpcomingPane.tsx'
 import { CaptureSheet } from './CaptureSheet.tsx'
@@ -20,10 +20,10 @@ import { Track, usePagedTrack } from './PagedTrack.tsx'
  *
  * Data rule: fetch the models, render them,
  * post a named command, refetch and replace wholesale. Nothing derived from a
- * model is held in state, nothing is sorted or filtered here — `view.active`
- * and `view.completed` arrive in render order. The one exception is `orderIds`,
- * the reorder edit state, which holds a locally rearranged id list until the
- * toggle closes.
+ * model is held in state, nothing is sorted here — `view.tasks` arrives in
+ * render order, one list with done sunk to the bottom. The one exception is
+ * `orderIds`, the reorder edit state, which holds a locally rearranged id list
+ * until the toggle closes.
  *
  * Day fetches TWO models: its own and the To do panel's. `placeable_dates` rides
  * on DayView exactly so that the picker and the server's 409 on `place` cannot
@@ -38,6 +38,9 @@ import { Track, usePagedTrack } from './PagedTrack.tsx'
 // --- shell ------------------------------------------------------------------
 
 export default function Day() {
+  // Names the one task section. useId because two Day instances would otherwise
+  // hand a screen reader the same id twice.
+  const todayHeadingId = useId()
   const [view, setView] = useState<DayView | null>(null)
   const [todo, setTodo] = useState<TodoView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -137,18 +140,28 @@ export default function Day() {
   const editing =
     editingId === null
       ? null
-      : ([...view.active, ...view.completed, ...view.upcoming.flatMap((d) => d.tasks)].find(
+      : ([...view.tasks, ...view.upcoming.flatMap((d) => d.tasks)].find(
           (t) => t.id === editingId,
         ) ?? null)
-  const byId = new Map(view.active.map((t) => [t.id, t]))
-  // In the edit state the locally held arrangement is rendered; otherwise the
-  // server's order, exactly as given.
+
+  /*
+   * What is still to do. `view.tasks` is one list with done sunk to the bottom,
+   * so the three places that still mean "what is left" — the strip's count, the
+   * Reorder button, and the arrangement itself — say so rather than reading a
+   * second array off the wire.
+   */
+  const outstanding = view.tasks.filter((t) => !t.is_done)
+
+  const byId = new Map(outstanding.map((t) => [t.id, t]))
+  // In the edit state the locally held arrangement is rendered — and only the
+  // not-done rows are in it, because you arrange what you are doing. Otherwise
+  // the server's order, exactly as given, done last.
   const rows: DayTask[] = orderIds
     ? orderIds.flatMap((id) => {
         const t = byId.get(id)
         return t ? [t] : []
       })
-    : view.active
+    : view.tasks
 
   // Bands never mix. Rather than guarding a drag that crosses them, each band
   // is its own drag context — crossing is not something that can be expressed.
@@ -169,12 +182,23 @@ export default function Day() {
   const toggleReorder = async () => {
     if (!reordering) {
       setPickerFor(null)
-      setOrderIds(view.active.map((t) => t.id))
+      setOrderIds(outstanding.map((t) => t.id))
       return
     }
-    // Cleared only once the write has landed: clearing first threw the
-    // arrangement away on failure, silently (D5).
-    if (await run('set_task_order', { task_ids: orderIds ?? [] })) setOrderIds(null)
+    /*
+     * The saved order is the whole rendered list: the rearranged rows, then the
+     * done ones after them. Sending only the not-done half would drop every done
+     * task's id, and `sortTasks` positions the done band by the same
+     * `task_order` — so a task ticked and then unticked would stop returning to
+     * where it was. It lands at the end of the arrangement instead, which is the
+     * honest reading of "the list as you last arranged it".
+     *
+     * Cleared only once the write has landed: clearing first threw the
+     * arrangement away on failure, silently (D5).
+     */
+    const doneIds = view.tasks.filter((t) => t.is_done).map((t) => t.id)
+    const task_ids = [...(orderIds ?? []), ...doneIds]
+    if (await run('set_task_order', { task_ids })) setOrderIds(null)
   }
 
   return (
@@ -200,7 +224,7 @@ export default function Day() {
         // Index-aligned with placeable_dates, like the panes themselves: today
         // is what is still to do, and an upcoming pane is already filtered to
         // what is outstanding on it.
-        counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
+        counts={[outstanding.length, ...view.upcoming.map((u) => u.tasks.length)]}
         index={days.index}
         onGo={days.goTo}
         disabled={busy || reordering}
@@ -215,9 +239,15 @@ export default function Day() {
         onScroll={days.onScroll}
       >
         <div className="pane pane--today">
-          <section className="day-section" aria-label="Active tasks">
+          {/* Named by its own heading rather than by an aria-label that said
+              something else. The two had already drifted — the section was
+              "Active tasks" while the heading read "Today" — and now that done
+              rows live here too, only one of those was still true. */}
+          <section className="day-section" aria-labelledby={todayHeadingId}>
             <div className="day-section-bar">
-              <h2 className="day-h2">Today</h2>
+              <h2 className="day-h2" id={todayHeadingId}>
+                Today
+              </h2>
               {/* The short path to "something I am doing today": capture, with
                   the day already chosen. The FAB beside it captures to the
                   backlog, which is the other half of the same gesture. */}
@@ -236,7 +266,7 @@ export default function Day() {
                   className="btn btn--small btn--quiet"
                   aria-pressed={reordering}
                   onClick={toggleReorder}
-                  disabled={busy || view.active.length === 0}
+                  disabled={busy || outstanding.length === 0}
                 >
                   {reordering ? 'Done reordering' : 'Reorder'}
                 </button>
@@ -269,7 +299,9 @@ export default function Day() {
                       today={view.date}
                       bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
                       busy={busy}
-                      onComplete={() => run('complete', { task_id: task.id })}
+                      onComplete={() =>
+                        run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id })
+                      }
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
@@ -290,32 +322,6 @@ export default function Day() {
           {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
               belongs here all week, and a task placed today can arrive here already
               satisfied by an earlier completion in the same period. */}
-          {view.completed.length > 0 && (
-            <section className="day-section" aria-label="Completed tasks">
-              <h2 className="day-h2">Completed</h2>
-              <ul className="day-list">
-                {view.completed.map((task) => (
-                  <li
-                    key={task.id}
-                    className="day-row day-row--done"
-                    data-colour={task.color ? '' : undefined}
-                    style={
-                      task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined
-                    }
-                  >
-                    <div className="day-row-main">
-                      <Tick
-                        done
-                        label={`Untick ${task.name}`}
-                        onToggle={() => run('uncomplete', { task_id: task.id })}
-                      />
-                      <TaskName task={task} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
 
         {/* Placed tasks only, and only those still outstanding — a done task adds
