@@ -42,7 +42,7 @@ export function UpcomingPane({
   onEdit: (id: number) => void
 }) {
   return (
-    <div className="day-pane">
+    <div className="pane">
       <section className="day-section" aria-label={longDate(day.date)}>
         <div className="day-section-bar">
           <h2 className="day-h2">{dayLabel(day.date)}</h2>

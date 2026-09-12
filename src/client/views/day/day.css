@@ -307,7 +307,6 @@
 
 /* --- sheets ------------------------------------------------------------- */
 
-
 /* --- drag reordering ------------------------------------------------------ */
 
 .day-list--reorder {
@@ -350,49 +349,11 @@
    focusable for the same reason: arrow keys scroll it directly. `.day-strip`
    above it drives it and reads its position back. */
 
-.day-track {
-  display: flex;
-  gap: var(--gap-3);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: var(--gap-2);
-}
-
-.day-track:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: var(--radius);
-}
-
-/* During a reorder there is nowhere to swipe to — that edit state is today-only
-   — and a dnd-kit drag inside a snapping scroller is the interaction that cost
-   two wrong fixes in v4. The scrolling is removed rather than debugged. */
-.day-track[data-locked] {
-  overflow-x: hidden;
-  scroll-snap-type: none;
-}
-
-.day-pane {
-  flex: 0 0 100%;
-  min-width: 0;
-  scroll-snap-align: start;
-  /* Not decorative. `.sr` (the visually-hidden label inside a static tick) is
-     position:absolute, and with no positioned ancestor its containing block is
-     the initial one — so on a scrolled-away pane it lands at the pane's document
-     x, OUTSIDE the track's clip, and stretches the page body sideways by its own
-     width. Making the pane its containing block puts it back inside the scroller,
-     where overflow can clip it. Caught by the body-never-scrolls-sideways test on
-     the narrow viewport, at 410px against a 390px window. */
-  position: relative;
-}
-
 /* Today is the surface you act on; the rest are context. That distinction is
    carried by the pane itself rather than by a highlight somewhere else — the
    heading reads "Today" against a date, and a future pane's ticks are static
    boxes rather than controls. */
-.day-pane:not(.day-pane--today) .day-h2 {
+.pane:not(.pane--today) .day-h2 {
   color: var(--text-dim);
 }
 

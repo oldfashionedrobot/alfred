@@ -1,5 +1,5 @@
 import './day.css'
-import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
@@ -13,6 +13,7 @@ import { DayStrip } from './DayStrip.tsx'
 import { UpcomingPane } from './UpcomingPane.tsx'
 import { CaptureSheet } from './CaptureSheet.tsx'
 import { DragBand } from './DragBand.tsx'
+import { Track, usePagedTrack } from './PagedTrack.tsx'
 
 /*
  * Day — the doing surface.
@@ -54,32 +55,10 @@ export default function Day() {
   // The reorder edit state — the one locally held arrangement in the client.
   const [orderIds, setOrderIds] = useState<number[] | null>(null)
 
-  // Which pane is showing. NOT the source of truth for the scroll position —
-  // the track is, and this is read back off it. A swipe and a button press then
-  // agree by construction rather than by being kept in step.
-  const trackRef = useRef<HTMLDivElement>(null)
-  const [paneIndex, setPaneIndex] = useState(0)
-
-  /** The distance between two panes: their width plus the flex gap. */
-  const paneStep = (track: HTMLDivElement): number => {
-    const kids = track.children
-    if (kids.length < 2) return 0
-    return (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft
-  }
-
-  const goTo = (i: number) => {
-    const track = trackRef.current
-    if (!track || i < 0 || i >= track.children.length) return
-    track.scrollTo({ left: i * paneStep(track), behavior: 'smooth' })
-  }
-
-  const onTrackScroll = (e: UIEvent<HTMLDivElement>) => {
-    const track = e.currentTarget
-    const step = paneStep(track)
-    if (step <= 0) return
-    const i = Math.round(track.scrollLeft / step)
-    setPaneIndex(Math.min(track.children.length - 1, Math.max(0, i)))
-  }
+  // The week's panes. Named rather than destructured flat, because the backlog
+  // track below is a second instance of the same hook and `index` cannot mean
+  // both.
+  const days = usePagedTrack()
 
   useEffect(() => {
     let alive = true
@@ -204,13 +183,6 @@ export default function Day() {
         <h1 className="day-date">{longDate(view.date)}</h1>
       </header>
 
-      {/* The week, as panes: today first, then one per day through Saturday.
-          A snapping scroll container — the browser's own gesture, no library and
-          no handler of ours. The strip above drives it and reads back from it.
-
-          data-locked freezes it during a reorder: that edit state is today-only,
-          so there is nowhere to swipe to, and a dnd-kit context inside a snapping
-          scroller is the interaction that cost two wrong fixes in v4. */}
       {/* ALWAYS, including a Saturday — where it draws one enabled button, six
           disabled ones and two disabled arrows.
 
@@ -229,21 +201,20 @@ export default function Day() {
         // is what is still to do, and an upcoming pane is already filtered to
         // what is outstanding on it.
         counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
-        index={paneIndex}
-        onGo={goTo}
+        index={days.index}
+        onGo={days.goTo}
         disabled={busy || reordering}
       />
 
-      <div
-        className="day-track"
-        ref={trackRef}
-        onScroll={onTrackScroll}
-        tabIndex={0}
-        role="region"
-        aria-label="This week, day by day"
-        data-locked={reordering || undefined}
+      {/* Today first, then one pane per day through Saturday. The scrolling,
+          the snapping and the freeze during a reorder all live in `Track`. */}
+      <Track
+        label="This week, day by day"
+        locked={reordering}
+        trackRef={days.trackRef}
+        onScroll={days.onScroll}
       >
-        <div className="day-pane day-pane--today">
+        <div className="pane pane--today">
           <section className="day-section" aria-label="Active tasks">
             <div className="day-section-bar">
               <h2 className="day-h2">Today</h2>
@@ -368,7 +339,7 @@ export default function Day() {
             }}
           />
         ))}
-      </div>
+      </Track>
 
       {/* Collapsed here: the list above is arranged for doing, and the panel is
           for the moment you ask "what else is there?" */}

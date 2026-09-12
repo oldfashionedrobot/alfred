@@ -54,8 +54,10 @@ export function usePagedTrack(): {
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const track = e.currentTarget
     const step = paneStep(track)
-    // Dividing the scroll position by a step of 0 pins the index at NaN, which
-    // clamps to the last pane and highlights the wrong button.
+    // Dividing by a step of 0 gives Infinity, which clamps to the last pane, or
+    // NaN when the track has not been scrolled — and NaN survives both Math.max
+    // and Math.min, so it would be stored as the index. Either way the strip
+    // highlights something that is not the pane you are looking at.
     if (step <= 0) return
     const i = Math.round(track.scrollLeft / step)
     setIndex(Math.min(track.children.length - 1, Math.max(0, i)))

@@ -26,7 +26,10 @@ export function NoticeBar({ notice, onDismiss }: { notice: Notice; onDismiss: ()
 
   if (!notice) return null
   return (
-    <div className={`notice notice--${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
+    <div
+      className={`notice notice--${notice.tone}`}
+      role={notice.tone === 'error' ? 'alert' : 'status'}
+    >
       <span>{notice.text}</span>
       <button className="notice__x" onClick={onDismiss} aria-label="Dismiss">
         ✕
@@ -75,7 +78,7 @@ export function Tick({
  * A small menu in the TOP LAYER, anchored under whatever opened it.
  *
  * The top layer is the point, not a flourish. The day picker opens from rows
- * inside `.day-track`, which is a horizontal scroll container, and from inside
+ * inside `.track`, which is a horizontal scroll container, and from inside
  * the To do panel — an absolutely positioned dropdown would be clipped by the
  * first ancestor with `overflow` and would have to fight for a z-index besides.
  * A popover is in neither's coordinate system.
@@ -303,13 +306,16 @@ export function Confirm({
       >
         {confirmLabel}
       </button>
-      <button className="btn btn--small btn--quiet" disabled={disabled} onClick={() => setArmed(false)}>
+      <button
+        className="btn btn--small btn--quiet"
+        disabled={disabled}
+        onClick={() => setArmed(false)}
+      >
         Cancel
       </button>
     </span>
   )
 }
-
 
 // --- sheet ----------------------------------------------------------------
 
