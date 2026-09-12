@@ -103,6 +103,11 @@ export interface DayTask {
   state: DayTaskState
   effective_date: ISODate | null
   /**
+   * Done for its current period — struck through, and sunk to the bottom of
+   * the list rather than moved into a section of its own.
+   */
+  is_done: boolean
+  /**
    * Free text, and rendered nowhere on Day — carried because the task editor
    * opens from this list as well as from the panel, and it edits the category.
    */
@@ -118,8 +123,9 @@ export interface DayTask {
  * hold a planned_date, so `planned_date === date` never matches one.
  *
  * Reuses DayTask so a single row component renders every pane. Every row here is
- * state 'planned' and its effective_date equals `date`; both are carried anyway
- * rather than splitting the type.
+ * state 'planned', its effective_date equals `date` and its is_done is false —
+ * a satisfied task is dropped from a pane, not struck through on one. All three
+ * are carried anyway rather than splitting the type.
  */
 export interface UpcomingDay {
   date: ISODate
@@ -133,10 +139,11 @@ export interface DayView {
   log: string | null
   /** Active moods in sort_order — the picker row. */
   moods: Mood[]
-  /** Already in render order. The client never sorts. */
-  active: DayTask[]
-  /** Period-satisfied, sorted independently. */
-  completed: DayTask[]
+  /**
+   * Everything today holds, done and not, in render order — the client never
+   * sorts. Done rows are last, and carry `is_done` rather than a second array.
+   */
+  tasks: DayTask[]
   /**
    * All seven days of this week, Sunday first. The day strip renders one button
    * each and disables those before `date`; the client never derives a week.
@@ -195,7 +202,7 @@ export interface TodoGroup {
 
 export interface TodoView {
   today: ISODate
-  /** Always 6, in cadence order: day, week, month, quarter, year, once. */
+  /** Always 6, in TODO_GROUPS order: once, day, week, month, quarter, year. */
   groups: TodoGroup[]
   /** Today through Saturday — the picker's chips. */
   placeable_dates: ISODate[]
@@ -206,14 +213,26 @@ export interface TodoView {
   categories: string[]
 }
 
-/** Group order and headings. The one-off group has no period. */
+/**
+ * Group order and headings. The one-off group has no period.
+ *
+ * It leads the six because it is where capture lands — the group you reach for
+ * without having decided a cadence should not be the one at the far end of the
+ * track.
+ *
+ * The titles are cadence adjectives rather than period phrases ('Weekly', not
+ * 'This week') because they are strip buttons now and share a phone's width.
+ * Nothing is lost: `periodLabel` renders the period's actual range beside the
+ * group heading, and "6 – 12 Sep 2026" says more than "This week" did. 'Any
+ * time' is a LABEL for `cadence: null` — the model word stays one-off.
+ */
 export const TODO_GROUPS: ReadonlyArray<{ cadence: Cadence | null; title: string }> = [
-  { cadence: 'day', title: 'Today' },
-  { cadence: 'week', title: 'This week' },
-  { cadence: 'month', title: 'This month' },
-  { cadence: 'quarter', title: 'This quarter' },
-  { cadence: 'year', title: 'This year' },
-  { cadence: null, title: 'One-off' },
+  { cadence: null, title: 'Any time' },
+  { cadence: 'day', title: 'Daily' },
+  { cadence: 'week', title: 'Weekly' },
+  { cadence: 'month', title: 'Monthly' },
+  { cadence: 'quarter', title: 'Quarterly' },
+  { cadence: 'year', title: 'Yearly' },
 ]
 
 // ---------------------------------------------------------------------------

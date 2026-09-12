@@ -199,8 +199,8 @@ describe('buildDayView', () => {
     await addTask({ name: 'Stretch', cadence: 'day' })
 
     const view = await buildDayView(db, VIEWER)
-    const bins = view.active.find((t) => t.name === 'Bins')
-    const stretch = view.active.find((t) => t.name === 'Stretch')
+    const bins = view.tasks.find((t) => t.name === 'Bins')
+    const stretch = view.tasks.find((t) => t.name === 'Stretch')
 
     // Nothing on Day renders a category. It is carried because the editor opens
     // from this list as well as from the panel, and the editor edits it — a row
@@ -211,9 +211,9 @@ describe('buildDayView', () => {
 
   test('D1 REGRESSION — completing an overdue one-off keeps it on the screen', async () => {
     // The defect: membership was a chain of `else if` on isOverdue, which is
-    // false once a task is done. Ticking an overdue task dropped it out of
-    // BOTH arrays — off the screen, with no row left to tap to untick, and no
-    // other surface able to correct it (Week's past days are read-only).
+    // false once a task is done. Ticking an overdue task dropped it off the
+    // screen entirely — no row left to tap to untick, and no other surface able
+    // to correct it (the Tracker is read-only).
     // A one-off's period start is unbounded, so this reproduces on any weekday.
     const id = await addTask({
       name: 'Call the vet',
@@ -223,13 +223,11 @@ describe('buildDayView', () => {
     })
 
     const view = await buildDayView(db, VIEWER)
-    const members = view.active.concat(view.completed)
 
-    expect(ids(members)).toContain(id)
-    expect(ids(view.completed)).toContain(id)
-    expect(ids(view.active)).not.toContain(id)
+    expect(ids(view.tasks)).toContain(id)
 
-    const row = view.completed.find((t) => t.id === id)!
+    const row = view.tasks.find((t) => t.id === id)!
+    expect(row.is_done).toBe(true)
     // State is laboured independently of membership; isOverdue is false once
     // done, so a completed overdue task is labelled 'planned'.
     expect(['overdue', 'planned']).toContain(row.state)
@@ -243,35 +241,36 @@ describe('buildDayView', () => {
 
       const view = await buildDayView(db, VIEWER)
 
-      expect(ids(view.active.concat(view.completed))).toContain(id)
-      expect(ids(view.completed)).toContain(id)
-      expect(['overdue', 'planned']).toContain(view.completed.find((t) => t.id === id)!.state)
+      expect(ids(view.tasks)).toContain(id)
+      const row = view.tasks.find((t) => t.id === id)!
+      expect(row.is_done).toBe(true)
+      expect(['overdue', 'planned']).toContain(row.state)
     },
   )
 
-  test('an overdue task not yet done is active and marked overdue', async () => {
+  test('an overdue task not yet done is on the list and marked overdue', async () => {
     const id = await addTask({ name: 'Call the vet', cadence: null, planned_date: shift(TODAY, -3) })
 
     const view = await buildDayView(db, VIEWER)
 
-    expect(ids(view.active)).toContain(id)
-    expect(view.active.find((t) => t.id === id)!.state).toBe('overdue')
+    expect(ids(view.tasks)).toContain(id)
+    expect(view.tasks.find((t) => t.id === id)!.state).toBe('overdue')
   })
 
-  test('a daily task is active when not completed and completed when it is', async () => {
+  test('a daily task is on the list either way — ticking marks it, not moves it', async () => {
     await addTask({ name: 'Meds', cadence: 'day' })
     await addTask({ name: 'Sleep', cadence: 'day', done_on: [TODAY] })
 
     const view = await buildDayView(db, VIEWER)
 
-    expect(await names(view.active)).toEqual(['Meds'])
-    expect(await names(view.completed)).toEqual(['Sleep'])
-    expect(view.active[0]!.state).toBe('daily')
-    expect(view.completed[0]!.state).toBe('daily')
+    expect(names(view.tasks)).toEqual(['Meds', 'Sleep'])
+    expect(view.tasks.map((t) => t.is_done)).toEqual([false, true])
+    // Doneness is a mark, not a state: both rows are still daily.
+    expect(view.tasks.map((t) => t.state)).toEqual(['daily', 'daily'])
   })
 
   test.skipIf(NO_EARLIER_DAY)(
-    'a weekly task placed today but completed earlier this week is completed, not active',
+    'a weekly task placed today but completed earlier this week arrives ticked',
     async () => {
       // is_done is PERIOD-SATISFACTION, not same-day: this week's vacuuming is
       // done, whatever day it was ticked.
@@ -284,9 +283,9 @@ describe('buildDayView', () => {
 
       const view = await buildDayView(db, VIEWER)
 
-      expect(ids(view.completed)).toContain(id)
-      expect(ids(view.active)).not.toContain(id)
-      expect(view.completed.find((t) => t.id === id)!.state).toBe('planned')
+      const row = view.tasks.find((t) => t.id === id)!
+      expect(row.is_done).toBe(true)
+      expect(row.state).toBe('planned')
     },
   )
 
@@ -301,8 +300,7 @@ describe('buildDayView', () => {
 
       const view = await buildDayView(db, VIEWER)
 
-      expect(view.active).toEqual([])
-      expect(view.completed).toEqual([])
+      expect(view.tasks).toEqual([])
     },
   )
 
@@ -312,15 +310,15 @@ describe('buildDayView', () => {
 
     const view = await buildDayView(db, VIEWER)
 
-    expect(view.active.concat(view.completed)).toEqual([])
+    expect(view.tasks).toEqual([])
   })
 
-  test('an unplaced period task is not a member — it lives in the panel only', async () => {
+  test('an unplaced period task is not a member — it lives in the backlog only', async () => {
     await addTask({ name: 'Grocery run', cadence: 'week' })
 
     const view = await buildDayView(db, VIEWER)
 
-    expect(view.active.concat(view.completed)).toEqual([])
+    expect(view.tasks).toEqual([])
   })
 
   test('archived tasks appear in no view', async () => {
@@ -330,7 +328,7 @@ describe('buildDayView', () => {
     await addTask({ name: 'Gone ticked', cadence: 'day', active: false, done_on: [TODAY] })
 
     const day = await buildDayView(db, VIEWER)
-    expect(day.active.concat(day.completed)).toEqual([])
+    expect(day.tasks).toEqual([])
 
     expect(day.upcoming.flatMap((u) => u.tasks)).toEqual([])
 
@@ -346,7 +344,7 @@ describe('buildDayView', () => {
     await addTask({ name: 'Banana', cadence: 'day' })
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true })
 
-    expect(await names((await buildDayView(db, VIEWER)).active)).toEqual(['Zebra', 'Apple', 'Banana'])
+    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Zebra', 'Apple', 'Banana'])
   })
 
   test("days.task_order is respected, and never moves a task across the baseline band", async () => {
@@ -356,17 +354,31 @@ describe('buildDayView', () => {
     // Zebra is listed last but is baseline, so it still leads.
     await setDay(TODAY, { task_order: [banana, apple] })
 
-    expect(await names((await buildDayView(db, VIEWER)).active)).toEqual(['Zebra', 'Banana', 'Apple'])
+    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Zebra', 'Banana', 'Apple'])
   })
 
-  test('active and completed are sorted independently', async () => {
+  test('done rows sink to the bottom of the one list, baseline included', async () => {
     await addTask({ name: 'Apple', cadence: 'day', done_on: [TODAY] })
     await addTask({ name: 'Banana', cadence: 'day' })
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true, done_on: [TODAY] })
 
     const view = await buildDayView(db, VIEWER)
-    expect(await names(view.active)).toEqual(['Banana'])
-    expect(await names(view.completed)).toEqual(['Zebra', 'Apple'])
+    // Zebra is baseline and would lead the list, but it is ticked: done outranks
+    // baseline, and baseline then leads inside the done band.
+    expect(names(view.tasks)).toEqual(['Banana', 'Zebra', 'Apple'])
+    expect(view.tasks.map((t) => t.is_done)).toEqual([false, true, true])
+  })
+
+  test('the arrangement covers the done rows too, so tick and untick returns a task', async () => {
+    const apple = await addTask({ name: 'Apple', cadence: 'day' })
+    const banana = await addTask({ name: 'Banana', cadence: 'day', done_on: [TODAY] })
+    const cherry = await addTask({ name: 'Cherry', cadence: 'day', done_on: [TODAY] })
+    // The client saves the whole rendered list — the live rows it dragged, then
+    // the done ones after them. Both halves are read back here.
+    await setDay(TODAY, { task_order: [apple, cherry, banana] })
+
+    const view = await buildDayView(db, VIEWER)
+    expect(names(view.tasks)).toEqual(['Apple', 'Cherry', 'Banana'])
   })
 
   test('mood, log and the picker come off the sparse days row', async () => {
@@ -546,7 +558,7 @@ describe('DayView.upcoming', () => {
     const pane = view.upcoming.find((u) => u.date === NEXT_DAY)!
     expect(pane.tasks.map((t) => t.name)).toEqual(['Grocery run'])
     // Tomorrow's plan is not today's business.
-    expect(view.active.concat(view.completed)).toEqual([])
+    expect(view.tasks).toEqual([])
   })
 
   test.skipIf(NO_FUTURE_DAY)('a future row is planned, and dated the pane it is on', async () => {
@@ -566,7 +578,7 @@ describe('DayView.upcoming', () => {
     // Not by a filter: a daily task can never hold a planned_date, so no pane
     // can match one. Asserted anyway, because that is the load-bearing bit.
     expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
-    expect(view.active.map((t) => t.name).sort()).toEqual(['Feed Barney', 'Take pills'])
+    expect(view.tasks.map((t) => t.name).sort()).toEqual(['Feed Barney', 'Take pills'])
   })
 
   test('a task with no day appears on no pane', async () => {
@@ -580,7 +592,7 @@ describe('DayView.upcoming', () => {
     // past day is not one of them.
     const view = await buildDayView(db, VIEWER)
     expect(view.upcoming.flatMap((u) => u.tasks)).toEqual([])
-    expect(view.active.map((t) => t.state)).toEqual(['overdue'])
+    expect(view.tasks.map((t) => t.state)).toEqual(['overdue'])
   })
 
   test.skipIf(NO_FUTURE_DAY)('a task already satisfied for its period is dropped, not struck through', async () => {
@@ -647,18 +659,36 @@ describe('DayView.upcoming', () => {
 
 const GROUP_ORDER: ReadonlyArray<Cadence | null> = TODO_GROUPS.map((g) => g.cadence)
 
+describe('TODO_GROUPS', () => {
+  test('one-off leads the six, and the titles are cadence adjectives', () => {
+    // One constant drives the server's group order AND the strip's buttons, so
+    // both halves are pinned here. 'Any time' is a LABEL: the model word for
+    // `cadence: null` is still one-off.
+    expect(TODO_GROUPS.map((g) => [g.cadence, g.title])).toEqual([
+      [null, 'Any time'],
+      ['day', 'Daily'],
+      ['week', 'Weekly'],
+      ['month', 'Monthly'],
+      ['quarter', 'Quarterly'],
+      ['year', 'Yearly'],
+    ])
+  })
+})
+
 describe('buildTodoView', () => {
-  test('always exactly six groups in cadence order, even when the database is empty', async () => {
+  test('always six groups in TODO_GROUPS order, even when the database is empty', async () => {
     const view = await buildTodoView(db, VIEWER)
 
     expect(view.groups.length).toBe(6)
+    // One-off leads the six since v15: it is where capture lands, so it is not
+    // the group at the far end of the track.
     expect(view.groups.map((g) => g.cadence)).toEqual([
+      null,
       'day',
       'week',
       'month',
       'quarter',
       'year',
-      null,
     ])
     expect(view.groups.map((g) => g.cadence)).toEqual([...GROUP_ORDER])
     expect(view.groups.every((g) => g.tasks.length === 0)).toBe(true)
@@ -813,11 +843,12 @@ describe('buildTodoView', () => {
   test('has_overdue is true when ANY group holds an overdue task', async () => {
     expect((await buildTodoView(db, VIEWER)).has_overdue).toBe(false)
 
-    // The one-off group is the LAST of the six, so this also proves has_overdue
-    // scans past the first. A one-off's period start is unbounded, which is what
-    // makes it overdue on every calendar date — including 1 January, where no
-    // recurring cadence can be: yesterday is behind the year, quarter and month
-    // period starts, so effective_date is null and there is no debt to carry.
+    // A one-off's period start is unbounded, which is what makes it overdue on
+    // every calendar date — including 1 January, where no recurring cadence can
+    // be: yesterday is behind the year, quarter and month period starts, so
+    // effective_date is null and there is no debt to carry. v15 moved this group
+    // to the FRONT of the six, so the recurring case below is now the one that
+    // proves has_overdue scans past the first group.
     await addTask({ name: 'Call the vet', cadence: null, planned_date: shift(TODAY, -1) })
     const view = await buildTodoView(db, VIEWER)
     expect(view.has_overdue).toBe(true)
