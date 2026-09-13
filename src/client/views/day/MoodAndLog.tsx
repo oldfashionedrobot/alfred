@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DayView, Mood } from '../../../shared/types.ts'
 
 // --- mood and log -----------------------------------------------------------
@@ -68,6 +68,29 @@ export function MoodAndLog({
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const log = view.log ?? ''
+
+  /*
+   * A typed entry survives the sheet closing, however it closes.
+   *
+   * The log saves on blur or on Save, and since v15 this lives inside a `Sheet`
+   * that Escape dismisses — which unmounts the textarea without blurring it, so
+   * an entry typed and then dismissed was silently thrown away. Losing what
+   * somebody wrote is the one failure a journal must not have.
+   *
+   * Read through a ref so the effect can depend on nothing and run only on
+   * unmount; reading `draft` directly would capture the value it had at mount.
+   * Guarded on `open`, because a draft that was never opened is the empty string
+   * and would otherwise be written over a log that already exists.
+   */
+  const latest = useRef({ open, draft, log, onSetLog })
+  latest.current = { open, draft, log, onSetLog }
+  useEffect(
+    () => () => {
+      const { open, draft, log, onSetLog } = latest.current
+      if (open && draft !== log) onSetLog(draft)
+    },
+    [],
+  )
 
   function save() {
     setOpen(false)

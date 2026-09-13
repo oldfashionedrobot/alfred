@@ -356,6 +356,47 @@ test('the backlog is hosted by Day as one track of six groups', async ({ page, a
   await expect(group(panelOf(page), 'Any time').getByText('Vacuum downstairs')).toHaveCount(0)
 })
 
+/*
+ * The strip is a ROW, and this asserts the layout rather than the roles.
+ *
+ * Its CSS was missing entirely when the track first landed, and the whole
+ * browser suite stayed green: every other assertion here addresses roles and
+ * accessible names, which a `<ul>` falling back to UA defaults still satisfies.
+ * What it does not satisfy is being usable — six bulleted buttons stacked
+ * vertically, 306px tall and indented 40px. A height bound is the cheapest thing
+ * that can tell the difference.
+ */
+test('the group strip is a single row, not a stacked list', async ({ page, app }) => {
+  app.seed.task({ name: 'Vacuum downstairs', cadence: 'quarter' })
+
+  await page.goto(app.url)
+  const strip = groupStrip(page)
+  await expect(strip).toBeVisible()
+
+  const box = await strip.boundingBox()
+  // One row of 44px targets plus padding. Stacked, it is six times this.
+  expect(box!.height, 'the strip is one row').toBeLessThan(100)
+
+  const buttons = strip.getByRole('list').getByRole('button')
+  const boxes = await buttons.evaluateAll((els) =>
+    els.map((e) => {
+      const r = e.getBoundingClientRect()
+      return { top: Math.round(r.top), height: Math.round(r.height) }
+    }),
+  )
+  // All six share a top edge, which is what "a row" means.
+  expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
+  // And each is still a full tap target — the fix must not shrink them to fit.
+  for (const b of boxes) expect(b.height).toBeGreaterThanOrEqual(44)
+
+  // The longest label fits rather than being clipped at this width.
+  const clipped = await strip.getByRole('button', { name: /^Quarterly/ }).evaluate((e) => {
+    const t = e.querySelector('.group-strip__title') as HTMLElement
+    return t.scrollWidth > t.clientWidth + 1
+  })
+  expect(clipped, 'Quarterly fits without clipping').toBe(false)
+})
+
 test('the group strip pages the track, and is a real control', async ({ page, app }) => {
   app.seed.task({ name: 'Vacuum downstairs', cadence: 'week' })
 

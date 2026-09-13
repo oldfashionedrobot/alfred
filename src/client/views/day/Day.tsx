@@ -209,6 +209,16 @@ export default function Day() {
     placementMaxFor(view.placement, view.placeable_dates, cadence)
 
   const toggleDone = async (task: DayTask): Promise<void> => {
+    /*
+     * Ignored while one is already in flight.
+     *
+     * The row draws the PREDICTED state, so a person who taps twice is looking
+     * at a ticked box and means to untick it — but the command is chosen from
+     * the model, which has not changed yet, so the second tap re-sent `complete`
+     * and their undo went nowhere. The backlog's copy of this is guarded by
+     * `locked`; this is the equivalent, and it lasts one round trip.
+     */
+    if (pendingTicks.has(task.id)) return
     setPendingTicks((ids) => new Set(ids).add(task.id))
     try {
       await run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id })
@@ -357,7 +367,12 @@ export default function Day() {
                       key={task.id}
                       task={asShown(task)}
                       today={view.date}
-                      bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
+                      // Only in the live block. Done rows sort below every live
+                      // one and carry their own baseline boundary, so without
+                      // this the 2px divider is drawn twice in one list.
+                      bandStart={
+                        prev !== undefined && prev.is_baseline && !task.is_baseline && !task.is_done
+                      }
                       busy={busy}
                       onComplete={() => toggleDone(task)}
                       onUncomplete={() => toggleDone(task)}

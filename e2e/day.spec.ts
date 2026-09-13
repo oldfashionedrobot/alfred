@@ -542,6 +542,61 @@ test('the box checks before the command lands, and reverts if it fails', async (
   await expect(tick(page, 'Slow tick')).toHaveAttribute('aria-checked', 'false')
 })
 
+/*
+ * A second tap while the first is still in flight.
+ *
+ * The row draws the predicted state, so somebody tapping twice is looking at a
+ * ticked box and means to undo. The command is chosen from the model, which has
+ * not caught up — so this used to re-send `complete` and drop the undo silently.
+ */
+test('a second tap while the tick is in flight does not re-send the same command', async ({
+  page,
+  app,
+}) => {
+  app.seed.task({ name: 'Slow tick', cadence: 'day' })
+  await page.goto(app.url)
+
+  const sent: string[] = []
+  let release: (() => void) | undefined
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/commands/*', async (route) => {
+    sent.push(route.request().url().split('/').pop()!)
+    if (sent.length === 1) await held
+    await route.continue()
+  })
+
+  await tick(page, 'Slow tick').click()
+  await expect(untick(page, 'Slow tick')).toBeVisible()
+  await untick(page, 'Slow tick').click()
+
+  release!()
+  await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(true)
+  expect(sent).toEqual(['complete'])
+})
+
+/*
+ * The baseline divider is drawn once, not once per doneness band.
+ *
+ * Done rows sort below every live one and carry their own baseline boundary, so
+ * a list holding both used to show the 2px rule twice.
+ */
+test('the baseline divider is drawn once, even with done rows below', async ({ page, app }) => {
+  const doneBaseline = app.seed.task({
+    name: 'BBB done baseline',
+    cadence: 'day',
+    is_baseline: true,
+  })
+  const donePlain = app.seed.task({ name: 'DDD done plain', cadence: 'day' })
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  app.seed.task({ name: 'CCC plain', cadence: 'day' })
+  app.seed.completion(doneBaseline, app.today)
+  app.seed.completion(donePlain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(4)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
 test('double-tapping complete is idempotent', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Twice tapped', cadence: 'day' })
 
@@ -839,6 +894,34 @@ test('the log field saves its text', async ({ page, app }) => {
     .poll(async () => (await dayView(app)).log)
     .toBe('Slept badly, still got the bins out.')
   await expect(moodAndLog.getByText('Slept badly, still got the bins out.')).toBeVisible()
+})
+
+/*
+ * Escape unmounts the sheet without blurring the textarea, and blur is what
+ * saves — so a typed entry used to be thrown away. Losing what somebody wrote is
+ * the one failure a journal must not have.
+ */
+test('dismissing the sheet keeps a typed log', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openMood(page)
+  await page.getByRole('button', { name: /log for today/i }).click()
+  await page.getByRole('textbox', { name: 'Log for today' }).fill('Typed, then dismissed.')
+  await page.keyboard.press('Escape')
+
+  await expect.poll(async () => (await dayView(app)).log).toBe('Typed, then dismissed.')
+})
+
+/* And the other direction: a sheet opened and closed without touching the log
+   must not write an empty draft over an entry that already exists. */
+test('opening the sheet without editing leaves an existing log alone', async ({ page, app }) => {
+  app.seed.day(app.today, { log: 'Already written.' })
+
+  await page.goto(app.url)
+  await openMood(page)
+  await page.keyboard.press('Escape')
+
+  await expect(page.getByRole('dialog', { name: 'Mood and log' })).toHaveCount(0)
+  expect((await dayView(app)).log).toBe('Already written.')
 })
 
 test('mood and log survive a reload', async ({ page, app }) => {

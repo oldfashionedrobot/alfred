@@ -473,6 +473,40 @@
   opacity: 0.3;
 }
 
+/* --- the group strip -----------------------------------------------------
+   The backlog's six cadence buttons. It reuses `.day-strip` for the row and
+   `.day-strip__step` / `.day-strip__day` / `.day-strip__count` for the controls,
+   because those are the same control at the same size — only the list needs its
+   own rule, and only because six words have to share the width seven weekday
+   abbreviations do. */
+
+.group-strip__groups {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.group-strip__groups > li {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Smaller than the day strip's label, and clipped rather than wrapped: at 390px
+   six buttons get about 47px each, and "Quarterly" does not fit at the strip's
+   normal size. Clipping is safe because the full title is in the button's
+   accessible name — `aria-label` carries "Quarterly, 3 tasks" whatever the text
+   does. Letting it wrap instead would make the strip two rows tall on a phone. */
+.group-strip__title {
+  overflow: hidden;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- capture: one or many ------------------------------------------------
    A paste of names is a different gesture from defining a task, so the sheet
    says which one it is doing rather than growing a field that means both. */
