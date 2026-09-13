@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-
   TaskFields,
   draftIsValid,
   draftToPatch,
@@ -20,7 +19,14 @@ import { Sheet } from '../../ui.tsx'
  * the number that will actually be created rather than the number of lines typed.
  */
 export function parseNames(text: string): string[] {
-  return [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
+  return [
+    ...new Set(
+      text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l !== ''),
+    ),
+  ]
 }
 
 export function CaptureSheet({
@@ -116,7 +122,11 @@ export function CaptureSheet({
               />
             </label>
 
-            <button className="btn btn--primary" type="submit" disabled={names.length === 0 || busy}>
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={names.length === 0 || busy}
+            >
               {names.length === 0
                 ? 'Add'
                 : names.length === 1
@@ -124,10 +134,13 @@ export function CaptureSheet({
                   : `Add ${names.length} tasks`}
             </button>
           </form>
+          {/* Both hints name where to go next, and since v15 there is one place
+              to name: the Backlog track below today's list. Anything captured
+              without a cadence lands in its Any time group. */}
           <p className="hint">
             {placing
-              ? 'They all land on today’s list. Give them a cadence afterwards, in the Routine panel.'
-              : 'They all go to the backlog with no date. Give them a cadence or a day afterwards, in the Routine or Backlog panel.'}
+              ? 'They all land on today’s list. Give them a cadence afterwards, in the Backlog below.'
+              : 'They all go to the backlog with no date. Give them a cadence or a day afterwards, under Any time in the Backlog below.'}
           </p>
         </>
       ) : (
@@ -145,7 +158,11 @@ export function CaptureSheet({
                 costs nothing closed. */}
             <TaskFields draft={draft} onChange={setDraft} collapseExtras autoFocusName />
 
-            <button className="btn btn--primary" type="submit" disabled={!draftIsValid(draft) || busy}>
+            <button
+              className="btn btn--primary"
+              type="submit"
+              disabled={!draftIsValid(draft) || busy}
+            >
               Add
             </button>
           </form>
@@ -159,6 +176,3 @@ export function CaptureSheet({
     </Sheet>
   )
 }
-
-// --- task editor ------------------------------------------------------------
-// Slow and deliberate. Archive is the only removal in the system.

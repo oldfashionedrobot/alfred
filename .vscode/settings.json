@@ -1,4 +1,16 @@
 {
+  // Prettier, reading .prettierrc at the repo root. Set here because the
+  // failure this fixes was an editor-level Prettier using its own defaults:
+  // it rewrote Todo.tsx to 80 columns with semicolons every time the file was
+  // opened, against a codebase that uses neither.
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  // Markdown is hand-written and .prettierignore excludes it. Saying so here
+  // too means a save cannot reflow the docs even if the ignore file moves.
+  "[markdown]": {
+    "editor.formatOnSave": false
+  },
+
   "workbench.colorCustomizations": {
     "titleBar.activeBackground": "#1a1e28",
     "titleBar.activeForeground": "#f4f4f4b2",

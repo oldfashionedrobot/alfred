@@ -42,7 +42,7 @@ export function UpcomingPane({
   onEdit: (id: number) => void
 }) {
   return (
-    <div className="day-pane">
+    <div className="pane">
       <section className="day-section" aria-label={longDate(day.date)}>
         <div className="day-section-bar">
           <h2 className="day-h2">{dayLabel(day.date)}</h2>
@@ -60,8 +60,10 @@ export function UpcomingPane({
                 bandStart={false}
                 busy={busy}
                 future
-                // Unreachable: a future pane's tick is not a control.
+                // Unreachable: a future pane's tick is not a control, and a
+                // future row is never done — the server drops those from a pane.
                 onComplete={() => undefined}
+                onUncomplete={() => undefined}
                 onUnplan={() => onUnplan(task.id)}
                 onEdit={() => onEdit(task.id)}
                 placeable={placeable}

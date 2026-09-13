@@ -25,6 +25,16 @@ async function dayView(app: App): Promise<DayView> {
   return (await r.json()) as DayView
 }
 
+/*
+ * v15 merged DayView.active and DayView.completed into one sorted `tasks` array
+ * with `is_done` on each row, so doneness is a field rather than an address.
+ * These two read the model the way the old field names did — they are the
+ * MODEL's halves, not the screen's, and stay separate from `activeNames` /
+ * `completedNames`, which partition what is rendered.
+ */
+const notDone = (day: DayView) => day.tasks.filter((t) => !t.is_done)
+const done = (day: DayView) => day.tasks.filter((t) => t.is_done)
+
 /** The panel Day hosts. Used to assert where a task LANDED, not how it renders. */
 async function todoView(app: App): Promise<TodoView> {
   const r = await app.fetch('/api/todo')
@@ -78,25 +88,47 @@ function plannedDate(app: App, id: number): string | null {
 // The name itself is plain text here: since v3 nothing on a Day row opens a form,
 // and the task editor lives in the Routine panel. See e2e/todo.spec.ts.
 
+/*
+ * ONE region now, named by its own heading.
+ *
+ * v15 merged the Active and Completed sections: a done row is struck through in
+ * place at the foot of the same list, so there is no second section to address
+ * and no second locator to keep.
+ */
 function activeRegion(page: Page) {
-  return page.getByRole('region', { name: 'Active tasks' })
+  return page.getByRole('region', { name: 'Today', exact: true })
 }
 
-function completedRegion(page: Page) {
-  return page.getByRole('region', { name: 'Completed tasks' })
-}
-
-function namesIn(page: Page, region: 'Active tasks' | 'Completed tasks') {
-  return page
-    .getByRole('region', { name: region })
+/*
+ * Which half a row is in is still legible without two regions: the tick's
+ * accessible name says `Complete X` while it is outstanding and `Untick X` once
+ * it is done. Partitioning on that prefix is what lets every call site below
+ * keep both its name and its meaning across the merge.
+ */
+function namesIn(page: Page, want: 'Complete' | 'Untick') {
+  return activeRegion(page)
     .getByRole('checkbox')
-    .evaluateAll((els) =>
-      els.map((e) => (e.getAttribute('aria-label') ?? '').replace(/^(Complete|Untick) /, '')),
+    .evaluateAll(
+      (els, prefix: string) =>
+        els
+          .map((e) => e.getAttribute('aria-label') ?? '')
+          .filter((n) => n.startsWith(`${prefix} `))
+          .map((n) => n.slice(prefix.length + 1)),
+      want,
     )
 }
 
-const activeNames = (page: Page) => namesIn(page, 'Active tasks')
-const completedNames = (page: Page) => namesIn(page, 'Completed tasks')
+/**
+ * The mood and log moved behind a button on the date heading in v15, so every
+ * test that touches them opens the sheet first. The button wears the selected
+ * mood, which is why its name is anchored rather than matched whole.
+ */
+async function openMood(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Mood and log/ }).click()
+}
+
+const activeNames = (page: Page) => namesIn(page, 'Complete')
+const completedNames = (page: Page) => namesIn(page, 'Untick')
 
 /**
  * Row order while the reorder edit state is open.
@@ -111,8 +143,12 @@ function sortableRows(page: Page) {
 }
 
 function reorderNames(page: Page) {
+  // Read the name element rather than stripping glyphs out of the row's text.
+  // The grip used to be the only one; v15 adds move-to-top and send-to-bottom,
+  // and aria-hidden does not keep a glyph out of textContent — so a strip list
+  // would have to grow every time a row gains a control.
   return sortableRows(page).evaluateAll((els) =>
-    els.map((e) => (e.textContent ?? '').replace('≡', '').trim()),
+    els.map((e) => (e.querySelector('.day-name-text')?.textContent ?? '').trim()),
   )
 }
 
@@ -180,7 +216,9 @@ async function dragWithKeyboard(
   // when no move is expected — an arrow that was never received would pass a
   // "it did not move" assertion without proving anything at all.
   await expect
-    .poll(() => page.evaluate(() => (document as unknown as { __keydowns?: number }).__keydowns ?? 0))
+    .poll(() =>
+      page.evaluate(() => (document as unknown as { __keydowns?: number }).__keydowns ?? 0),
+    )
     .toBeGreaterThan(0)
 
   await page.keyboard.press(key)
@@ -199,36 +237,67 @@ async function dragWithKeyboard(
   await expect(row).not.toHaveAttribute('aria-pressed', 'true')
 }
 
-/** The <li> for one task, for the controls that live on the row. */
+/*
+ * The <li> for one task on TODAY'S list, for the controls that live on the row.
+ *
+ * Scoped to the day track since v15. The backlog below it is no longer two
+ * collapsed accordions but an always-rendered track of six panes, so a daily
+ * task is now in the document twice — once on today's list and once in its
+ * cadence group — and an unscoped locator matches both.
+ */
 function row(page: Page, name: string) {
-  return page
+  return dayTrack(page)
     .getByRole('listitem')
-    .filter({ has: page.getByRole('checkbox', { name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`) }) })
+    .filter({
+      // `has` is resolved INSIDE each candidate <li>, so it must stay
+      // page-relative: scoping it to the track as well would look for a region
+      // within the row and match nothing at all.
+      has: page.getByRole('checkbox', {
+        name: new RegExp(`^(Complete|Untick) ${escapeRe(name)}$`),
+      }),
+    })
 }
+
+/** The week's panes. The backlog track is a sibling, and is not this. */
+const dayTrack = (page: Page) =>
+  page.getByRole('region', { name: 'This week, day by day', exact: true })
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-const tick = (page: Page, name: string) => page.getByRole('checkbox', { name: `Complete ${name}` })
-const untick = (page: Page, name: string) => page.getByRole('checkbox', { name: `Untick ${name}` })
+// Scoped for the same reason `row` is: the same task appears in the backlog.
+const tick = (page: Page, name: string) =>
+  dayTrack(page).getByRole('checkbox', { name: `Complete ${name}` })
+const untick = (page: Page, name: string) =>
+  dayTrack(page).getByRole('checkbox', { name: `Untick ${name}` })
 
 /**
- * The panels Day hosts. Since v5 there are two — one component rendered twice,
- * "Routine" drawing the five period groups and "Backlog" the one-off group. Both
- * are collapsed here, so their rows are absent until opened, and each collapses
- * on its own. What is inside them is e2e/todo.spec.ts's business.
+ * The backlog Day hosts. v15 replaced two collapsed accordions with one track of
+ * six cadence groups, always rendered — so its rows are always in the document
+ * and every row-level locator above is scoped to the day track to stay clear of
+ * them. What is inside it is e2e/todo.spec.ts's business.
  */
-type PanelName = 'Routine' | 'Backlog'
-const panel = (page: Page, name: PanelName = 'Routine') =>
-  page.getByRole('region', { name, exact: true })
-/** Anchored at the start: the toggle's name carries a count ("Routine 2 not done"). */
-const panelToggle = (page: Page, name: PanelName = 'Routine') =>
-  panel(page, name).getByRole('button', { name: new RegExp(`^${name}`, 'i') })
+const backlog = (page: Page) => page.getByRole('region', { name: 'Backlog', exact: true })
+
+/** One cadence group's pane inside the backlog track. */
+const backlogGroup = (page: Page, title: string) =>
+  page.getByRole('region', { name: title, exact: true })
 
 /** The reschedule picker on one overdue row. Its days come from view.placeable_dates. */
 const picker = (page: Page, name: string) =>
   row(page, name).getByRole('group', { name: 'Pick a day' })
+
+/*
+ * The edit control on a DAY row.
+ *
+ * Two buttons answer to `Edit <name>` since v15: this icon, and the backlog
+ * row's own name button, which has always opened the editor. They are different
+ * gestures on different surfaces and both are correct — so this names which one
+ * it means rather than either being renamed.
+ */
+const editButton = (page: Page, name: string) =>
+  row(page, name).getByRole('button', { name: `Edit ${name}` })
 
 /** The Sunday on or before `iso`. Weeks run Sunday to Saturday. */
 function weekStartOf(iso: string): string {
@@ -288,7 +357,7 @@ test('within a band tasks are alphabetical by default', async ({ page, app }) =>
     .toEqual(['Air the room', 'Call the vet', 'Mop the floor', 'Zip the bag'])
 })
 
-test("days.task_order overrides alphabetical order and cannot cross the baseline band", async ({
+test('days.task_order overrides alphabetical order and cannot cross the baseline band', async ({
   page,
   app,
 }) => {
@@ -308,7 +377,10 @@ test("days.task_order overrides alphabetical order and cannot cross the baseline
     .toEqual(['B baseline', 'A baseline', 'D ordinary', 'C ordinary'])
 })
 
-test('dailies and today’s placements appear; a future placement does not', async ({ page, app }) => {
+test('dailies and today’s placements appear; a future placement does not', async ({
+  page,
+  app,
+}) => {
   app.seed.task({ name: 'Feed the dog', cadence: 'day' })
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: app.today })
   app.seed.task({ name: 'Wash the car', cadence: 'week', planned_date: addDays(app.today, 1) })
@@ -316,7 +388,9 @@ test('dailies and today’s placements appear; a future placement does not', asy
   await page.goto(app.url)
 
   await expect.poll(() => activeNames(page)).toEqual(['Feed the dog', 'Grocery run'])
-  await expect(activeRegion(page).getByRole('checkbox', { name: 'Complete Wash the car' })).toHaveCount(0)
+  await expect(
+    activeRegion(page).getByRole('checkbox', { name: 'Complete Wash the car' }),
+  ).toHaveCount(0)
 })
 
 /**
@@ -356,7 +430,9 @@ test('Day fetches its own model and the panel’s, and never the Week model', as
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Fix the fence'])
 
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence').getByRole('button').first()).toBeVisible()
 
   // Exactly two models, still. The whole week rides on DayView since v8, so a
@@ -370,7 +446,12 @@ test('Day fetches its own model and the panel’s, and never the Week model', as
 test('an archived task never appears', async ({ page, app }) => {
   app.seed.task({ name: 'Still here', cadence: 'day' })
   app.seed.task({ name: 'Retired task', cadence: 'day', active: false })
-  app.seed.task({ name: 'Retired placement', cadence: 'week', planned_date: app.today, active: false })
+  app.seed.task({
+    name: 'Retired placement',
+    cadence: 'week',
+    planned_date: app.today,
+    active: false,
+  })
 
   await page.goto(app.url)
 
@@ -400,9 +481,16 @@ test('ticking a task completes it against today', async ({ page, app }) => {
   expect(history.rows[0]!.completed).toContain(id)
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
+  expect(done(day).map((t) => t.id)).toEqual([id])
 })
 
+/*
+ * "Returns it to the active list" is now a move within one list rather than
+ * between two, so the assertion that the completed SECTION disappeared has
+ * nothing left to check — there is no second section. What still holds, and is
+ * the thing the test is actually about, is that the row goes back to being
+ * outstanding and the completion is gone from the record.
+ */
 test('tapping a completed item unticks it and returns it to the active list', async ({
   page,
   app,
@@ -416,31 +504,156 @@ test('tapping a completed item unticks it and returns it to the active list', as
   await untick(page, 'Wash up').click()
 
   await expect(tick(page, 'Wash up')).toBeVisible()
-  await expect(completedRegion(page)).toHaveCount(0)
+  await expect.poll(() => completedNames(page)).toEqual([])
   await expect.poll(() => activeNames(page)).toEqual(['Wash up'])
 
-  await expect
-    .poll(async () => (await historyView(app)).rows[0]?.completed ?? [])
-    .not.toContain(id)
+  await expect.poll(async () => (await historyView(app)).rows[0]?.completed ?? []).not.toContain(id)
 })
 
-test('double-tapping complete is idempotent', async ({ page, app }) => {
+/*
+ * The box fills before the server answers.
+ *
+ * Proved by holding the command open: the route is stalled, so the only thing
+ * that could have checked the box is the prediction. Without it the box does not
+ * move until the round trip lands, which on a machine waking from scale-to-zero
+ * reads as a tap that missed.
+ */
+test('the box checks before the command lands, and reverts if it fails', async ({ page, app }) => {
+  app.seed.task({ name: 'Slow tick', cadence: 'day' })
+  await page.goto(app.url)
+  await expect(tick(page, 'Slow tick')).toBeVisible()
+
+  // Hold every complete open until this test lets go of it.
+  let release: (() => void) | undefined
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/commands/complete', async (route) => {
+    await held
+    await route.abort()
+  })
+
+  await tick(page, 'Slow tick').click()
+
+  // Checked, with the command still in flight and nothing refetched.
+  await expect(untick(page, 'Slow tick')).toHaveAttribute('aria-checked', 'true')
+  expect((await dayView(app)).tasks.find((t) => t.name === 'Slow tick')!.is_done).toBe(false)
+
+  // The write failed, so the prediction was wrong and the row goes back.
+  release!()
+  await expect(tick(page, 'Slow tick')).toHaveAttribute('aria-checked', 'false')
+})
+
+/*
+ * A second tap while the first is still in flight.
+ *
+ * The row draws what was ASKED of it, so somebody tapping twice is looking at a
+ * ticked box and means to undo — and the undo has to land. Choosing the command
+ * from the model instead re-sent `complete` and dropped it; refusing the second
+ * tap dropped it just as silently, and made a fast tick-untick fail outright.
+ */
+test('a quick undo lands, even before the first tick has', async ({ page, app }) => {
+  app.seed.task({ name: 'Slow tick', cadence: 'day' })
+  await page.goto(app.url)
+
+  const sent: string[] = []
+  let release: (() => void) | undefined
+  const held = new Promise<void>((r) => (release = r))
+  await page.route('**/api/commands/*', async (route) => {
+    sent.push(route.request().url().split('/').pop()!)
+    if (sent.length === 1) await held
+    await route.continue()
+  })
+
+  await tick(page, 'Slow tick').click()
+  // Checked at once, with the command still in flight and nothing refetched.
+  await expect(untick(page, 'Slow tick')).toBeVisible()
+  expect((await dayView(app)).tasks[0]!.is_done).toBe(false)
+
+  // Undo, while the first is still held open.
+  await untick(page, 'Slow tick').click()
+  await expect(tick(page, 'Slow tick')).toBeVisible()
+
+  release!()
+  await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(false)
+  expect(sent).toEqual(['complete', 'uncomplete'])
+})
+
+/*
+ * The baseline divider is drawn once, not once per doneness band.
+ *
+ * Done rows sort below every live one and carry their own baseline boundary, so
+ * a list holding both used to show the 2px rule twice.
+ */
+test('the baseline divider is drawn once, even with done rows below', async ({ page, app }) => {
+  const doneBaseline = app.seed.task({
+    name: 'BBB done baseline',
+    cadence: 'day',
+    is_baseline: true,
+  })
+  const donePlain = app.seed.task({ name: 'DDD done plain', cadence: 'day' })
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  app.seed.task({ name: 'CCC plain', cadence: 'day' })
+  app.seed.completion(doneBaseline, app.today)
+  app.seed.completion(donePlain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(4)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
+/*
+ * The case the test above cannot see, because it always leaves a live plain row
+ * above the done band: guarding the divider on doneness drew it correctly there
+ * while removing it ENTIRELY here. The boundary is a property of the list, so
+ * both shapes have to be asserted.
+ */
+test('the baseline divider survives every plain row being done', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  const plain = app.seed.task({ name: 'ZZZ plain', cadence: 'day' })
+  app.seed.completion(plain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
+/* And it is not drawn when there is no boundary to mark. */
+test('no baseline task means no divider', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA plain', cadence: 'day' })
+  app.seed.task({ name: 'BBB plain', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(0)
+})
+
+/*
+ * Two taps are two gestures, now that the first one is visible.
+ *
+ * This used to assert a double tap left the task DONE, which was true only
+ * because the box did not move: you could not see the first tap, so the second
+ * was the same gesture and the server's primary key absorbed it. With the tick
+ * predicting, the second tap lands on a box that is visibly checked — and a
+ * checkbox that will not uncheck when you tap it checked is a box that lies.
+ *
+ * The server-side guarantee that a repeat writes one row did not go away; it
+ * moved to tests/commands.test.ts, where it can be asserted directly instead of
+ * through a gesture that no longer produces it.
+ */
+test('two taps toggle twice, and leave no completion behind', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Twice tapped', cadence: 'day' })
 
   await page.goto(app.url)
   await tick(page, 'Twice tapped').dblclick()
 
-  await expect(untick(page, 'Twice tapped')).toBeVisible()
-  // No error surfaced — the notice bar renders role="alert" for failures.
+  // Back where it started, with nothing recorded and nothing complained about.
+  await expect(tick(page, 'Twice tapped')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect.poll(() => completedNames(page)).toEqual([])
 
-  await expect.poll(() => completedNames(page)).toEqual(['Twice tapped'])
-
-  // Exactly one completion row: one date carries it, and (task_id, completed_on)
-  // is the primary key, so that date cannot carry it twice.
-  const history = await historyView(app)
-  expect(history.rows.filter((r) => r.completed.includes(id))).toHaveLength(1)
-  expect(peek(app, 'SELECT * FROM completions WHERE task_id = ?', [id])).toHaveLength(1)
+  await expect
+    .poll(async () => (await historyView(app)).rows.filter((r) => r.completed.includes(id)).length)
+    .toBe(0)
+  expect(peek(app, 'SELECT * FROM completions WHERE task_id = ?', [id])).toHaveLength(0)
 })
 
 test('a weekly task completed earlier this week loads as completed, not active', async ({
@@ -461,8 +674,8 @@ test('a weekly task completed earlier this week loads as completed, not active',
   await expect.poll(() => activeNames(page)).toEqual(['Ordinary daily'])
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
-  expect(day.active.map((t) => t.id)).not.toContain(id)
+  expect(done(day).map((t) => t.id)).toEqual([id])
+  expect(notDone(day).map((t) => t.id)).not.toContain(id)
 })
 
 // ---------------------------------------------------------------------------
@@ -490,7 +703,7 @@ test('an overdue task sits in the same flat list, marked, offering a day or an u
   await expect(row(page, 'Aardvark daily').getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Change the sheets')!.state).toBe('overdue')
+  expect(notDone(day).find((t) => t.name === 'Change the sheets')!.state).toBe('overdue')
 })
 
 test('unplanning an overdue task clears its date and drops it from Day', async ({ page, app }) => {
@@ -498,13 +711,17 @@ test('unplanning an overdue task clears its date and drops it from Day', async (
   app.seed.task({ name: 'Keep me', cadence: 'day' })
 
   await page.goto(app.url)
-  await row(page, 'Descale the kettle').getByRole('button', { name: /^unplan/i }).click()
+  await row(page, 'Descale the kettle')
+    .getByRole('button', { name: /^unplan/i })
+    .click()
 
-  await expect(page.getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
+  // Off the DAY, not out of the app — it is still in the backlog below, which is
+  // the point of unplanning rather than archiving.
+  await expect(dayTrack(page).getByRole('checkbox', { name: /Descale the kettle$/ })).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Keep me'])
 
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).not.toContain('Descale the kettle')
+  expect(notDone(day).map((t) => t.name)).not.toContain('Descale the kettle')
 
   // Cleared, not deleted. It is off every day's list and still in the inventory,
   // which is the whole reason the panel exists.
@@ -539,10 +756,7 @@ test('completing an overdue task clears the overdue state', async ({ page, app }
  * `is_overdue` false) and drops out of `active` AND `completed` — no row left to
  * tap, and Week cannot correct it either because past days are read-only.
  */
-test('completing an overdue task moves it into the Completed section', async ({
-  page,
-  app,
-}) => {
+test('completing an overdue task moves it into the Completed section', async ({ page, app }) => {
   const id = app.seed.task(overdueSeed(app.today, 'Book the MOT', 4))
 
   await page.goto(app.url)
@@ -550,7 +764,7 @@ test('completing an overdue task moves it into the Completed section', async ({
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.completed.map((t) => t.id)).toEqual([id])
+  expect(done(day).map((t) => t.id)).toEqual([id])
   await expect.poll(() => completedNames(page)).toEqual(['Book the MOT'])
 
   // And it can be taken back, like anything else in the Completed section.
@@ -562,16 +776,21 @@ test('rescheduling an overdue task onto today resolves it', async ({ page, app }
   const id = app.seed.task(overdueSeed(app.today, 'Ring the plumber', 5))
 
   await page.goto(app.url)
-  await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Ring the plumber')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
 
   // placeable_dates always starts at today, whatever the weekday.
-  await picker(page, 'Ring the plumber').getByRole('button').filter({ hasText: /^Today$/ }).click()
+  await picker(page, 'Ring the plumber')
+    .getByRole('button')
+    .filter({ hasText: /^Today$/ })
+    .click()
 
   await expect(page.getByText(/needs a day/i)).toHaveCount(0)
   await expect.poll(() => activeNames(page)).toEqual(['Ring the plumber'])
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.id === id)!.state).toBe('planned')
+  expect(notDone(day).find((t) => t.id === id)!.state).toBe('planned')
   expect(plannedDate(app, id)).toBe(app.today)
 })
 
@@ -586,7 +805,9 @@ test('the reschedule picker offers exactly the days the Day model ships', async 
   const id = app.seed.task(overdueSeed(app.today, 'Sweep the yard', 3))
 
   await page.goto(app.url)
-  await row(page, 'Sweep the yard').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Sweep the yard')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
 
   const day = await dayView(app)
   expect(day.placeable_dates[0]).toBe(app.today)
@@ -614,7 +835,7 @@ test('a daily task with a past planned_date is never overdue', async ({ page, ap
   await expect(row(page, 'Brush teeth').getByRole('button', { name: /^unplan/i })).toHaveCount(0)
 
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Brush teeth')!.state).toBe('daily')
+  expect(notDone(day).find((t) => t.name === 'Brush teeth')!.state).toBe('daily')
 })
 
 /**
@@ -641,6 +862,7 @@ test('Day offers no reset-to-backlog control of its own', async ({ page, app }) 
 
 test('tapping a mood records it and tapping the selected one clears it', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moods = page.getByRole('group', { name: 'Mood' })
   const happy = moods.getByRole('button', { name: /^happy/ })
@@ -671,6 +893,7 @@ test('tapping a mood records it and tapping the selected one clears it', async (
  */
 test('the mood row offers no way to edit the mood set', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
   await expect(page.getByRole('group', { name: 'Mood' })).toBeVisible()
@@ -681,7 +904,9 @@ test('the mood row offers no way to edit the mood set', async ({ page, app }) =>
   await expect(page.getByRole('group', { name: 'Mood' }).getByRole('button')).toHaveCount(
     active.length,
   )
-  await expect(moodAndLog.getByRole('button', { name: /manage|edit mood|add.*mood/i })).toHaveCount(0)
+  await expect(moodAndLog.getByRole('button', { name: /manage|edit mood|add.*mood/i })).toHaveCount(
+    0,
+  )
   await expect(page.getByRole('dialog', { name: 'Moods' })).toHaveCount(0)
 
   // And the endpoints behind it are gone.
@@ -696,6 +921,7 @@ test('the mood row offers no way to edit the mood set', async ({ page, app }) =>
 
 test('the log field saves its text', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
   await moodAndLog.getByRole('button', { name: /log for today/i }).click()
@@ -704,14 +930,48 @@ test('the log field saves its text', async ({ page, app }) => {
   await field.fill('Slept badly, still got the bins out.')
   await moodAndLog.getByRole('button', { name: /^save$/i }).click()
 
-  await expect.poll(async () => (await dayView(app)).log).toBe('Slept badly, still got the bins out.')
+  await expect
+    .poll(async () => (await dayView(app)).log)
+    .toBe('Slept badly, still got the bins out.')
   await expect(moodAndLog.getByText('Slept badly, still got the bins out.')).toBeVisible()
+})
+
+/*
+ * Escape unmounts the sheet without blurring the textarea, and blur is what
+ * saves — so a typed entry used to be thrown away. Losing what somebody wrote is
+ * the one failure a journal must not have.
+ */
+test('dismissing the sheet keeps a typed log', async ({ page, app }) => {
+  await page.goto(app.url)
+  await openMood(page)
+  await page.getByRole('button', { name: /log for today/i }).click()
+  await page.getByRole('textbox', { name: 'Log for today' }).fill('Typed, then dismissed.')
+  await page.keyboard.press('Escape')
+
+  await expect.poll(async () => (await dayView(app)).log).toBe('Typed, then dismissed.')
+})
+
+/* And the other direction: a sheet opened and closed without touching the log
+   must not write an empty draft over an entry that already exists. */
+test('opening the sheet without editing leaves an existing log alone', async ({ page, app }) => {
+  app.seed.day(app.today, { log: 'Already written.' })
+
+  await page.goto(app.url)
+  await openMood(page)
+  await page.keyboard.press('Escape')
+
+  await expect(page.getByRole('dialog', { name: 'Mood and log' })).toHaveCount(0)
+  expect((await dayView(app)).log).toBe('Already written.')
 })
 
 test('mood and log survive a reload', async ({ page, app }) => {
   await page.goto(app.url)
+  await openMood(page)
 
-  await page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^scattered/ }).click()
+  await page
+    .getByRole('group', { name: 'Mood' })
+    .getByRole('button', { name: /^scattered/ })
+    .click()
   await expect.poll(async () => (await dayView(app)).mood).toBe('scattered')
 
   const moodAndLog = page.getByRole('region', { name: 'Mood and log' })
@@ -721,6 +981,9 @@ test('mood and log survive a reload', async ({ page, app }) => {
   await expect.poll(async () => (await dayView(app)).log).toBe('Two loads of washing.')
 
   await page.reload()
+  // The sheet does not survive a reload, and should not — what is being asserted
+  // is that the RECORD survived, which means going back in to look at it.
+  await openMood(page)
 
   await expect(
     page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^scattered/ }),
@@ -756,8 +1019,8 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
   // rather than the page: the confirmation notice quotes the name.)
   await expect.poll(() => activeNames(page)).toEqual(['Existing daily'])
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).not.toContain('Replace the shower hose')
-  expect(day.completed.map((t) => t.name)).not.toContain('Replace the shower hose')
+  expect(notDone(day).map((t) => t.name)).not.toContain('Replace the shower hose')
+  expect(done(day).map((t) => t.name)).not.toContain('Replace the shower hose')
 })
 
 // ---------------------------------------------------------------------------
@@ -772,7 +1035,10 @@ test('capture creates a dateless backlog item that stays off the Day list', asyn
  * opposite of cheap — which is an argument about the name, not about a button
  * you have to aim at.
  */
-test('a Day row name is not a control, though the row has an Edit button', async ({ page, app }) => {
+test('a Day row name is not a control, though the row has an Edit button', async ({
+  page,
+  app,
+}) => {
   app.seed.task({ name: 'Vacuum', cadence: 'day' })
   await page.goto(app.url)
 
@@ -806,7 +1072,7 @@ test('dragging a task in the reorder state persists days.task_order', async ({ p
   await expect.poll(() => activeNames(page)).toEqual(['Bravo job', 'Alpha job', 'Charlie job'])
 
   const day = await dayView(app)
-  expect(day.active.map((t) => t.id)).toEqual([bravo, alpha, charlie])
+  expect(notDone(day).map((t) => t.id)).toEqual([bravo, alpha, charlie])
 
   await page.reload()
   await expect.poll(() => activeNames(page)).toEqual(['Bravo job', 'Alpha job', 'Charlie job'])
@@ -833,7 +1099,7 @@ test('a drag cannot move a task across the baseline boundary', async ({ page, ap
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
 })
 
 test('a task moves freely inside its own band, below a baseline one', async ({ page, app }) => {
@@ -853,7 +1119,7 @@ test('a task moves freely inside its own band, below a baseline one', async ({ p
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
   const day = await dayView(app)
-  expect(day.active.map((t) => t.name)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
 })
 
 test('a pointer drag reorders too', async ({ page, app }) => {
@@ -913,23 +1179,27 @@ test('a failed reorder keeps the arrangement instead of discarding it', async ({
  * held id list against a new model, and rows get silently dropped. The mood row
  * and the panel are both frozen while reordering so that cannot happen.
  */
-test('the mood row and the panel are frozen while reordering', async ({ page, app }) => {
+/*
+ * The freeze moved outward with the mood itself. The controls used to sit on the
+ * page and be disabled individually; now the button that opens them is disabled,
+ * so the sheet cannot be reached at all while an arrangement is unsaved. Same
+ * guarantee — a mood tap refetches, and reconciling the held id list against a
+ * fresh model drops rows (D7) — enforced one step earlier.
+ */
+test('the mood button and the panel are frozen while reordering', async ({ page, app }) => {
   app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo job'])
 
+  const moodButton = page.getByRole('button', { name: /^Mood and log/ })
+
   await page.getByRole('button', { name: /^reorder$/i }).click()
-  await expect(
-    page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^happy/ }),
-  ).toBeDisabled()
-  await expect(page.getByRole('button', { name: /log for today/i })).toBeDisabled()
+  await expect(moodButton).toBeDisabled()
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect(
-    page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^happy/ }),
-  ).toBeEnabled()
+  await expect(moodButton).toBeEnabled()
 })
 
 // ---------------------------------------------------------------------------
@@ -943,10 +1213,13 @@ test('the mood row and the panel are frozen while reordering', async ({ page, ap
  * never placed: on no day's list, and before the panel existed, on no screen at
  * all — and a one-off with no date, which is now next door in Backlog.
  */
-test('both panels are hosted here, collapsed, holding what Day does not show', async ({
-  page,
-  app,
-}) => {
+/*
+ * v15 replaced the two collapsed accordions with one always-rendered track. What
+ * this test is about survives the change — the backlog holds what today's list
+ * does not — but "collapsed" and "each opens on its own" do not, because there
+ * is nothing left to open.
+ */
+test('the backlog is hosted here, holding what today does not show', async ({ page, app }) => {
   app.seed.task({ name: 'Feed the dog', cadence: 'day' })
   app.seed.task({ name: 'Grocery run', cadence: 'week' })
   app.seed.task({ name: 'Call the vet', cadence: null })
@@ -959,25 +1232,15 @@ test('both panels are hosted here, collapsed, holding what Day does not show', a
   expect(inventory(await todoView(app), 'Grocery run')!.effective_date).toBeNull()
   expect(inventory(await todoView(app), 'Call the vet')!.effective_date).toBeNull()
 
-  for (const name of ['Routine', 'Backlog'] as const) {
-    await expect(panel(page, name)).toHaveCount(1)
-    await expect(panelToggle(page, name)).toHaveAttribute('aria-expanded', 'false')
-  }
-  await expect(page.getByText('Grocery run')).toHaveCount(0)
-  await expect(page.getByText('Call the vet')).toHaveCount(0)
+  await expect(backlog(page)).toHaveCount(1)
 
-  // Each opens on its own: the period groups are in one panel, the one-off
-  // group in the other, and opening one does not open the other.
-  await panelToggle(page, 'Routine').click()
-  await expect(panelToggle(page, 'Routine')).toHaveAttribute('aria-expanded', 'true')
-  await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'false')
-  await expect(panel(page, 'Routine').getByText('Grocery run')).toBeVisible()
-  await expect(page.getByText('Call the vet')).toHaveCount(0)
-
-  await panelToggle(page, 'Backlog').click()
-  await expect(panelToggle(page, 'Backlog')).toHaveAttribute('aria-expanded', 'true')
-  await expect(panel(page, 'Backlog').getByText('Call the vet')).toBeVisible()
-  await expect(panel(page, 'Backlog').getByText('Grocery run')).toHaveCount(0)
+  // Neither is on today's list, and both are in the backlog — each in the group
+  // its cadence names, which is what the track is a map of.
+  await expect(dayTrack(page).getByText('Grocery run')).toHaveCount(0)
+  await expect(dayTrack(page).getByText('Call the vet')).toHaveCount(0)
+  await expect(backlogGroup(page, 'Weekly').getByText('Grocery run')).toHaveCount(1)
+  await expect(backlogGroup(page, 'Any time').getByText('Call the vet')).toHaveCount(1)
+  await expect(backlogGroup(page, 'Weekly').getByText('Call the vet')).toHaveCount(0)
 })
 
 test('a command fired from the panel refetches Day as well', async ({ page, app }) => {
@@ -986,8 +1249,7 @@ test('a command fired from the panel refetches Day as well', async ({ page, app 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Feed the dog'])
 
-  await panelToggle(page).click()
-  await panel(page).getByRole('checkbox', { name: 'Complete Feed the dog' }).click()
+  await backlogGroup(page, 'Daily').getByRole('checkbox', { name: 'Complete Feed the dog' }).click()
 
   // Both models are refetched and replaced wholesale, so the host moves the row
   // into its own completed section without being told what changed.
@@ -1015,22 +1277,35 @@ test('no console errors while exercising the main gestures', async ({ page, app 
   await untick(page, 'Gesture daily').click()
   await expect(tick(page, 'Gesture daily')).toBeVisible()
 
-  await page.getByRole('group', { name: 'Mood' }).getByRole('button', { name: /^balanced/ }).click()
+  await openMood(page)
+  await page
+    .getByRole('group', { name: 'Mood' })
+    .getByRole('button', { name: /^balanced/ })
+    .click()
+  // The sheet is modal — leaving it open puts its scrim over every gesture
+  // below, which is the rest of this test.
+  await page.keyboard.press('Escape')
   await expect.poll(async () => (await dayView(app)).mood).toBe('balanced')
 
-  await row(page, 'Gesture overdue').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Gesture overdue')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Gesture overdue')).toBeVisible()
   // The picker is in the top layer now, so it covers whatever is beneath it
-  // until it is dismissed — including the panel toggle clicked next.
+  // until it is dismissed — including the backlog gesture made next.
   await page.keyboard.press('Escape')
   await expect(picker(page, 'Gesture overdue')).toHaveCount(0)
 
-  await panelToggle(page).click()
-  await expect(panel(page).getByRole('region', { name: 'This week' })).toBeVisible()
-  await panelToggle(page).click()
+  await backlog(page)
+    .getByRole('button', { name: /^Next group/ })
+    .click()
+  await expect(backlogGroup(page, 'Weekly')).toBeVisible()
 
   await page.getByRole('button', { name: 'Capture a new item' }).click()
-  await page.getByRole('dialog', { name: 'Capture' }).getByRole('button', { name: /^close$/i }).click()
+  await page
+    .getByRole('dialog', { name: 'Capture' })
+    .getByRole('button', { name: /^close$/i })
+    .click()
 
   await page.getByRole('button', { name: /^reorder$/i }).click()
   await page.getByRole('button', { name: /^done reordering$/i }).click()
@@ -1063,7 +1338,7 @@ test('capture can set cadence and baseline from the More section', async ({ page
   // A daily baseline task, so it lands on today's list rather than the backlog.
   await expect.poll(() => activeNames(page)).toContain('Water the plants')
   const day = await dayView(app)
-  const made = day.active.find((t) => t.name === 'Water the plants')!
+  const made = notDone(day).find((t) => t.name === 'Water the plants')!
   expect(made.cadence).toBe('day')
   expect(made.is_baseline).toBe(true)
 })
@@ -1072,14 +1347,19 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
   page,
   app,
 }) => {
-  const painted = app.seed.task({ name: 'MED', cadence: 'day', is_baseline: true, color: '#c2410c' })
+  const painted = app.seed.task({
+    name: 'MED',
+    cadence: 'day',
+    is_baseline: true,
+    color: '#c2410c',
+  })
   // Same colour stored, but not baseline — the server must not ship it.
   app.seed.task({ name: 'Zebra', cadence: 'day', is_baseline: false, color: '#c2410c' })
 
   await page.goto(app.url)
   const day = await dayView(app)
-  expect(day.active.find((t) => t.id === painted)!.color).toBe('#c2410c')
-  expect(day.active.find((t) => t.name === 'Zebra')!.color).toBeNull()
+  expect(notDone(day).find((t) => t.id === painted)!.color).toBe('#c2410c')
+  expect(notDone(day).find((t) => t.name === 'Zebra')!.color).toBeNull()
 
   const row = page.getByRole('listitem').filter({ hasText: 'MED' }).first()
   await expect(row).toHaveAttribute('data-colour', '')
@@ -1110,11 +1390,27 @@ test('a baseline colour paints the row edge and the name, and only for baseline'
 
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const DOW_FULL = [
-  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
 ] as const
 const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ] as const
 
 function dowOf(iso: string): number {
@@ -1141,7 +1437,18 @@ const strip = (page: Page) => page.getByRole('navigation', { name: 'Days of this
 const dayButtons = (page: Page) => strip(page).getByRole('list').getByRole('button')
 
 const MON_SHORT = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ] as const
 
 /** 'Sat 5 Sep' — a day picker chip, for any date that is not today. */
@@ -1165,14 +1472,24 @@ async function firstUpcoming(app: App): Promise<string | null> {
   return (await dayView(app)).upcoming[0]?.date ?? null
 }
 
+/*
+ * Runs every day of the week, Saturday included — which is the point of it.
+ *
+ * It asserts against `week_dates` and `date` only, never `upcoming`, so it needs
+ * no future pane: on a Saturday it proves the strip still draws seven buttons
+ * with six disabled. That is the case the strip used to hide entirely, and this
+ * is the test standing over it.
+ */
 test('the strip shows all seven days, and the ones already past are disabled', async ({
   page,
   app,
 }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
 
   await page.goto(app.url)
+  // Seven buttons INSIDE the strip is already the assertion that the strip
+  // rendered — a separate toBeVisible() on the nav asserts nothing this does
+  // not, and only adds a second thing that can time out under a loaded machine.
   await expect(dayButtons(page)).toHaveCount(7)
 
   const shown = await dayButtons(page).evaluateAll((els) =>
@@ -1195,34 +1512,44 @@ test('the strip shows all seven days, and the ones already past are disabled', a
   // Disabled exactly where the day is behind today, which is exactly where
   // there is no pane to go to. The count is today's weekday index.
   expect(shown.filter((b) => b.off).length).toBe(day.week_dates.indexOf(day.date))
-  expect(shown.every((b, i) => b.off === (day.week_dates[i]! < day.date))).toBe(true)
+  expect(shown.every((b, i) => b.off === day.week_dates[i]! < day.date)).toBe(true)
 })
 
+/*
+ * Today's own badge is asserted every day of the week; the future days' badges
+ * need a pane to count, and on a Saturday there is none. Split rather than
+ * skipped, so the half that can run does — a Saturday still proves that today
+ * carries a count and that completing something takes it back out.
+ */
 test('each day button carries how much is outstanding on it', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
-  const next = day.upcoming[0]!.date
+  const next = day.upcoming[0]?.date ?? null
 
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   app.seed.task({ name: 'Water the plants', cadence: 'week', planned_date: app.today })
-  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next })
-  app.seed.task({ name: 'Bins out', cadence: 'week', planned_date: next })
   // On no day at all, so it is in no count.
   app.seed.task({ name: 'Call the vet', cadence: null })
+  if (next !== null) {
+    app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next })
+    app.seed.task({ name: 'Bins out', cadence: 'week', planned_date: next })
+  }
 
   await page.goto(app.url)
   const button = (date: string) => dayButtons(page).nth(day.week_dates.indexOf(date))
   const nameOf = async (date: string) => (await button(date).getAttribute('aria-label')) ?? ''
 
   expect(await nameOf(app.today)).toContain(', 2 tasks') // the daily and the placed one
-  expect(await nameOf(next)).toContain(', 2 tasks')
   await expect(button(app.today)).toHaveText(new RegExp(`^${weekdayShortLabel(app.today)}2$`))
 
-  // A day with nothing on it shows no number rather than a zero.
-  const bare = day.upcoming[1]?.date
-  if (bare !== undefined) {
-    expect(await nameOf(bare)).toContain(', 0 tasks')
-    await expect(button(bare)).toHaveText(new RegExp(`^${weekdayShortLabel(bare)}$`))
+  if (next !== null) {
+    expect(await nameOf(next)).toContain(', 2 tasks')
+
+    // A day with nothing on it shows no number rather than a zero.
+    const bare = day.upcoming[1]?.date
+    if (bare !== undefined) {
+      expect(await nameOf(bare)).toContain(', 0 tasks')
+      await expect(button(bare)).toHaveText(new RegExp(`^${weekdayShortLabel(bare)}$`))
+    }
   }
 
   // Completing something takes it out of the count, so the badge tracks what is
@@ -1231,9 +1558,9 @@ test('each day button carries how much is outstanding on it', async ({ page, app
   await expect.poll(() => nameOf(app.today)).toContain(', 1 task')
 })
 
-test("today stays marked while you are looking at another day", async ({ page, app }) => {
+test('today stays marked while you are looking at another day', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   const next = day.upcoming[0]!.date
 
   await page.goto(app.url)
@@ -1256,7 +1583,7 @@ test("today stays marked while you are looking at another day", async ({ page, a
 
 test('next and previous move between the panes', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is nowhere to go')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
 
   await page.goto(app.url)
   await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
@@ -1271,7 +1598,7 @@ test('next and previous move between the panes', async ({ page, app }) => {
 
 test('a day button jumps straight to that day', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   const target = day.upcoming[day.upcoming.length - 1]!.date
 
   await page.goto(app.url)
@@ -1281,7 +1608,7 @@ test('a day button jumps straight to that day', async ({ page, app }) => {
 
 test('a task placed on a future day is on that pane and not on today', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday nothing can be placed later this week')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
 
@@ -1297,7 +1624,7 @@ test('a task placed on a future day is on that pane and not on today', async ({ 
 
 test('a future row cannot be ticked', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is no future pane')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
 
   await page.goto(app.url)
@@ -1334,7 +1661,7 @@ test('a future row moves to another day, and unplans', async ({ page, app }) => 
 
 test('a task satisfied for its period is not on the day it was placed', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is no future pane')
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
   // Placed later this week, but ticked today: the week's obligation is met, so
   // that day carries no load and the row is dropped rather than struck through.
   const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
@@ -1347,8 +1674,12 @@ test('a task satisfied for its period is not on the day it was placed', async ({
 
 test('the track scrolls sideways in itself, never the page body', async ({ page, app }) => {
   const next = await firstUpcoming(app)
-  test.skip(next === null, 'on a Saturday there is one pane and nothing to scroll')
-  app.seed.task({ name: 'A very long errand name that would overflow a narrow pane', cadence: 'week', planned_date: next! })
+  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
+  app.seed.task({
+    name: 'A very long errand name that would overflow a narrow pane',
+    cadence: 'week',
+    planned_date: next!,
+  })
 
   await page.goto(app.url)
   await page.getByRole('button', { name: 'Next day' }).click()
@@ -1428,7 +1759,10 @@ test('Many drops blank lines and collapses repeats within the paste', async ({ p
   await sheet.getByRole('button', { name: 'Add 2 tasks' }).click()
   await expect(sheet).toHaveCount(0)
 
-  const names = (await todoView(app)).groups.flatMap((g) => g.tasks).map((t) => t.name).sort()
+  const names = (await todoView(app)).groups
+    .flatMap((g) => g.tasks)
+    .map((t) => t.name)
+    .sort()
   expect(names).toEqual(['Bin day', 'Milk'])
 })
 
@@ -1484,10 +1818,12 @@ test('opening the picker does not move anything else on the page', async ({ page
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Fix the fence')
 
-  const panelBox = () => panel(page, 'Routine').boundingBox()
+  const panelBox = () => backlog(page).boundingBox()
   const before = await panelBox()
 
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
 
   // The whole reason for the move: the picker used to expand inside the row and
@@ -1500,7 +1836,9 @@ test('the picker closes on Escape, and on a click outside it', async ({ page, ap
 
   await page.goto(app.url)
   const open = () =>
-    row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+    row(page, 'Fix the fence')
+      .getByRole('button', { name: /give it a day/i })
+      .click()
 
   await open()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
@@ -1523,14 +1861,18 @@ test('only one picker is open at a time', async ({ page, app }) => {
   app.seed.task(overdueSeed(app.today, 'Ring the plumber', 3))
 
   await page.goto(app.url)
-  await row(page, 'Fix the fence').getByRole('button', { name: /give it a day/i }).click()
+  await row(page, 'Fix the fence')
+    .getByRole('button', { name: /give it a day/i })
+    .click()
   await expect(picker(page, 'Fix the fence')).toBeVisible()
 
   // Reached by keyboard rather than by click, because the open picker is sitting
   // over this row — which is what a popover does, and is why light dismiss and
   // Escape both had to work. Focus is not blocked by an overlay, and a keyboard
   // user arrives here exactly this way.
-  await row(page, 'Ring the plumber').getByRole('button', { name: /give it a day/i }).focus()
+  await row(page, 'Ring the plumber')
+    .getByRole('button', { name: /give it a day/i })
+    .focus()
   await page.keyboard.press('Enter')
 
   // One at a time comes from React — `pickerFor` is a single id — rather than
@@ -1567,13 +1909,15 @@ test('a picker opened from a future pane is usable, not clipped by the track', a
   await expect(page.getByRole('group', { name: 'Pick a day' })).toHaveCount(0)
 })
 
-test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }) => {
+test("a bulk paste is capped, and the cap is the server's rule", async ({ app }) => {
   const post = (names: string[]) =>
-    app.fetch('/api/commands/create_tasks', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ names }),
-    }).then((r) => r.status)
+    app
+      .fetch('/api/commands/create_tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ names }),
+      })
+      .then((r) => r.status)
 
   const names = (n: number) => Array.from({ length: n }, (_, i) => `Item ${i}`)
 
@@ -1584,17 +1928,19 @@ test('a bulk paste is capped, and the cap is the server\'s rule', async ({ app }
   // Shape, not just size: the only field is a list of strings.
   expect(await post(['fine', 7 as unknown as string])).toBe(400)
   expect(
-    await app.fetch('/api/commands/create_tasks', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
-    }).then((r) => r.status),
+    await app
+      .fetch('/api/commands/create_tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ names: ['ok'], cadence: 'week' }),
+      })
+      .then((r) => r.status),
   ).toBe(400)
 })
 
 test('the week track is frozen while reordering', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'on a Saturday there is one pane and no strip')
+  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
   app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
 
@@ -1650,7 +1996,7 @@ test('Add task opens capture with the day already chosen, and it lands on today'
 
   await expect.poll(() => activeNames(page)).toContain('Ring the plumber')
   const day = await dayView(app)
-  expect(day.active.find((t) => t.name === 'Ring the plumber')?.planned_date).toBe(day.date)
+  expect(notDone(day).find((t) => t.name === 'Ring the plumber')?.planned_date).toBe(day.date)
 })
 
 test('the capture button leaves the box clear, and still captures to the backlog', async ({
@@ -1691,7 +2037,7 @@ test('Place today survives the switch to Many, and places every line', async ({ 
   await expect(sheet).toHaveCount(0)
 
   const day = await dayView(app)
-  const names = day.active.map((t) => t.name)
+  const names = notDone(day).map((t) => t.name)
   expect(names).toContain('Milk')
   expect(names).toContain('Bin day')
 })
@@ -1701,7 +2047,10 @@ test('a daily cadence disables Place today rather than ignoring it', async ({ pa
 
   await page.getByRole('button', { name: 'Add task', exact: true }).click()
   const sheet = page.getByRole('dialog', { name: 'Capture' })
-  await sheet.getByRole('group', { name: 'More' }).count().catch(() => 0)
+  await sheet
+    .getByRole('group', { name: 'More' })
+    .count()
+    .catch(() => 0)
   await sheet.getByRole('textbox', { name: 'Task name' }).fill('Stretch')
   await sheet.getByText('More', { exact: true }).click()
   await sheet.getByLabel('Cadence').selectOption('day')
@@ -1721,7 +2070,7 @@ test('a row on the day list opens the editor, and a rename persists', async ({ p
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Bins')
 
-  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  await editButton(page, 'Bins').click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
   await editor.getByRole('textbox', { name: 'Task name' }).fill('The bins')
   await editor.getByRole('button', { name: 'Save' }).click()
@@ -1735,7 +2084,7 @@ test('the editor can clear a placement, which drops the task off today', async (
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toContain('Bins')
 
-  await page.getByRole('button', { name: 'Edit Bins' }).click()
+  await editButton(page, 'Bins').click()
   const editor = page.getByRole('dialog', { name: 'Edit task' })
   await editor.getByRole('button', { name: 'Clear day' }).click()
   await editor.getByRole('button', { name: 'Save' }).click()

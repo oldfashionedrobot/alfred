@@ -265,7 +265,13 @@
 }
 
 /* .picker brings its own vertical rhythm; this only indents it. */
-.day-move {
+/* The two reorder buttons. This rule is the old `.day-move`, which had been
+   dead since the control it styled was removed — revived under the name the
+   markup now uses rather than written again beside it.
+
+   align-items: center is load-bearing: `.day-row-main` is align-items: stretch,
+   which would otherwise stretch a 44px button to the row's full height. */
+.day-row-move {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -273,17 +279,25 @@
   padding-right: var(--gap-1);
 }
 
-.day-move-btn {
+/* The button on the date heading that opens the mood and log sheet. It wears the
+   selected mood, so the glyph is content rather than decoration and is sized to
+   be read at a glance. */
+.day-mood-btn {
   width: var(--tap);
-  min-height: var(--tap);
-  border: 1px solid var(--border);
+  height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  font-size: 1rem;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
-.day-move-btn:disabled {
-  opacity: 0.3;
+.day-mood-btn:disabled {
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -306,7 +320,6 @@
 }
 
 /* --- sheets ------------------------------------------------------------- */
-
 
 /* --- drag reordering ------------------------------------------------------ */
 
@@ -350,49 +363,11 @@
    focusable for the same reason: arrow keys scroll it directly. `.day-strip`
    above it drives it and reads its position back. */
 
-.day-track {
-  display: flex;
-  gap: var(--gap-3);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: var(--gap-2);
-}
-
-.day-track:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: var(--radius);
-}
-
-/* During a reorder there is nowhere to swipe to — that edit state is today-only
-   — and a dnd-kit drag inside a snapping scroller is the interaction that cost
-   two wrong fixes in v4. The scrolling is removed rather than debugged. */
-.day-track[data-locked] {
-  overflow-x: hidden;
-  scroll-snap-type: none;
-}
-
-.day-pane {
-  flex: 0 0 100%;
-  min-width: 0;
-  scroll-snap-align: start;
-  /* Not decorative. `.sr` (the visually-hidden label inside a static tick) is
-     position:absolute, and with no positioned ancestor its containing block is
-     the initial one — so on a scrolled-away pane it lands at the pane's document
-     x, OUTSIDE the track's clip, and stretches the page body sideways by its own
-     width. Making the pane its containing block puts it back inside the scroller,
-     where overflow can clip it. Caught by the body-never-scrolls-sideways test on
-     the narrow viewport, at 410px against a 390px window. */
-  position: relative;
-}
-
 /* Today is the surface you act on; the rest are context. That distinction is
    carried by the pane itself rather than by a highlight somewhere else — the
    heading reads "Today" against a date, and a future pane's ticks are static
    boxes rather than controls. */
-.day-pane:not(.day-pane--today) .day-h2 {
+.pane:not(.pane--today) .day-h2 {
   color: var(--text-dim);
 }
 
@@ -496,6 +471,40 @@
 .day-strip__step:disabled,
 .day-strip__day:disabled {
   opacity: 0.3;
+}
+
+/* --- the group strip -----------------------------------------------------
+   The backlog's six cadence buttons. It reuses `.day-strip` for the row and
+   `.day-strip__step` / `.day-strip__day` / `.day-strip__count` for the controls,
+   because those are the same control at the same size — only the list needs its
+   own rule, and only because six words have to share the width seven weekday
+   abbreviations do. */
+
+.group-strip__groups {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.group-strip__groups > li {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Smaller than the day strip's label, and clipped rather than wrapped: at 390px
+   six buttons get about 47px each, and "Quarterly" does not fit at the strip's
+   normal size. Clipping is safe because the full title is in the button's
+   accessible name — `aria-label` carries "Quarterly, 3 tasks" whatever the text
+   does. Letting it wrap instead would make the strip two rows tall on a phone. */
+.group-strip__title {
+  overflow: hidden;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- capture: one or many ------------------------------------------------

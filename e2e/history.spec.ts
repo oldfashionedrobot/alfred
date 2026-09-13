@@ -1,4 +1,4 @@
-import { test, expect, addDays, type App } from './fixtures.ts'
+import { test, expect, addDays, dayList, type App } from './fixtures.ts'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -27,7 +27,20 @@ type HistoryLite = {
 // ---------------------------------------------------------------------------
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+const MON = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
 
 function parts(iso: string): { y: number; m: number; d: number } {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number]
@@ -63,8 +76,8 @@ async function completionCount(app: App): Promise<number> {
 
 async function openHistory(page: Page, app: App): Promise<void> {
   await page.goto(app.url)
-  await page.getByRole('navigation').getByRole('button', { name: 'History', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
+  await page.getByRole('navigation').getByRole('button', { name: 'Tracker', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Tracker' })).toBeVisible()
 }
 
 const dataRows = (page: Page): Locator =>
@@ -96,7 +109,7 @@ function cells(row: Locator): Promise<string[]> {
     .evaluateAll((els) => els.slice(1).map((e) => (e.textContent ?? '').trim()))
 }
 
-const scroller = (page: Page): Locator => page.getByRole('region', { name: 'History grid' })
+const scroller = (page: Page): Locator => page.getByRole('region', { name: 'Tracker grid' })
 
 // ===========================================================================
 // Columns
@@ -119,14 +132,17 @@ test('columns are the active daily tasks only, in sort order', async ({ page, ap
 
   // Baseline is band 1; alphabetical within a band. Weekly, one-off and
   // archived tasks are not columns at all.
-  expect(headers).toEqual(['Log', 'Date', 'Mood', 'Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
-
-  const h = await getHistory(app)
-  expect(h.columns.map((c) => c.name)).toEqual([
+  expect(headers).toEqual([
+    'Log',
+    'Date',
+    'Mood',
     'Zzz Baseline Daily',
     'Alpha Daily',
     'Beta Daily',
   ])
+
+  const h = await getHistory(app)
+  expect(h.columns.map((c) => c.name)).toEqual(['Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
 })
 
 // ===========================================================================
@@ -202,7 +218,9 @@ test("the mood column renders the day's emoji", async ({ page, app }) => {
 
   // The glyph is labelled, not decorative.
   await expect(rowFor(page, app.today).getByRole('img', { name: 'happy' })).toBeVisible()
-  await expect(rowFor(page, addDays(app.today, -2)).getByRole('img', { name: 'angry' })).toBeVisible()
+  await expect(
+    rowFor(page, addDays(app.today, -2)).getByRole('img', { name: 'angry' }),
+  ).toBeVisible()
 
   const h = await getHistory(app)
   expect(h.rows.find((r) => r.date === app.today)!.mood?.slug).toBe('happy')
@@ -362,7 +380,7 @@ test('a day with a log offers a control that opens it; a day without offers none
   app.seed.day(addDays(app.today, -1), { mood: 'balanced' }) // a day, but no log
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
 
   const opener = page.getByRole('button', { name: new RegExp(`^Read the log for`) })
   await expect(opener).toHaveCount(1) // only the day that has one
@@ -388,10 +406,13 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   const before = await (await app.fetch('/api/history')).json()
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
   await page.getByRole('button', { name: /^Read the log for/ }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('dialog').getByRole('button', { name: /^close$/i }).click()
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^close$/i })
+    .click()
 
   const after = await (await app.fetch('/api/history')).json()
   expect(after).toEqual(before)
@@ -412,7 +433,7 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
   await post('Dishes', {})
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
 
   const heads = await page.locator('.hist-h--task').allInnerTexts()
   expect(heads.map((h) => h.trim())).toEqual([
@@ -427,7 +448,7 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
  * A filled cell takes the task's colour where the column has one, so a
  * completion reads the same here as it does in the Day list and the panel.
  */
-test('a filled cell wears the baseline task\'s colour, and a plain one does not', async ({
+test("a filled cell wears the baseline task's colour, and a plain one does not", async ({
   page,
   app,
 }) => {
@@ -443,11 +464,13 @@ test('a filled cell wears the baseline task\'s colour, and a plain one does not'
   // Tick both from the Day list so the completions are real.
   await page.goto(app.url)
   for (const name of ['MED', 'Zebra']) {
-    await page.getByRole('checkbox', { name: `Complete ${name}` }).click()
-    await expect(page.getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
+    await dayList(page)
+      .getByRole('checkbox', { name: `Complete ${name}` })
+      .click()
+    await expect(dayList(page).getByRole('checkbox', { name: `Untick ${name}` })).toBeVisible()
   }
 
-  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /^tracker$/i }).click()
   const cells = page.locator('.hist-cell--on')
   await expect(cells).toHaveCount(2)
 

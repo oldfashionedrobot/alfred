@@ -11,7 +11,12 @@ import type { DB } from '../db.ts'
 import { days, moods, tasks } from '../schema.ts'
 import type { CompletionRow, TaskRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue } from '../period.ts'
-import { loadCurrentCompletions, placeableDates, placementRanges, weekDates } from './completions.ts'
+import {
+  loadCurrentCompletions,
+  placeableDates,
+  placementRanges,
+  weekDates,
+} from './completions.ts'
 import { sortTasks } from '../sort.ts'
 import { today, type Viewer } from '../today.ts'
 
@@ -33,33 +38,36 @@ import { today, type Viewer } from '../today.ts'
  *   a completion dated today     // whatever you ticked, whenever it was due
  *
  * The fourth rule is small and load-bearing, and writing the four as a chain is
- * `isOverdue` is false once a task is done, so
- * an else-if chain drops a completed non-daily task out of `active` AND out of
- * `completed` — off the screen, with no row left to tap to untick it, and no
- * other surface able to correct it. Membership only ever grows with doneness;
- * `is_done` decides which array a member lands in, never whether it is one.
+ * the D1 defect this project already shipped once: `isOverdue` is false once a
+ * task is done, so an else-if chain drops a completed non-daily task off the
+ * screen entirely — no row left to tap to untick it, and no other surface able
+ * to correct it. Membership only ever grows with doneness; `is_done` decides how
+ * a member RENDERS, never whether it is one.
  *
  * State is labelled independently of membership, once the task is in.
  *
- * `completed` holds members where isDone is true. is_done is PERIOD-SATISFACTION
- * rather than same-day — a task placed today but satisfied earlier this period
- * lands there — but membership is the four rules above, so a task placed AND
- * completed on an earlier day is not here at all. It stays for the day it was
- * ticked; the Routine panel answers for the rest of the period.
+ * is_done is PERIOD-SATISFACTION rather than same-day, so a task placed today
+ * but satisfied earlier this period arrives ticked — while membership is the
+ * four rules above, so a task placed AND completed on an earlier day is not here
+ * at all. A completed task stays for the day it was ticked; the backlog answers
+ * for the rest of the period.
  *
- * Both arrays sorted with sortTasks(), using today's days.task_order.
+ * One array since v15, sorted with sortTasks() using today's days.task_order,
+ * which sinks the done rows to the bottom of it.
  */
 export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
   const userId = viewer.id
   const date = today(viewer.timezone)
 
   const taskRows = await db
-    .select().from(tasks).where(and(eq(tasks.user_id, userId), eq(tasks.active, true))).all()
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.user_id, userId), eq(tasks.active, true)))
+    .all()
 
   const byTask = await loadCurrentCompletions(db, taskRows, date)
 
-  const active: DayTask[] = []
-  const completed: DayTask[] = []
+  const members: DayTask[] = []
 
   for (const task of taskRows) {
     const own = byTask.get(task.id) ?? []
@@ -77,12 +85,9 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     // A daily task is never placed, so it can never be overdue — the two
     // states cannot collide. A member that is neither is planned, including one
     // that is here only because it was ticked today.
-    const state: DayTaskState =
-      task.cadence === 'day' ? 'daily' : overdue ? 'overdue' : 'planned'
+    const state: DayTaskState = task.cadence === 'day' ? 'daily' : overdue ? 'overdue' : 'planned'
 
-    const view = toDayTask(task, state, effective)
-    if (isDone(task, own, date)) completed.push(view)
-    else active.push(view)
+    members.push(toDayTask(task, state, effective, isDone(task, own, date)))
   }
 
   // days rows are sparse — no row means no mood, no log and no arrangement.
@@ -99,8 +104,6 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     .orderBy(asc(moods.sort_order))
     .all()
 
-  const sortedActive = sortTasks(active, order)
-
   // today through Saturday. Derived once and used twice: it is what the day
   // picker may offer AND which panes exist, so the two cannot disagree.
   const placeable = placeableDates(date)
@@ -110,8 +113,7 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     mood: dayRow?.mood ?? null,
     log: dayRow?.log ?? null,
     moods: picker,
-    active: sortedActive,
-    completed: sortTasks(completed, order),
+    tasks: sortTasks(members, order),
     // Carried here as well because the reschedule picker opens from an overdue
     // row on this screen.
     week_dates: weekDates(date),
@@ -135,9 +137,9 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
  * `cadence != 'day'` clause; it was belt and braces and is not carried across.
  *
  * A task already satisfied for its period is DROPPED rather than struck through.
- * The panes are read for load, and a done task adds none. See "Future panes show
- * placed tasks only — this deliberately does not become a flag
- * on DayTask.
+ * The panes are read for load, and a done task adds none — so `is_done` is false
+ * on every row here, carried like `state` and `effective_date` are rather than
+ * splitting the type.
  *
  * `isDone` is asked about THE PANE'S OWN DATE, not about today. Those differ at a
  * period boundary: a monthly task placed Thu 1 Oct and completed 15 Sep is done
@@ -157,7 +159,7 @@ function buildUpcoming(
         .filter((t) => t.planned_date === d && !isDone(t, byTask.get(t.id) ?? [], d))
         // effective_date is d by construction: planned_date === d, and a period
         // containing d never starts after it, so effectiveDate() cannot roll it back.
-        .map((t) => toDayTask(t, 'planned', d)),
+        .map((t) => toDayTask(t, 'planned', d, false)),
       // No days.task_order for a future date — only today's row exists.
       null,
     ),
@@ -165,7 +167,12 @@ function buildUpcoming(
 }
 
 /** The wire shape of a task row. One mapping, so every pane agrees on it. */
-function toDayTask(task: TaskRow, state: DayTaskState, effective: ISODate | null): DayTask {
+function toDayTask(
+  task: TaskRow,
+  state: DayTaskState,
+  effective: ISODate | null,
+  done: boolean,
+): DayTask {
   return {
     id: task.id,
     name: task.name,
@@ -177,6 +184,9 @@ function toDayTask(task: TaskRow, state: DayTaskState, effective: ISODate | null
     planned_date: task.planned_date,
     state,
     effective_date: effective,
+    // Decides how the row renders and where sortTasks puts it. Never whether
+    // the task is on the screen at all.
+    is_done: done,
     // Never drawn on Day. The editor opens from here and needs it.
     category: task.category,
   }

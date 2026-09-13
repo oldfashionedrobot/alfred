@@ -1,4 +1,4 @@
-import { test, expect, type App } from './fixtures.ts'
+import { test, expect, dayList, type App } from './fixtures.ts'
 import type { Page } from '@playwright/test'
 
 /**
@@ -113,13 +113,13 @@ test('the right password signs you in and the board appears', async ({ page, app
 
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   // It survives a reload, which is the whole point of a cookie — and the URL
   // never changed, because there is no /login to navigate to.
   expect(new URL(page.url()).pathname).toBe('/')
   await page.reload()
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 })
 
 test('signing out ends the session', async ({ page, app }) => {
@@ -127,7 +127,7 @@ test('signing out ends the session', async ({ page, app }) => {
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   await signOut(page)
   await expect(signInButton(page)).toBeVisible()
@@ -145,12 +145,14 @@ test('two people see their own boards and nothing of each other', async ({ page,
 
   await arrive(page, app)
   await fillIn(page, 'wife')
-  await expect(page.getByRole('checkbox', { name: 'Complete Water the ferns' })).toBeVisible()
+  await expect(
+    dayList(page).getByRole('checkbox', { name: 'Complete Water the ferns' }),
+  ).toBeVisible()
   await expect(page.getByText('Feed Barney')).toHaveCount(0)
 
   await signOut(page)
   await fillIn(page, 'owner')
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
   await expect(page.getByText('Water the ferns')).toHaveCount(0)
 })
 
@@ -162,7 +164,7 @@ test('changing a password invalidates the sessions signed with the old one', asy
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
   await arrive(page, app)
   await fillIn(page)
-  await expect(page.getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
+  await expect(dayList(page).getByRole('checkbox', { name: 'Complete Feed Barney' })).toBeVisible()
 
   // The cookie is signed with the user's password hash, so changing the password
   // revokes their cookies — no session table, no sign-out-everywhere command.
@@ -213,7 +215,10 @@ test('an invited person sets a password and lands signed in', async ({ page, app
   await page.getByRole('button', { name: 'Set up' }).click()
 
   // Claiming signs you in — it is the only reason to be on that page.
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
   // And the URL no longer carries a spent token, so a refresh is not confusing.
   expect(new URL(page.url()).pathname).toBe('/')
 })
@@ -225,7 +230,10 @@ test('the chosen timezone is what the server then calls today', async ({ page, a
   await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
   await page.getByRole('combobox', { name: 'Your timezone' }).selectOption('Pacific/Kiritimati')
   await page.getByRole('button', { name: 'Set up' }).click()
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
 
   // A day belongs to a person: the far side of the date line is a day ahead of
   // UTC, and this account's Day view has to agree with that rather than with
@@ -233,7 +241,10 @@ test('the chosen timezone is what the server then calls today', async ({ page, a
   const res = await page.request.get(`${app.url}/api/day`)
   const day = (await res.json()) as { date: string }
   const kiritimati = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Pacific/Kiritimati', year: 'numeric', month: '2-digit', day: '2-digit',
+    timeZone: 'Pacific/Kiritimati',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).format(new Date())
   expect(day.date).toBe(kiritimati)
 })
@@ -243,7 +254,10 @@ test('a spent token cannot be used twice, and says nothing useful', async ({ pag
   await page.goto(`${app.url}/claim?t=${token}`)
   await page.getByRole('textbox', { name: 'Choose a password' }).fill('jess-password-1234')
   await page.getByRole('button', { name: 'Set up' }).click()
-  await expect(page.getByRole('button', { name: /^day$/i })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('button', { name: /^to do$/i })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
 
   // Second attempt with the same link.
   await page.goto(`${app.url}/claim?t=${token}`)

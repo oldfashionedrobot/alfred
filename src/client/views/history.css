@@ -1,7 +1,32 @@
-/* History — the grid. Dates down, daily tasks across, filled cells for
+/* The Tracker — the grid. Dates down, daily tasks across, filled cells for
    completions, one mood column. Read-only: nothing here is clickable.
    Gaps are permanent and are drawn as plain empty cells — the grid's job is
-   that the pattern reads from across the room. */
+   that the pattern reads from across the room.
+
+   "Tracker" is the label; the component, the file and the classes are still
+   `hist`. Renaming through the stack would change no behaviour and would touch
+   every selector a browser spec reaches for. */
+
+/* The one view that opts out of `.app { max-width: 720px }`.
+
+   That cap is a reading-width decision and it is right for every other screen
+   here, which are all prose and rows. A grid of days by tasks is the one thing
+   that is better wide: capping it does not remove the scrolling, it just moves
+   the same scrolling into a narrower box and shows fewer days' worth of pattern
+   at once.
+
+   The exception is taken from here rather than from styles.css so the global
+   rule keeps reading as the default and the one view that breaks it carries the
+   reason. `:has(> .hist)` scopes it to the Tracker being the mounted view — the
+   Day and Settings screens are unaffected.
+
+   Not done with a 100vw breakout and negative margins: 100vw includes the
+   scrollbar's width, so on a desktop that stretches the page body sideways by
+   about 15px, and the body never scrolling sideways is the one promise this
+   screen has to keep. */
+.app:has(> .hist) {
+  max-width: none;
+}
 
 .hist {
   padding-top: var(--gap-4);
@@ -40,6 +65,12 @@
 }
 
 .hist-grid {
+  /* Fill the box instead of shrinking to the columns. With the cap above
+     lifted, a shrink-to-fit table would leave the window's extra width as blank
+     paper to the right of the grid rather than giving it to the cells. A table
+     never goes below its own min-content width, so on a phone this is still the
+     sum of the column minimums and .hist-scroll still scrolls. */
+  width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -75,9 +106,19 @@
   margin: 0 auto;
 }
 
+/* The task columns are the only ones with no `width`, and that is what makes
+   them the columns the table hands its spare room to: log, date and mood keep
+   the widths their contents need, and the days share everything the window
+   leaves over.
+
+   74px is the floor, not the size. It is the date column's width, so a grid
+   with room to spare sits on one module rather than on a row of pinstripes;
+   once the tasks outnumber the room the table grows past its box and
+   .hist-scroll takes over, which is what a phone gets. The cost is recorded
+   rather than hidden: a phone now shows about three task columns at a time
+   where 30px showed seven. */
 .hist-h--task {
-  width: 30px;
-  min-width: 30px;
+  min-width: 74px;
 }
 
 .hist-h--mood {
@@ -157,9 +198,10 @@
   line-height: 1;
 }
 
+/* Floor, not width — the header above carries the reason. Both halves of the
+   column have to say it: a table column is as wide as its widest cell. */
 .hist-cell {
-  width: 30px;
-  min-width: 30px;
+  min-width: 74px;
 }
 
 /* An empty cell is a fact, not a prompt — it stays quiet and says nothing.

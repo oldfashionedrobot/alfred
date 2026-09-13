@@ -11,6 +11,7 @@
     "e2e:docker": "docker build -q -f Dockerfile.test -t alfred-test . && docker run --rm -v \"$PWD\":/app -v alfred-test-nm:/app/node_modules -w /app alfred-test sh -c \"bun install --frozen-lockfile >/dev/null && bunx playwright test --project=mobile-webkit --project=desktop-webkit\"",
     "e2e:ui": "playwright test --ui --project=mobile --project=desktop",
     "e2e:report": "playwright show-report e2e-report",
+    "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "user:add": "bun src/server/user-cli.ts add",
@@ -33,6 +34,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "drizzle-kit": "^0.31.6",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.0"
   }
 }

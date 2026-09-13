@@ -35,7 +35,7 @@
   --gap-4: 16px;
   --gap-5: 24px;
 
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
 
@@ -70,7 +70,7 @@
  * click does not leave a ring behind, which is the reason the rule was avoided
  * in the first place.
  *
- * Anything needing a different offset overrides it; `.day-track` does.
+ * Anything needing a different offset overrides it; `.track` does.
  */
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -163,7 +163,7 @@ select {
   padding: 0 var(--gap-4);
 }
 
-.topbar button[aria-current="page"] {
+.topbar button[aria-current='page'] {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
@@ -205,7 +205,6 @@ select {
 .state--error {
   color: var(--overdue);
 }
-
 
 /* --- shared primitives ---------------------------------------------------
    One button system, one checkbox, one notice, one day picker. The first build
@@ -298,7 +297,9 @@ select {
   border-color: var(--tick-colour);
   background: var(--tick-colour);
   background-image: linear-gradient(transparent, transparent);
-  box-shadow: inset 0 0 0 3px var(--surface), inset 0 0 0 22px var(--tick-colour);
+  box-shadow:
+    inset 0 0 0 3px var(--surface),
+    inset 0 0 0 22px var(--tick-colour);
 }
 
 /* A baseline task with a colour keeps that colour when it is ticked, in the box
@@ -385,7 +386,6 @@ select {
   color: var(--text-dim);
   font-size: 0.875rem;
 }
-
 
 /* --- sheet ---------------------------------------------------------------
    A bottom sheet. Shared because both the capture form (Day) and the task
@@ -679,7 +679,74 @@ select {
     inset: auto;
     margin: var(--gap-1) 0 0;
     /* Near the bottom of the screen, flip above the trigger rather than off it. */
-    position-try-fallbacks: block-start span-inline-start, block-end span-inline-end,
+    position-try-fallbacks:
+      block-start span-inline-start,
+      block-end span-inline-end,
       block-start span-inline-end;
   }
+}
+
+/* A button whose whole label is a glyph. Square at --tap so it keeps the 44px
+   target the text buttons get from their padding, which that padding would
+   otherwise make far too wide for one character.
+
+   The glyph is aria-hidden and the button carries an aria-label, so nothing here
+   is the accessible name. Composes with --quiet. */
+.btn--icon {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* --- paged track ---------------------------------------------------------
+   A snapping horizontal scroller and the panes inside it, shared by the week's
+   days and the backlog's cadence groups. Here rather than in day.css because
+   two screens' worth of markup now depends on them. The buttons that drive a
+   track are NOT shared — see PagedTrack.tsx. */
+
+.track {
+  display: flex;
+  gap: var(--gap-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  /* Panes size themselves rather than stretching to the tallest. Across the
+     week that barely showed; across six cadence groups it would, since an
+     "Any time" backlog of forty items would set the height of a "Yearly" group
+     holding one. The page's own height then changes as you page, which is
+     invisible: the track is last in normal flow and the FAB and notice bar are
+     both position:fixed. */
+  align-items: flex-start;
+  padding-bottom: var(--gap-2);
+}
+
+.track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+
+/* During a reorder there is nowhere to swipe to — that edit state is today-only
+   — and a dnd-kit drag inside a snapping scroller is the interaction that cost
+   two wrong fixes in v4. The scrolling is removed rather than debugged. */
+.track[data-locked] {
+  overflow-x: hidden;
+  scroll-snap-type: none;
+}
+
+.pane {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  /* Not decorative. `.sr` (the visually-hidden label inside a static tick) is
+     position:absolute, and with no positioned ancestor its containing block is
+     the initial one — so on a scrolled-away pane it lands at the pane's document
+     x, OUTSIDE the track's clip, and stretches the page body sideways by its own
+     width. Making the pane its containing block puts it back inside the scroller,
+     where overflow can clip it. Caught by the body-never-scrolls-sideways test on
+     the narrow viewport, at 410px against a 390px window. */
+  position: relative;
 }

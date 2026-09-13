@@ -15,6 +15,19 @@ type Tab = 'day' | 'history' | 'settings'
 const TABS = ['day', 'history'] as const
 
 /**
+ * What each tab is CALLED, which is no longer what it is keyed by.
+ *
+ * "Day" stopped being a day in v8, when the rest of the week became panes beside
+ * it; "History" undersold a grid you read a month off. The keys stay as they
+ * are — they name the view models, the API routes and the files, and renaming
+ * those would be a rename through the whole stack to change two words on screen.
+ */
+const TAB_LABEL: Record<(typeof TABS)[number], string> = {
+  day: 'To do',
+  history: 'Tracker',
+}
+
+/**
  * The shell, and the only place that knows whether you are signed in.
  *
  * `api.ts` recognises a 401 — from the first fetch on load, from a command, or
@@ -92,7 +105,7 @@ function App() {
         <nav className="topbar__tabs">
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)} aria-current={tab === t ? 'page' : undefined}>
-              {t[0]!.toUpperCase() + t.slice(1)}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </nav>

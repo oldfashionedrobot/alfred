@@ -1,30 +1,32 @@
 import './day.css'
-import { useEffect, useRef, useState, type CSSProperties, type UIEvent } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../../api.ts'
 import { longDate } from '../../dates.ts'
-import { NoticeBar, Tick, placementMaxFor, type Notice } from '../../ui.tsx'
-import Todo from '../Todo.tsx'
-import { MoodAndLog } from './MoodAndLog.tsx'
-import { TaskName, TaskRow } from './TaskRow.tsx'
+import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
+import Backlog from '../Todo.tsx'
+import { MoodAndLog, MoodButton } from './MoodAndLog.tsx'
+import { TaskRow } from './TaskRow.tsx'
 import { DayStrip } from './DayStrip.tsx'
 import { UpcomingPane } from './UpcomingPane.tsx'
 import { CaptureSheet } from './CaptureSheet.tsx'
+import { Sheet } from '../../ui.tsx'
 import { DragBand } from './DragBand.tsx'
+import { Track, usePagedTrack } from './PagedTrack.tsx'
 
 /*
  * Day — the doing surface.
  *
  * Data rule: fetch the models, render them,
  * post a named command, refetch and replace wholesale. Nothing derived from a
- * model is held in state, nothing is sorted or filtered here — `view.active`
- * and `view.completed` arrive in render order. The one exception is `orderIds`,
- * the reorder edit state, which holds a locally rearranged id list until the
- * toggle closes.
+ * model is held in state, nothing is sorted here — `view.tasks` arrives in
+ * render order, one list with done sunk to the bottom. The one exception is
+ * `orderIds`, the reorder edit state, which holds a locally rearranged id list
+ * until the toggle closes.
  *
- * Day fetches TWO models: its own and the To do panel's. `placeable_dates` rides
+ * Day fetches TWO models: its own and the backlog's. `placeable_dates` rides
  * on DayView exactly so that the picker and the server's 409 on `place` cannot
  * disagree — and it is also the list of PANES,
  * so the days you can swipe to and the days you can place on are one derivation.
@@ -37,6 +39,9 @@ import { DragBand } from './DragBand.tsx'
 // --- shell ------------------------------------------------------------------
 
 export default function Day() {
+  // Names the one task section. useId because two Day instances would otherwise
+  // hand a screen reader the same id twice.
+  const todayHeadingId = useId()
   const [view, setView] = useState<DayView | null>(null)
   const [todo, setTodo] = useState<TodoView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -45,6 +50,8 @@ export default function Day() {
   const [notice, setNotice] = useState<Notice>(null)
 
   const [capturing, setCapturing] = useState(false)
+  /** The mood and log sheet, opened from the date heading. */
+  const [moodOpen, setMoodOpen] = useState(false)
   /** Capture opened from "Add task" precheck it; the FAB does not. */
   const [captureToday, setCaptureToday] = useState(false)
   /** The row whose editor is open. Resolved at render, never held — see below. */
@@ -54,32 +61,31 @@ export default function Day() {
   // The reorder edit state — the one locally held arrangement in the client.
   const [orderIds, setOrderIds] = useState<number[] | null>(null)
 
-  // Which pane is showing. NOT the source of truth for the scroll position —
-  // the track is, and this is read back off it. A swipe and a button press then
-  // agree by construction rather than by being kept in step.
-  const trackRef = useRef<HTMLDivElement>(null)
-  const [paneIndex, setPaneIndex] = useState(0)
+  /*
+   * What the person has ASKED a row's done state to be, held until the model
+   * agrees. Id → the state they asked for.
+   *
+   * `complete` is a round trip to a machine that may have just woken from
+   * scale-to-zero, and until it answers the box does not move — which reads as a
+   * tap that missed. This is the SECOND thing the client holds that it did not
+   * derive from a model, `orderIds` being the first, and it is named here so it
+   * stays the second. Nothing else is predicted.
+   *
+   * An intent rather than a set of ids in flight, because the command has to be
+   * chosen from what is ON SCREEN. Reading the model instead re-sent `complete`
+   * for somebody who was looking at a ticked box and meant to undo; guarding
+   * against that by ignoring the second tap only moved the problem, and dropped
+   * a legitimate quick undo instead.
+   *
+   * Only the box is predicted, not the position: the re-sort waits for the
+   * refetch, or the row would leave from under the finger that tapped it.
+   */
+  const [intent, setIntent] = useState<ReadonlyMap<number, boolean>>(new Map())
 
-  /** The distance between two panes: their width plus the flex gap. */
-  const paneStep = (track: HTMLDivElement): number => {
-    const kids = track.children
-    if (kids.length < 2) return 0
-    return (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft
-  }
-
-  const goTo = (i: number) => {
-    const track = trackRef.current
-    if (!track || i < 0 || i >= track.children.length) return
-    track.scrollTo({ left: i * paneStep(track), behavior: 'smooth' })
-  }
-
-  const onTrackScroll = (e: UIEvent<HTMLDivElement>) => {
-    const track = e.currentTarget
-    const step = paneStep(track)
-    if (step <= 0) return
-    const i = Math.round(track.scrollLeft / step)
-    setPaneIndex(Math.min(track.children.length - 1, Math.max(0, i)))
-  }
+  // The week's panes. Named rather than destructured flat, because the backlog
+  // track below is a second instance of the same hook and `index` cannot mean
+  // both.
+  const days = usePagedTrack()
 
   useEffect(() => {
     let alive = true
@@ -158,18 +164,41 @@ export default function Day() {
   const editing =
     editingId === null
       ? null
-      : ([...view.active, ...view.completed, ...view.upcoming.flatMap((d) => d.tasks)].find(
+      : ([...view.tasks, ...view.upcoming.flatMap((d) => d.tasks)].find(
           (t) => t.id === editingId,
         ) ?? null)
-  const byId = new Map(view.active.map((t) => [t.id, t]))
-  // In the edit state the locally held arrangement is rendered; otherwise the
-  // server's order, exactly as given.
+
+  /*
+   * What is still to do. `view.tasks` is one list with done sunk to the bottom,
+   * so the three places that still mean "what is left" — the strip's count, the
+   * Reorder button, and the arrangement itself — say so rather than reading a
+   * second array off the wire.
+   */
+  const outstanding = view.tasks.filter((t) => !t.is_done)
+
+  const byId = new Map(outstanding.map((t) => [t.id, t]))
+  // In the edit state the locally held arrangement is rendered — and only the
+  // not-done rows are in it, because you arrange what you are doing. Otherwise
+  // the server's order, exactly as given, done last.
   const rows: DayTask[] = orderIds
     ? orderIds.flatMap((id) => {
         const t = byId.get(id)
         return t ? [t] : []
       })
-    : view.active
+    : view.tasks
+
+  /*
+   * Where the 2px rule between the bands goes: the first non-baseline row, when
+   * something baseline sits above it.
+   *
+   * Found once from the list rather than tested against each row's neighbour.
+   * Done rows sort below every live one and carry a SECOND baseline→rest
+   * transition inside their own block, so marking every transition drew the rule
+   * twice — and excluding done rows to fix that removed it altogether whenever
+   * every plain row happened to be ticked. The boundary is a property of the
+   * list, so it is found as one.
+   */
+  const dividerAt = rows.some((t) => t.is_baseline) ? rows.findIndex((t) => !t.is_baseline) : -1
 
   // Bands never mix. Rather than guarding a drag that crosses them, each band
   // is its own drag context — crossing is not something that can be expressed.
@@ -184,63 +213,124 @@ export default function Day() {
     setOrderIds(band === 'baseline' ? [...moved, ...other] : [...other, ...moved])
   }
 
+  /*
+   * Move to top and send to bottom are a drag expressed as a button, so they go
+   * through the same `reorderBand` a drag does — which is what keeps them inside
+   * the row's own band. Bands never mix, and neither end of a band is the end of
+   * the list.
+   */
+  const moveWithinBand = (band: 'baseline' | 'rest', id: number, to: 'top' | 'bottom') => {
+    const from = bands[band].findIndex((t) => t.id === id)
+    if (from < 0) return
+    reorderBand(band, from, to === 'top' ? 0 : bands[band].length - 1)
+  }
+
   const maxFor = (cadence: Cadence | null): ISODate | null =>
     placementMaxFor(view.placement, view.placeable_dates, cadence)
+
+  const toggleDone = async (task: DayTask): Promise<void> => {
+    // From what is on screen, not from the model — the model has not caught up
+    // with a tap still in flight, and the person is answering the screen.
+    const want = !asShown(task).is_done
+    setIntent((m) => new Map(m).set(task.id, want))
+    try {
+      await run(want ? 'complete' : 'uncomplete', { task_id: task.id })
+    } finally {
+      setIntent((m) => {
+        // A newer tap owns the row now; it will clear itself when it settles.
+        if (m.get(task.id) !== want) return m
+        const next = new Map(m)
+        next.delete(task.id)
+        return next
+      })
+    }
+  }
+
+  /** A task as the screen should draw it: the model, or what was asked of it. */
+  const asShown = (task: DayTask): DayTask => {
+    const want = intent.get(task.id)
+    return want === undefined ? task : { ...task, is_done: want }
+  }
 
   const toggleReorder = async () => {
     if (!reordering) {
       setPickerFor(null)
-      setOrderIds(view.active.map((t) => t.id))
+      setOrderIds(outstanding.map((t) => t.id))
       return
     }
-    // Cleared only once the write has landed: clearing first threw the
-    // arrangement away on failure, silently (D5).
-    if (await run('set_task_order', { task_ids: orderIds ?? [] })) setOrderIds(null)
+    /*
+     * The saved order is the whole rendered list: the rearranged rows, then the
+     * done ones after them. Sending only the not-done half would drop every done
+     * task's id, and `sortTasks` positions the done band by the same
+     * `task_order` — so a task ticked and then unticked would stop returning to
+     * where it was. It lands at the end of the arrangement instead, which is the
+     * honest reading of "the list as you last arranged it".
+     *
+     * Cleared only once the write has landed: clearing first threw the
+     * arrangement away on failure, silently (D5).
+     */
+    const doneIds = view.tasks.filter((t) => t.is_done).map((t) => t.id)
+    const task_ids = [...(orderIds ?? []), ...doneIds]
+    if (await run('set_task_order', { task_ids })) setOrderIds(null)
   }
 
   return (
     <div className="day-root" aria-busy={busy}>
+      {/* The mood sits on the heading rather than in the page, because it is a
+          once-a-day gesture at the end of the day and the list is what the screen
+          is for. The button wears the mood so moving it out of sight does not
+          also hide whether today has one. */}
       <header className="day-header">
         <h1 className="day-date">{longDate(view.date)}</h1>
+        <MoodButton
+          mood={view.mood}
+          moods={view.moods}
+          disabled={busy || reordering}
+          onClick={() => setMoodOpen(true)}
+        />
       </header>
 
-      {/* The week, as panes: today first, then one per day through Saturday.
-          A snapping scroll container — the browser's own gesture, no library and
-          no handler of ours. The strip above drives it and reads back from it.
+      {/* ALWAYS, including a Saturday — where it draws one enabled button, six
+          disabled ones and two disabled arrows.
 
-          data-locked freezes it during a reorder: that edit state is today-only,
-          so there is nowhere to swipe to, and a dnd-kit context inside a snapping
-          scroller is the interaction that cost two wrong fixes in v4. */}
-      {/* Only when there is somewhere to go. On a Saturday there is one pane and
-          the screen is exactly what it was before v8. */}
-      {view.upcoming.length > 0 && (
-        <DayStrip
-          dates={view.week_dates}
-          today={view.date}
-          panes={view.placeable_dates}
-          // Index-aligned with placeable_dates, like the panes themselves: today
-          // is what is still to do, and an upcoming pane is already filtered to
-          // what is outstanding on it.
-          counts={[view.active.length, ...view.upcoming.map((u) => u.tasks.length)]}
-          index={paneIndex}
-          onGo={goTo}
-          disabled={busy || reordering}
-        />
-      )}
+          It used to render only when `upcoming` was non-empty, which meant the
+          week navigation disappeared entirely one day in seven. That was the
+          deliberate "one pane, no special case" seen from the wrong end: the
+          special case it avoided in this file it created on the screen, where a
+          Saturday looked like breakage. `week_dates` always holds seven days and
+          `DayStrip` already disables the ones without a pane, so there is
+          nothing here to guard. */}
+      <DayStrip
+        dates={view.week_dates}
+        today={view.date}
+        panes={view.placeable_dates}
+        // Index-aligned with placeable_dates, like the panes themselves: today
+        // is what is still to do, and an upcoming pane is already filtered to
+        // what is outstanding on it.
+        counts={[outstanding.length, ...view.upcoming.map((u) => u.tasks.length)]}
+        index={days.index}
+        onGo={days.goTo}
+        disabled={busy || reordering}
+      />
 
-      <div
-        className="day-track"
-        ref={trackRef}
-        onScroll={onTrackScroll}
-        tabIndex={0}
-        role="region"
-        aria-label="This week, day by day"
-        data-locked={reordering || undefined}
+      {/* Today first, then one pane per day through Saturday. The scrolling,
+          the snapping and the freeze during a reorder all live in `Track`. */}
+      <Track
+        label="This week, day by day"
+        locked={reordering}
+        trackRef={days.trackRef}
+        onScroll={days.onScroll}
       >
-        <div className="day-pane day-pane--today">
-          <section className="day-section" aria-label="Active tasks">
+        <div className="pane pane--today">
+          {/* Named by its own heading rather than by an aria-label that said
+              something else. The two had already drifted — the section was
+              "Active tasks" while the heading read "Today" — and now that done
+              rows live here too, only one of those was still true. */}
+          <section className="day-section" aria-labelledby={todayHeadingId}>
             <div className="day-section-bar">
-              <h2 className="day-h2">Today</h2>
+              <h2 className="day-h2" id={todayHeadingId}>
+                Today
+              </h2>
               {/* The short path to "something I am doing today": capture, with
                   the day already chosen. The FAB beside it captures to the
                   backlog, which is the other half of the same gesture. */}
@@ -259,7 +349,7 @@ export default function Day() {
                   className="btn btn--small btn--quiet"
                   aria-pressed={reordering}
                   onClick={toggleReorder}
-                  disabled={busy || view.active.length === 0}
+                  disabled={busy || outstanding.length === 0}
                 >
                   {reordering ? 'Done reordering' : 'Reorder'}
                 </button>
@@ -277,6 +367,8 @@ export default function Day() {
                       key={band}
                       tasks={bands[band]}
                       onReorder={(from, to) => reorderBand(band, from, to)}
+                      onMoveToTop={(id) => moveWithinBand(band, id, 'top')}
+                      onMoveToBottom={(id) => moveWithinBand(band, id, 'bottom')}
                     />
                   ),
                 )}
@@ -284,15 +376,15 @@ export default function Day() {
             ) : (
               <ul className="day-list">
                 {rows.map((task, i) => {
-                  const prev = i > 0 ? rows[i - 1] : undefined
                   return (
                     <TaskRow
                       key={task.id}
-                      task={task}
+                      task={asShown(task)}
                       today={view.date}
-                      bandStart={prev !== undefined && prev.is_baseline && !task.is_baseline}
+                      bandStart={i === dividerAt}
                       busy={busy}
-                      onComplete={() => run('complete', { task_id: task.id })}
+                      onComplete={() => toggleDone(task)}
+                      onUncomplete={() => toggleDone(task)}
                       onUnplan={() => run('unplan', { task_id: task.id })}
                       placeable={view.placeable_dates}
                       placeableMax={maxFor(task.cadence)}
@@ -313,30 +405,6 @@ export default function Day() {
           {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
               belongs here all week, and a task placed today can arrive here already
               satisfied by an earlier completion in the same period. */}
-          {view.completed.length > 0 && (
-            <section className="day-section" aria-label="Completed tasks">
-              <h2 className="day-h2">Completed</h2>
-              <ul className="day-list">
-                {view.completed.map((task) => (
-                  <li
-                    key={task.id}
-                    className="day-row day-row--done"
-                    data-colour={task.color ? '' : undefined}
-                    style={task.color ? ({ '--task-colour': task.color } as CSSProperties) : undefined}
-                  >
-                    <div className="day-row-main">
-                      <Tick
-                        done
-                        label={`Untick ${task.name}`}
-                        onToggle={() => run('uncomplete', { task_id: task.id })}
-                      />
-                      <TaskName task={task} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
 
         {/* Placed tasks only, and only those still outstanding — a done task adds
@@ -360,31 +428,32 @@ export default function Day() {
             }}
           />
         ))}
-      </div>
+      </Track>
 
-      {/* Collapsed here: the list above is arranged for doing, and the panel is
-          for the moment you ask "what else is there?" */}
-      <Todo
-        view={todo}
-        onChanged={refresh}
-        onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
-        busy={busy || reordering}
-      />
-      <Todo kind="backlog"
+      {/* Everything that is not today, as one track of six groups — the list
+          above is arranged for doing, and this is the moment you ask "what else
+          is there?". It was two collapsed accordions over the same model, and
+          the model did not change. */}
+      <Backlog
         view={todo}
         onChanged={refresh}
         onError={(e: unknown) => setNotice({ tone: 'error', text: errorText(e) })}
         busy={busy || reordering}
       />
 
-      <MoodAndLog
-        view={view}
-        // Frozen during a reorder: a mood tap refetches, and the id list would
-        // then be reconciled against a new model by dropping rows (D7).
-        disabled={busy || reordering}
-        onSetMood={(slug) => run('set_mood', { slug })}
-        onSetLog={(text) => run('set_log', { text })}
-      />
+      {moodOpen && (
+        <Sheet title="Mood and log" onClose={() => setMoodOpen(false)}>
+          <MoodAndLog
+            view={view}
+            // Frozen during a reorder: a mood tap refetches, and the id list would
+            // then be reconciled against a new model by dropping rows (D7). The
+            // button that opens this is frozen for the same reason.
+            disabled={busy || reordering}
+            onSetMood={(slug) => run('set_mood', { slug })}
+            onSetLog={(text) => run('set_log', { text })}
+          />
+        </Sheet>
+      )}
 
       <button
         className="day-fab"
@@ -423,7 +492,7 @@ export default function Day() {
       {/*
         The editor, opened from a row's edit button. Resolved from the live model
         at render rather than held, so a refetch behind an open sheet cannot leave
-        it editing a stale row — the same rule the To do panel follows.
+        it editing a stale row — the same rule the backlog track follows.
 
         A distinct button rather than the row: a tap on Day is a tap you make
         while working, so a name is not an edit target here.

@@ -97,6 +97,10 @@ to catch up.
 
 **Unplaced** means a recurring task with no effective date this period.
 
+**Done is a field, not an address.** `DayTask.is_done` decides how a row renders
+rather than which array it arrives in — membership of today is the same union of
+four independent rules it has always been, and doneness only ever adds to it.
+
 **Placement bounds.** A date may be set from today to the later of this Saturday
 or the end of the task's own period. A one-off has no far edge.
 
@@ -104,8 +108,18 @@ or the end of the task's own period. A one-off has no far edge.
 `periodEnd`, `effectiveDate`, `isDone`, `isUnplaced`, `isOverdue`,
 `completionForPeriod`.
 
-**Ordering** is one function, `sortTasks`: baseline first, then category
-(uncategorised last), then name.
+**Ordering** is two functions, deliberately not one.
+
+`sortTasks` orders the To do list: **done** last whatever else is true of it,
+then baseline, then the day's own arrangement from `days.task_order`, then
+category (uncategorised last), then name. Done outranks baseline because a
+struck-through row at the top is not what "the bare minimum to function" should
+look like.
+
+`byBand` orders a backlog group: overdue, placed, unplaced, done — then baseline,
+category, name. It has bands the To do list does not want and no `task_order`,
+which is the whole point of the other one. Folding them would produce one
+function taking flags to switch off half of itself.
 
 **Today** is `today(zone)` in `src/server/today.ts`, the only place a date is read
 from the clock. It takes the viewer's timezone.
@@ -150,8 +164,8 @@ becomes an identity.
 
 | | |
 |---|---|
-| `GET /api/day` | `DayView` |
-| `GET /api/todo` | `TodoView` |
+| `GET /api/day` | `DayView` — one `tasks` array, done last, plus the week's panes |
+| `GET /api/todo` | `TodoView` — all six cadence groups, one-off first |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
 | `POST /api/commands/<name>` | `{ ok: true }` |
 | `GET /api/account` | `{ username, timezone }` — the two fields no view payload carries |
@@ -228,13 +242,13 @@ src/client/
   zones.ts           the IANA zone list, for the two forms that offer one
   ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet, placementMaxFor
   TaskFields.tsx     the task definition fields
-  TaskEditor.tsx     the editor, opened from Day rows and from the panel
-  styles.css         tokens and primitives
+  TaskEditor.tsx     the editor, opened from a To do row's Edit button and from a backlog row's name
+  styles.css         tokens and primitives, including .track and .pane
   icons/             generated favicons
   views/
-    day/             Day.tsx, TaskRow, DayStrip, UpcomingPane, CaptureSheet, DragBand, MoodAndLog
-    Todo.tsx         the Routine and Backlog panels
-    History.tsx      the grid
+    day/             Day.tsx, TaskRow, DayStrip, GroupStrip, PagedTrack, UpcomingPane, CaptureSheet, DragBand, MoodAndLog
+    Todo.tsx         the Backlog track
+    History.tsx      the Tracker grid
     Login.tsx        the signed-out surface
     Claim.tsx        spending an invitation
     Settings.tsx     your own timezone and password
@@ -247,35 +261,71 @@ carries its own date.
 
 ### The shell
 
-A fixed top bar carries the two tabs — Day and History — and an account menu.
+A fixed top bar carries the two tabs — **To do** and **Tracker** — and an account
+menu. The labels are not the keys: the tabs are keyed `day` and `history`, which
+name the view models, the routes and the files. "Day" stopped being a day in v8,
+when the rest of the week became panes beside it; renaming through the stack
+would have been a rename of everything to change two words on screen.
 The menu holds Settings and Sign out, so both are reachable from every view. It
 is `ui.tsx`'s `Popover`, which closes on `Escape` and on a pointer landing
 outside; the shell returns focus to the menu button.
 
-### Day
+### To do
 
 The doing surface, and the only task surface. A horizontal track of panes: today
-first, then the remaining days of this week. Only today's pane can be ticked.
+first, then the remaining days of this week. Only today's pane can be ticked. It
+fetches two models, its own and `/api/todo`.
 
-Day fetches two models, its own and `/api/todo`, and hosts the Routine and
-Backlog panels — one component rendered twice over the same model.
+**One list, not two.** `DayView.tasks` is a single array with done sunk to the
+bottom, and a completed row stays in place, struck through, rather than moving to
+a section of its own. The section was a third way of saying what the tick and the
+strike-through already said, and it split the answer to "what is left?" across
+two places. The list's region takes its name from its own `<h2>`, so the visible
+name and the accessible one cannot drift apart.
+
+**The tick is predicted.** A row holds the done state the person asked for until
+the model agrees, so the box moves on the tap rather than after the round trip.
+The command is chosen from what is on screen, not from the model — otherwise a
+tap on a visibly-checked box re-sends `complete` and the undo is lost. Only the
+box is predicted; the re-sort waits for the refetch, or the row would leave from
+under the finger that tapped it. With `orderIds` this is one of exactly two
+things the client holds that it did not derive from a model.
 
 A row shows a tick, a name, a left stripe (border grey, overdue colour, or a
 baseline task's own colour), and an Edit button. Overdue and future rows also
 offer a day picker and an unplan.
 
 Reorder is a modal state holding a locally rearranged id list; drags cannot cross
-the baseline boundary because each band is its own drag context.
+the baseline boundary because each band is its own drag context. Move to top and
+send to bottom go through the same reorder a drag does, so they obey the bands
+for free. The saved order is the whole rendered list, done ids included — sending
+only the live half would drop their positions, since `sortTasks` arranges the
+done band by the same `task_order`.
 
-### To do
+The mood and the log sit behind a button on the date heading that wears the
+selected mood. They are a once-a-day gesture and were taking permanent space on a
+screen used all day. A dirty log draft is committed when the sheet closes, by any
+route — dismissal has always meant commit here, because the textarea saves on
+blur.
 
-The complete inventory, grouped by cadence: Today, This week, This month, This
-quarter, This year, One-off. **Routine** draws the five recurring groups and
-**Backlog** the one-off group.
+### Backlog
 
-### History
+The complete inventory, under one heading, as a track of six panes paged by a
+strip: **Any time**, Daily, Weekly, Monthly, Quarterly, Yearly. Same mechanics as
+the week's days — `usePagedTrack` and `Track` are shared, the buttons are not,
+because a day button marks today and disables the days already past while a group
+button does neither.
 
-A grid of days by task. Read-only. Pages backwards in blocks, up to 365 at a time.
+"Any time" is the label on `cadence: null`; the model still calls it a one-off.
+**Backlog** names the whole track, which is also where *Reset to backlog* lives —
+the one control that clears every overdue day. It counts every group and now sits
+on the only heading that names them all, which it did not before.
+
+### Tracker
+
+A grid of days by task. Read-only. Pages backwards in blocks, up to 365 at a
+time. The one view that opts out of `.app`'s 720px reading width, because a grid
+of days by task is the one screen here that is better wide.
 
 ### Settings
 
@@ -291,21 +341,33 @@ the device's guess would hide the mismatch the form exists to fix.
 | | |
 |---|---|
 | `tests/period.test.ts` | period derivation and `today(zone)` |
-| `tests/sort.test.ts` | the ordering function |
+| `tests/sort.test.ts` | the two ordering functions |
 | `tests/views.test.ts` | the view builders, against a real database |
 | `tests/commands.test.ts` | what commands write |
 | `tests/isolation.test.ts` | that one user never sees another's data |
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 198. Each suite names its own timezone rather than inheriting the
+`bun test` runs 208. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 588 across four projects — `mobile` and `desktop` on Chrome,
+Playwright runs 620 across four projects — `mobile` and `desktop` on Chrome,
 `mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
 the WebKit half in Linux.
+
+**Coverage moves with the weekday**, because both suites run against the real
+`today()`. `views.test.ts` gates twelve tests on what day it is, and `day.spec.ts`
+skips six on a Saturday — when `placeable_dates` is one date, so there is no
+future pane to assert against. On a Saturday that is 40 of the browser suite's
+620. v16 closes it by giving a Saturday somewhere to page to.
+
+A note on what the browser suite can and cannot see. It addresses roles and
+accessible names, which is why the backlog strip shipped with no CSS at all —
+306px tall, bulleted, vertically stacked — through a fully green run. The few
+assertions that bound geometry rather than semantics are there for that reason,
+and are worth adding to rather than trusting the count.
 
 ---
 
@@ -316,3 +378,35 @@ text and 3:1 for interface elements, in both the light and dark themes.
 `--border-control` is the boundary colour for controls; `--border` is decorative
 and not held to 3:1. `:focus-visible` is styled globally. Interactive targets are
 `--tap`, 44px.
+
+---
+
+## What is deliberately not here
+
+**Reading or writing a day that is not today.** Every view is anchored to
+`today(zone)`, no endpoint takes a date meaning "the day to render", and no
+command writes to one. v8 settled the read half when it added the week's panes,
+and the reasoning is worth keeping because it is easy to relitigate: *"There is
+no `?date=` parameter and `GET /api/day` still means today: the same-day-only
+rule protects WRITES, and it does that in commands.ts, so a read parameter was
+never what it guarded against."*
+
+v16 is the two halves of moving past that, kept together:
+
+- **Paging To do into future weeks.** The strip gains week stepping and
+  `/api/day` learns to answer for a week that is not this one, while `date` stays
+  today and every write still lands on today. Forward only — the past belongs to
+  the Tracker. This is what closes the Saturday hole above.
+- **Editable Tracker cells.** A dated completion command, bounded to daily tasks
+  and to dates not in the future. The grid shows only `cadence: 'day'` tasks,
+  whose period is exactly one day, so a dated completion carries no period
+  ambiguity — which is what makes it narrow enough to be worth doing. It retires
+  "the Tracker is read-only" and puts a clause on *the history records when
+  things were marked*.
+
+**A cancel on the log.** Dismissal commits, by every route, because the textarea
+has always saved on blur. Giving it a real abandon needs an explicit Discard or a
+confirm on clearing, and it would have to apply to blur too or it is inconsistent
+again. Worth doing on its own terms, not as a side effect.
+
+**Per-user moods, a mood editor, an export UI.** Unchanged and still deferred.

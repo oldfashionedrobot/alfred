@@ -12,6 +12,7 @@ const CADENCE_WORD: Record<Cadence, string> = {
   year: 'yearly',
 }
 
+/** The name, and at most one piece of metadata beside it. */
 export function TaskName({ task }: { task: DayTask }) {
   const meta: ReactNode =
     task.state === 'overdue' && task.effective_date ? (
@@ -38,6 +39,7 @@ export function TaskRow({
   bandStart,
   busy,
   onComplete,
+  onUncomplete,
   onUnplan,
   placeable,
   placeableMax,
@@ -53,6 +55,12 @@ export function TaskRow({
   bandStart: boolean
   busy: boolean
   onComplete: () => void
+  /**
+   * The same box, the other way. Since v15 a done row sinks to the foot of THIS
+   * list instead of moving to a Completed section, so one component owns both
+   * directions of the tick rather than two components owning one each.
+   */
+  onUncomplete: () => void
   onUnplan: () => void
   placeable: ISODate[]
   /** Far edge of this task's placeable range; null is unbounded (a one-off). */
@@ -79,11 +87,14 @@ export function TaskRow({
   // Baseline colour, when one is set. The server already nulls it for anything
   // that is not baseline, so there is no condition to re-check here.
   const colour = task.color
+  // One string, used twice — see the edit button below.
+  const editLabel = `Edit ${task.name}`
   const cls = [
     'day-row',
     task.is_baseline ? 'day-row--baseline' : '',
     bandStart ? 'day-row--band-start' : '',
     overdue ? 'day-row--overdue' : '',
+    task.is_done ? 'day-row--done' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -100,29 +111,45 @@ export function TaskRow({
             checkbox role at all — so it is not merely unclickable, it is not a
             control. Same shape, no affordance. */}
         <Tick
-          done={false}
+          done={task.is_done}
           disabled={future}
-          label={`Complete ${task.name}`}
-          onToggle={onComplete}
+          // The verb prefix is the To do panel's convention, and the browser
+          // suite reads doneness back off it — with done and not-done rows in
+          // one list, the prefix is what partitions them.
+          label={`${task.is_done ? 'Untick' : 'Complete'} ${task.name}`}
+          onToggle={task.is_done ? onUncomplete : onComplete}
         />
         <TaskName task={task} />
+        {/* A glyph since v15. `title` and `aria-label` are the SAME string: the
+            tooltip buys back the discoverability the word "Edit" had on a
+            pointer device, and making the two identical keeps the visible label
+            contained in the accessible one (WCAG 2.5.3) rather than nearly so. */}
         <button
-          className="btn btn--small btn--quiet day-row__edit"
+          className="btn btn--icon btn--quiet day-row__edit"
           onClick={onEdit}
-          aria-label={`Edit ${task.name}`}
+          aria-label={editLabel}
+          title={editLabel}
           disabled={busy}
         >
-          Edit
+          <span aria-hidden="true">✎</span>
         </button>
       </div>
 
       {/* Overdue asks for a decision, in the same flat list: complete it above,
-          or one of these two. A future row offers the same two, minus the urgency. */}
+          or one of these two. A future row offers the same two, minus the urgency.
+          Never both this and a strike-through: 'overdue' means placed in the past
+          AND not done, and a future row is never done, so the model keeps them
+          exclusive without a guard here. */}
       {asksForADay && (
         <div className="day-row-actions">
           <button
             className="btn btn--small pop-anchor"
-            style={{ '--pop-anchor': `--pick-${task.id}` } as CSSProperties}
+            /* Namespaced per SURFACE, not just per task. The backlog below
+               renders the same task with its own picker, and since v15 both are
+               in the document at once — two elements declaring one anchor name
+               make the name ambiguous, and this picker was resolving to the
+               backlog's button somewhere down the page. */
+            style={{ '--pop-anchor': `--pick-day-${task.id}` } as CSSProperties}
             onClick={onOpenPicker}
             aria-expanded={pickerOpen}
             aria-label={overdue ? `Give it a day — ${task.name}` : `Move ${task.name}`}
@@ -144,7 +171,7 @@ export function TaskRow({
       {/* In the top layer, so it neither pushes the row's neighbours down nor
           gets clipped by the pane's horizontal scroll box. */}
       {asksForADay && pickerOpen && (
-        <Popover anchor={`--pick-${task.id}`} onClose={onClosePicker}>
+        <Popover anchor={`--pick-day-${task.id}`} onClose={onClosePicker}>
           <DayPicker
             dates={placeable}
             max={placeableMax}

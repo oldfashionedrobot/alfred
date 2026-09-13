@@ -19,63 +19,33 @@
 
 /* --- the collapsible container ------------------------------------------ */
 
+/* The heading names the whole track and carries the one control that acts on
+   the whole track, so it is a row rather than a line of text. */
 .todo__head {
-  margin: 0;
-  font: inherit;
-}
-
-.todo__toggle {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--gap-2);
-  width: 100%;
   min-height: var(--tap);
   padding: var(--gap-2) var(--gap-3);
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  text-align: left;
-}
-
-.todo__chevron {
-  flex: none;
-  color: var(--text-dim);
-  transition: transform 120ms ease;
-}
-
-.todo__toggle[aria-expanded='true'] .todo__chevron {
-  transform: rotate(90deg);
 }
 
 .todo__title {
-  flex: 1 1 auto;
+  flex: none;
+  margin: 0;
+  font: inherit;
   font-weight: 600;
 }
 
-.todo__count {
-  flex: none;
-  min-width: 1.8em;
-  padding: 1px var(--gap-1);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-dim);
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-.todo__body {
-  padding: 0 var(--gap-3) var(--gap-3);
-  border-top: 1px solid var(--border);
-}
-
-/* Reset to backlog — its only home in the app, so it sits above everything. */
+/* Reset to backlog — its only home in the app. It rides on the heading rather
+   than above a list, because it acts on every group in the track and the heading
+   is the only thing here that names all six. */
 .todo__bar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--gap-2);
-  padding: var(--gap-2) 0;
-  border-bottom: 1px solid var(--border);
+  margin-left: auto;
 }
 
 .todo__bar-text {
@@ -134,7 +104,6 @@
 .todo-row + .todo-row {
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
-
 
 .todo-row__main {
   display: flex;
@@ -213,4 +182,3 @@
   padding-top: var(--gap-3);
   border-top: 1px solid var(--border);
 }
-
