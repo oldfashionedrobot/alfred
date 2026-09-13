@@ -145,8 +145,11 @@ bundled.
 
 The boot time is module loading and `migrate()`, not the Turso sync.
 
-**The client bundle** is 270,714 bytes of JavaScript, which Fly Proxy gzips to
-about 120,013 over the wire. CSS is compressed too. Nothing sets `Cache-Control`;
+**The client bundle** is 281,121 bytes of JavaScript, measured against a local
+production build. The 120,013 gzipped figure below it was taken over the wire
+from Fly and has not been re-measured since; it will have moved with the raw
+size, and local `gzip -9` is not what the proxy does, so it is left as the last
+real reading rather than replaced with a number from a different instrument. CSS is compressed too. Nothing sets `Cache-Control`;
 Bun sends an `ETag` and honours `If-None-Match`, so a returning visitor pays one
 round trip rather than the bundle.
 
@@ -168,9 +171,9 @@ One workflow, on every push to `main` and every pull request.
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | covers `e2e/` too |
-| `bun test` | 193 unit tests |
+| `bun test` | 208 unit tests |
 | `bunx playwright install --with-deps chrome webkit` | both engines |
-| `bunx playwright test` | 556 browser tests across four projects |
+| `bunx playwright test` | 620 browser tests across four projects |
 | `docker build` | so a Dockerfile mistake fails before a deploy is attempted |
 | `flyctl deploy --ha=false` | `main` only, after the above are green |
 | smoke test | asks the public URL for `/api/status` and asserts the deployed SHA |

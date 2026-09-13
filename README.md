@@ -32,9 +32,9 @@ the `moods` table is empty. Nothing else is seeded.
 |---|---|
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
-| `bun test` | 198 unit tests |
-| `bun run e2e` | 294 browser tests on Chrome, mobile and desktop viewports |
-| `bun run e2e:all` | all 588, both engines — WebKit does not run on macOS 14 |
+| `bun test` | 208 unit tests |
+| `bun run e2e` | 310 browser tests on Chrome, mobile and desktop viewports |
+| `bun run e2e:all` | all 620, both engines — WebKit does not run on macOS 14 |
 | `bun run e2e:docker` | the WebKit half, in Linux |
 | `bun run e2e:ui` | Playwright's UI mode, Chrome only |
 | `bun run e2e:report` | open the last HTML report |
@@ -118,18 +118,22 @@ practice. The seed only fires when the table is empty.
 Each of these is deliberate. See [`.plan/architecture.md`](.plan/architecture.md)
 for the model they come from.
 
-- **Day is today, and the rest of this week beside it.** Swipe or use the strip to see what is placed on a later day; only today can be ticked.
+- **To do is today, and the rest of this week beside it.** Swipe or use the strip to see what is placed on a later day; only today can be ticked.
 - **Your day rolls over in your own timezone.** It is set per user, when the account is claimed, and decides when "today" changes for that person.
-- **A missed daily task can never be caught up.** Daily tasks are never placed, so they are never overdue. The gap in the History grid is permanent.
+- **A missed daily task can never be caught up.** Daily tasks are never placed, so they are never overdue. The gap in the Tracker grid is permanent.
 - **A task done Tuesday but ticked Thursday is recorded on Thursday.** The history records when things were *marked*.
 - **"Done" means the period is satisfied, not that it happened today.** A weekly task ticked on Monday stays done all week.
 - **Overdue means "needs a new day", not "late".**
 - **Nothing is ever deleted.** Removal is `active = false`, on tasks and moods alike. The one row that is deleted is a completion, when something is unticked.
-- **A completed task leaves the Day screen the next day**, but stays struck through in the Routine panel for the rest of its period.
+- **A completed task stays on the list, at the bottom, struck through.** It leaves the next day; the Backlog keeps it struck through for the rest of its period.
+- **The box ticks before the server has answered.** The row shows what you asked for until the model agrees. Only the box moves — the row sinks to the bottom on the refetch, not under your finger.
+- **Two taps are two gestures.** Tapping a checked box unchecks it, even if the first tap has not landed yet.
 - **The moods are not editable in the app**, and are shared by every user.
 - **A category renders nothing.** It is a sort key: it clusters same-category tasks inside a group and shows no heading or label. Baseline outranks it.
 - **`Dog` and `dog` are two categories.** Free text, matched exactly.
-- **How far ahead a task can be placed depends on the task.** A one-off is unbounded. A recurring task reaches to the end of its own period or this Saturday, whichever is further. Backward is never allowed. Day shows only this week; a further placement appears as a date stamp in the panels.
+- **How far ahead a task can be placed depends on the task.** A one-off is unbounded. A recurring task reaches to the end of its own period or this Saturday, whichever is further. Backward is never allowed. To do shows only this week; a further placement appears as a date stamp in the Backlog.
+- **The Backlog is one track of six groups**, paged like the days: Any time, Daily, Weekly, Monthly, Quarterly, Yearly. "Any time" is the one-off group. Everything you have is in there, whether or not it is on today's list.
+- **On a Saturday there is nowhere to swipe to.** The week ends there, so the strip shows seven days with six behind you and one pane. Paging into next week is v16.
 
 ---
 
