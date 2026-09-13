@@ -180,6 +180,19 @@ export default function Day() {
       })
     : view.tasks
 
+  /*
+   * Where the 2px rule between the bands goes: the first non-baseline row, when
+   * something baseline sits above it.
+   *
+   * Found once from the list rather than tested against each row's neighbour.
+   * Done rows sort below every live one and carry a SECOND baseline→rest
+   * transition inside their own block, so marking every transition drew the rule
+   * twice — and excluding done rows to fix that removed it altogether whenever
+   * every plain row happened to be ticked. The boundary is a property of the
+   * list, so it is found as one.
+   */
+  const dividerAt = rows.some((t) => t.is_baseline) ? rows.findIndex((t) => !t.is_baseline) : -1
+
   // Bands never mix. Rather than guarding a drag that crosses them, each band
   // is its own drag context — crossing is not something that can be expressed.
   const bands = {
@@ -361,18 +374,12 @@ export default function Day() {
             ) : (
               <ul className="day-list">
                 {rows.map((task, i) => {
-                  const prev = i > 0 ? rows[i - 1] : undefined
                   return (
                     <TaskRow
                       key={task.id}
                       task={asShown(task)}
                       today={view.date}
-                      // Only in the live block. Done rows sort below every live
-                      // one and carry their own baseline boundary, so without
-                      // this the 2px divider is drawn twice in one list.
-                      bandStart={
-                        prev !== undefined && prev.is_baseline && !task.is_baseline && !task.is_done
-                      }
+                      bandStart={i === dividerAt}
                       busy={busy}
                       onComplete={() => toggleDone(task)}
                       onUncomplete={() => toggleDone(task)}

@@ -384,7 +384,9 @@ test('the group strip is a single row, not a stacked list', async ({ page, app }
       return { top: Math.round(r.top), height: Math.round(r.height) }
     }),
   )
-  // All six share a top edge, which is what "a row" means.
+  // All six share a top edge, which is what "a row" means — and there have to be
+  // six, or one button trivially satisfies both this and the height loop below.
+  expect(boxes).toHaveLength(6)
   expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
   // And each is still a full tap target — the fix must not shrink them to fit.
   for (const b of boxes) expect(b.height).toBeGreaterThanOrEqual(44)

@@ -597,6 +597,32 @@ test('the baseline divider is drawn once, even with done rows below', async ({ p
   await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
 })
 
+/*
+ * The case the test above cannot see, because it always leaves a live plain row
+ * above the done band: guarding the divider on doneness drew it correctly there
+ * while removing it ENTIRELY here. The boundary is a property of the list, so
+ * both shapes have to be asserted.
+ */
+test('the baseline divider survives every plain row being done', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  const plain = app.seed.task({ name: 'ZZZ plain', cadence: 'day' })
+  app.seed.completion(plain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
+/* And it is not drawn when there is no boundary to mark. */
+test('no baseline task means no divider', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA plain', cadence: 'day' })
+  app.seed.task({ name: 'BBB plain', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(0)
+})
+
 test('double-tapping complete is idempotent', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Twice tapped', cadence: 'day' })
 
