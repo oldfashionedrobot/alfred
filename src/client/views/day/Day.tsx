@@ -62,7 +62,8 @@ export default function Day() {
   const [orderIds, setOrderIds] = useState<number[] | null>(null)
 
   /*
-   * Ids with a tick in flight, rendered as though it had already landed.
+   * What the person has ASKED a row's done state to be, held until the model
+   * agrees. Id → the state they asked for.
    *
    * `complete` is a round trip to a machine that may have just woken from
    * scale-to-zero, and until it answers the box does not move — which reads as a
@@ -70,10 +71,16 @@ export default function Day() {
    * derive from a model, `orderIds` being the first, and it is named here so it
    * stays the second. Nothing else is predicted.
    *
+   * An intent rather than a set of ids in flight, because the command has to be
+   * chosen from what is ON SCREEN. Reading the model instead re-sent `complete`
+   * for somebody who was looking at a ticked box and meant to undo; guarding
+   * against that by ignoring the second tap only moved the problem, and dropped
+   * a legitimate quick undo instead.
+   *
    * Only the box is predicted, not the position: the re-sort waits for the
    * refetch, or the row would leave from under the finger that tapped it.
    */
-  const [pendingTicks, setPendingTicks] = useState<ReadonlySet<number>>(new Set())
+  const [intent, setIntent] = useState<ReadonlyMap<number, boolean>>(new Map())
 
   // The week's panes. Named rather than destructured flat, because the backlog
   // track below is a second instance of the same hook and `index` cannot mean
@@ -222,33 +229,28 @@ export default function Day() {
     placementMaxFor(view.placement, view.placeable_dates, cadence)
 
   const toggleDone = async (task: DayTask): Promise<void> => {
-    /*
-     * Ignored while one is already in flight.
-     *
-     * The row draws the PREDICTED state, so a person who taps twice is looking
-     * at a ticked box and means to untick it — but the command is chosen from
-     * the model, which has not changed yet, so the second tap re-sent `complete`
-     * and their undo went nowhere. The backlog's copy of this is guarded by
-     * `locked`; this is the equivalent, and it lasts one round trip.
-     */
-    if (pendingTicks.has(task.id)) return
-    setPendingTicks((ids) => new Set(ids).add(task.id))
+    // From what is on screen, not from the model — the model has not caught up
+    // with a tap still in flight, and the person is answering the screen.
+    const want = !asShown(task).is_done
+    setIntent((m) => new Map(m).set(task.id, want))
     try {
-      await run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id })
+      await run(want ? 'complete' : 'uncomplete', { task_id: task.id })
     } finally {
-      // Dropped either way. On success the refetched model already says so; on
-      // failure the prediction was wrong and the row must go back to the truth.
-      setPendingTicks((ids) => {
-        const next = new Set(ids)
+      setIntent((m) => {
+        // A newer tap owns the row now; it will clear itself when it settles.
+        if (m.get(task.id) !== want) return m
+        const next = new Map(m)
         next.delete(task.id)
         return next
       })
     }
   }
 
-  /** A task as the screen should draw it: the model, or the tick we are predicting. */
-  const asShown = (task: DayTask): DayTask =>
-    pendingTicks.has(task.id) ? { ...task, is_done: !task.is_done } : task
+  /** A task as the screen should draw it: the model, or what was asked of it. */
+  const asShown = (task: DayTask): DayTask => {
+    const want = intent.get(task.id)
+    return want === undefined ? task : { ...task, is_done: want }
+  }
 
   const toggleReorder = async () => {
     if (!reordering) {

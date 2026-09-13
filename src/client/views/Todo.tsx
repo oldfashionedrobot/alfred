@@ -185,11 +185,12 @@ export default function Backlog({
   // mess.
   const [picking, setPicking] = useState<number | null>(null)
   /*
-   * Ids with a tick in flight. Same mechanism as the day list's, because a box
-   * that behaves differently here than three inches above it would be worse than
-   * the latency it hides. See Day.tsx for why only the box is predicted.
+   * What the person has asked a row's done state to be. Same mechanism as the
+   * day list's, because a box that behaves differently here than three inches
+   * above it would be worse than the latency it hides. See Day.tsx for why it is
+   * an intent rather than a set of ids in flight, and why only the box moves.
    */
-  const [pendingTicks, setPendingTicks] = useState<ReadonlySet<number>>(new Set())
+  const [intent, setIntent] = useState<ReadonlyMap<number, boolean>>(new Map())
   const [editingId, setEditingId] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
   // The second instance of the hook on this screen — the week's days are the
@@ -197,15 +198,19 @@ export default function Backlog({
   const groups = usePagedTrack()
   const locked = busy === true || pending
 
-  /** A task as the screen should draw it: the model, or the tick being predicted. */
-  const asShown = (task: TodoTask): TodoTask =>
-    pendingTicks.has(task.id) ? { ...task, is_done: !task.is_done } : task
+  /** A task as the screen should draw it: the model, or what was asked of it. */
+  const asShown = (task: TodoTask): TodoTask => {
+    const want = intent.get(task.id)
+    return want === undefined ? task : { ...task, is_done: want }
+  }
 
   const toggleDone = (task: TodoTask): void => {
-    setPendingTicks((ids) => new Set(ids).add(task.id))
-    run(task.is_done ? 'uncomplete' : 'complete', { task_id: task.id }, () =>
-      setPendingTicks((ids) => {
-        const next = new Set(ids)
+    const want = !asShown(task).is_done
+    setIntent((m) => new Map(m).set(task.id, want))
+    run(want ? 'complete' : 'uncomplete', { task_id: task.id }, () =>
+      setIntent((m) => {
+        if (m.get(task.id) !== want) return m
+        const next = new Map(m)
         next.delete(task.id)
         return next
       }),

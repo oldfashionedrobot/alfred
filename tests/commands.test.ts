@@ -42,6 +42,34 @@ afterEach(() => closeDb(h))
 
 const rows = () => db.select().from(schema.tasks).all()
 
+describe('complete', () => {
+  /*
+   * The (task_id, completed_on) primary key absorbs a repeat, so completing
+   * twice on one date writes one row and raises nothing.
+   *
+   * It lived only in a browser test until v15, asserted through a double-tap —
+   * which stopped exercising it the moment the tick started predicting, because
+   * the second tap became an `uncomplete`. The guarantee is the server's, so it
+   * is tested against the server.
+   */
+  test('completing twice on one date writes one row', async () => {
+    const [task] = await db
+      .insert(schema.tasks)
+      .values({ user_id: OWNER, name: 'Twice', cadence: 'day', active: true })
+      .returning()
+
+    await runCommand(db, VIEWER, 'complete', { task_id: task!.id })
+    await runCommand(db, VIEWER, 'complete', { task_id: task!.id })
+
+    const rows = await db
+      .select()
+      .from(schema.completions)
+      .where(eq(schema.completions.task_id, task!.id))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.completed_on).toBe(TODAY)
+  })
+})
+
 describe('create_tasks', () => {
   test('places every name on the given date', async () => {
     await runCommand(db, VIEWER, 'create_tasks', {

@@ -545,14 +545,12 @@ test('the box checks before the command lands, and reverts if it fails', async (
 /*
  * A second tap while the first is still in flight.
  *
- * The row draws the predicted state, so somebody tapping twice is looking at a
- * ticked box and means to undo. The command is chosen from the model, which has
- * not caught up — so this used to re-send `complete` and drop the undo silently.
+ * The row draws what was ASKED of it, so somebody tapping twice is looking at a
+ * ticked box and means to undo — and the undo has to land. Choosing the command
+ * from the model instead re-sent `complete` and dropped it; refusing the second
+ * tap dropped it just as silently, and made a fast tick-untick fail outright.
  */
-test('a second tap while the tick is in flight does not re-send the same command', async ({
-  page,
-  app,
-}) => {
+test('a quick undo lands, even before the first tick has', async ({ page, app }) => {
   app.seed.task({ name: 'Slow tick', cadence: 'day' })
   await page.goto(app.url)
 
@@ -566,12 +564,17 @@ test('a second tap while the tick is in flight does not re-send the same command
   })
 
   await tick(page, 'Slow tick').click()
+  // Checked at once, with the command still in flight and nothing refetched.
   await expect(untick(page, 'Slow tick')).toBeVisible()
+  expect((await dayView(app)).tasks[0]!.is_done).toBe(false)
+
+  // Undo, while the first is still held open.
   await untick(page, 'Slow tick').click()
+  await expect(tick(page, 'Slow tick')).toBeVisible()
 
   release!()
-  await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(true)
-  expect(sent).toEqual(['complete'])
+  await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(false)
+  expect(sent).toEqual(['complete', 'uncomplete'])
 })
 
 /*
@@ -623,23 +626,34 @@ test('no baseline task means no divider', async ({ page, app }) => {
   await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(0)
 })
 
-test('double-tapping complete is idempotent', async ({ page, app }) => {
+/*
+ * Two taps are two gestures, now that the first one is visible.
+ *
+ * This used to assert a double tap left the task DONE, which was true only
+ * because the box did not move: you could not see the first tap, so the second
+ * was the same gesture and the server's primary key absorbed it. With the tick
+ * predicting, the second tap lands on a box that is visibly checked — and a
+ * checkbox that will not uncheck when you tap it checked is a box that lies.
+ *
+ * The server-side guarantee that a repeat writes one row did not go away; it
+ * moved to tests/commands.test.ts, where it can be asserted directly instead of
+ * through a gesture that no longer produces it.
+ */
+test('two taps toggle twice, and leave no completion behind', async ({ page, app }) => {
   const id = app.seed.task({ name: 'Twice tapped', cadence: 'day' })
 
   await page.goto(app.url)
   await tick(page, 'Twice tapped').dblclick()
 
-  await expect(untick(page, 'Twice tapped')).toBeVisible()
-  // No error surfaced — the notice bar renders role="alert" for failures.
+  // Back where it started, with nothing recorded and nothing complained about.
+  await expect(tick(page, 'Twice tapped')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect.poll(() => completedNames(page)).toEqual([])
 
-  await expect.poll(() => completedNames(page)).toEqual(['Twice tapped'])
-
-  // Exactly one completion row: one date carries it, and (task_id, completed_on)
-  // is the primary key, so that date cannot carry it twice.
-  const history = await historyView(app)
-  expect(history.rows.filter((r) => r.completed.includes(id))).toHaveLength(1)
-  expect(peek(app, 'SELECT * FROM completions WHERE task_id = ?', [id])).toHaveLength(1)
+  await expect
+    .poll(async () => (await historyView(app)).rows.filter((r) => r.completed.includes(id)).length)
+    .toBe(0)
+  expect(peek(app, 'SELECT * FROM completions WHERE task_id = ?', [id])).toHaveLength(0)
 })
 
 test('a weekly task completed earlier this week loads as completed, not active', async ({
