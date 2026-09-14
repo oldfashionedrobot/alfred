@@ -60,7 +60,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T
 }
 
-export const getDay = () => request<DayView>('/day')
+/**
+ * Today's board, and the panes of one week of it.
+ *
+ * `week` is any date inside the week wanted, and absent means this one. It
+ * changes which week has panes and nothing else: `date` and `tasks` are still
+ * today's whatever is passed, because the same-day rule is a rule about writes.
+ * Forward only — the server refuses a week behind this one.
+ */
+export const getDay = (week?: ISODate) =>
+  request<DayView>(`/day${week === undefined ? '' : `?week=${week}`}`)
+
 export const getTodo = () => request<TodoView>('/todo')
 
 export function getHistory(opts: { limit?: number; before?: ISODate } = {}) {
@@ -78,6 +88,17 @@ export async function command(name: string, body: Record<string, unknown> = {}):
     body: JSON.stringify(body),
   })
 }
+
+/**
+ * Correct one day of one daily task, from the Tracker grid.
+ *
+ * Deliberately not `command('complete')` with a date bolted on: the everyday
+ * tick cannot name a day and must stay that way, so correcting the past is a
+ * different call with a different name. The server refuses a future date and any
+ * task whose period is longer than a day.
+ */
+export const setCompletion = (task_id: number, date: ISODate, done: boolean) =>
+  command('set_completion', { task_id, date, done })
 
 /**
  * Signing in. Deliberately NOT routed through `request`: a wrong password is a
