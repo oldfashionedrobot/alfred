@@ -21,13 +21,21 @@ import { sortTasks } from '../sort.ts'
 import { today, type Viewer } from '../today.ts'
 
 /**
- * Everything the Day view renders. Always today — no parameters.
+ * Everything the Day view renders.
  *
  * Since v8 this also carries the rest of the week: `upcoming` holds one entry per
- * day from tomorrow through Saturday, which the client renders as the panes you
- * swipe through. The Week view and `GET /api/week` are gone. There is still
- * NO date parameter and this endpoint still means today; what changed is how
- * much of the week rides along with it.
+ * pane after today's, which the client renders as the panes you swipe through.
+ * The Week view and `GET /api/week` are gone.
+ *
+ * `week` is ANY DATE INSIDE THE WEEK WANTED, and defaults to today's. It is a
+ * READ parameter and it moves the panes and nothing else: `date` is still today,
+ * `tasks` is still today's list, and `placeable_dates` and `placement` are still
+ * bounded from today. v8 already settled why a read parameter is not what the
+ * same-day rule guards against — "the same-day-only rule protects WRITES, and it
+ * does that in commands.ts" — and v16 changes nothing about that.
+ *
+ * Forward only, enforced in `routes.ts`. Paging back would be a second read-only
+ * way to look at a day the Tracker already shows and now lets you correct.
  *
  * MEMBERSHIP OF TODAY IS A UNION OF FOUR INDEPENDENT RULES, never a chain of
  * else-if. An active task is a member if ANY of these holds:
@@ -55,9 +63,13 @@ import { today, type Viewer } from '../today.ts'
  * One array since v15, sorted with sortTasks() using today's days.task_order,
  * which sinks the done rows to the bottom of it.
  */
-export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
+export async function buildDayView(db: DB, viewer: Viewer, week?: ISODate): Promise<DayView> {
   const userId = viewer.id
   const date = today(viewer.timezone)
+  // `routes.ts` is the whole query-string boundary — it rejects a malformed date
+  // and a week that starts before this one — so anything arriving here is
+  // already today's week or a later one. Nothing is re-validated.
+  const viewedWeek = weekDates(week ?? date)
 
   const taskRows = await db
     .select()
@@ -104,9 +116,11 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     .orderBy(asc(moods.sort_order))
     .all()
 
-  // today through Saturday. Derived once and used twice: it is what the day
-  // picker may offer AND which panes exist, so the two cannot disagree.
-  const placeable = placeableDates(date)
+  // Every pane of the viewed week: today through Saturday for this week, all
+  // seven days for a later one, because none of those has happened. The same
+  // `>= date` rule `placeableDates` applies — only the week going in differs,
+  // which is the whole of what paging changed.
+  const panes = viewedWeek.filter((d) => d >= date)
 
   return {
     date,
@@ -114,20 +128,53 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
     log: dayRow?.log ?? null,
     moods: picker,
     tasks: sortTasks(members, order),
-    // Carried here as well because the reschedule picker opens from an overdue
-    // row on this screen.
-    week_dates: weekDates(date),
-    placeable_dates: placeable,
+    // The strip's seven weekday buttons, which label whichever week is on screen.
+    week_dates: viewedWeek,
+    // TODAY through Saturday, whatever week is being viewed. The reschedule
+    // picker opens from an overdue row on this screen, and a date it offered
+    // because you had paged to it would be a placement outside the task's own
+    // period — see `Placement` for what that costs.
+    placeable_dates: placeableDates(date),
     // How far past this week each cadence may reach. The chips above are the
     // week; this is what the date field beyond them is bounded by.
     placement: placementRanges(date),
-    upcoming: buildUpcoming(taskRows, byTask, placeable),
+    panes,
+    // Today is excluded HERE rather than inside buildUpcoming, because a later
+    // week holds no today pane to exclude.
+    upcoming: buildUpcoming(taskRows, byTask, panes.filter((d) => d !== date)),
+    last_placed: lastPlaced(taskRows),
   }
 }
 
 /**
- * The future panes — tomorrow through Saturday, so `placeable` minus today.
- * Empty on a Saturday, which is what makes that day one pane and no special case.
+ * The furthest day anything active is placed on, or null when nothing is.
+ *
+ * It bounds how far the strip will page, so an empty schedule means no `next`
+ * at all — paging exists to reach work you have scheduled, not to browse an
+ * empty calendar. On a Saturday with nothing ahead that still leaves one pane
+ * and two dead arrows, exactly as before v16.
+ *
+ * Read off the rows already in hand rather than by a `max(planned_date)` query:
+ * `taskRows` is this user's active tasks and nothing else, which is precisely
+ * the set the bound is over.
+ */
+function lastPlaced(taskRows: TaskRow[]): ISODate | null {
+  let best: ISODate | null = null
+  for (const task of taskRows) {
+    const placed = task.planned_date
+    if (placed !== null && (best === null || placed > best)) best = placed
+  }
+  return best
+}
+
+/**
+ * The future panes — whichever dates the caller hands over, in order.
+ *
+ * It used to take the placeable dates and `slice(1)` today off the front, which
+ * is only today when the viewed week is this one. A later week has no today pane
+ * to drop, so the exclusion moved to the call site and this builds what it is
+ * given. Empty on a Saturday of this week, which is what makes that day one pane
+ * and no special case.
  *
  * PLACED TASKS ONLY, and only those still outstanding.
  *
@@ -150,9 +197,9 @@ export async function buildDayView(db: DB, viewer: Viewer): Promise<DayView> {
 function buildUpcoming(
   taskRows: TaskRow[],
   byTask: Map<number, CompletionRow[]>,
-  placeable: ISODate[],
+  dates: ISODate[],
 ): UpcomingDay[] {
-  return placeable.slice(1).map((d) => ({
+  return dates.map((d) => ({
     date: d,
     tasks: sortTasks(
       taskRows

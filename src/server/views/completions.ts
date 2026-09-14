@@ -28,7 +28,11 @@ const PLACEABLE_CADENCES: ReadonlyArray<Cadence | null> = ['week', 'month', 'qua
  * one-off period, never for 'week'.
  *
  * Shipped as `DayView.week_dates` so the day strip can show all seven and grey
- * out the ones already past. `placeableDates` is the same week, filtered.
+ * out the ones already past. Since v16 the argument is the week BEING VIEWED,
+ * which need not be the one holding today.
+ *
+ * `placeableDates` and `DayView.panes` are both this filtered by `>= today`.
+ * They differ only in which week goes in.
  */
 export function weekDates(date: ISODate): ISODate[] {
   const start = periodStart(date, 'week')!
@@ -36,8 +40,13 @@ export function weekDates(date: ISODate): ISODate[] {
 }
 
 /**
- * Today through Saturday — the picker's chips, and the days Day gives a pane to.
- * On a Saturday that is one date; on a Sunday, seven.
+ * Today through Saturday — the picker's chips. On a Saturday that is one date;
+ * on a Sunday, seven.
+ *
+ * It was the list of panes as well until v16 gave Day a week to page to. The
+ * panes now come off the VIEWED week and this stays on today's, because
+ * placement is bounded from today whatever is on screen — the two are easy to
+ * conflate, which is why they are two functions and not one.
  *
  * Since v8 this is no longer the WHOLE placeable range: `placementMax` bounds
  * what lies beyond this week, per cadence.

@@ -25,6 +25,13 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * Day:          complete, uncomplete, place, unplan, reset_overdue
  * Tasks:        create_task, create_tasks, update_task, archive_task
  * Day record:   set_mood, set_log, set_task_order
+ * Tracker:      set_completion
+ *
+ * `set_completion` is the ONE command that accepts a date, and it is narrow on
+ * every side: daily tasks only, never a day that has not happened, and reachable
+ * from the Tracker grid alone. Everything else still lands on the viewer's today
+ * because it has no way to say otherwise — see `complete` for why that is
+ * enforced rather than described.
  *
  * There are no mood-management commands. The mood set is seeded on first run and
  * edited in the database rather than through the app.
@@ -78,6 +85,10 @@ export async function runCommand(
       return setLog(db, userId, now, b)
     case 'set_task_order':
       return setTaskOrder(db, userId, now, b)
+
+    // --- Tracker ----------------------------------------------------------
+    case 'set_completion':
+      return setCompletion(db, userId, now, b)
 
     default:
       // 400, not 404: the path /api/commands/<name> exists, the name in it is a
@@ -199,6 +210,21 @@ async function loadMoodSlug(db: DB, slug: string): Promise<string> {
 // Day
 // ---------------------------------------------------------------------------
 
+/**
+ * The everyday tick, and IT CANNOT NAME A DAY.
+ *
+ * `complete` and `uncomplete` both call `onlyFields(b, ['task_id'])`, which is
+ * what makes same-day recording structural rather than a rule the client is
+ * trusted to follow: a date sent here is a 400, so no client bug and no client
+ * cleverness moves a tick off today, and it stays that way without anybody
+ * remembering to keep it that way.
+ *
+ * `set_completion` deliberately OVERLAPS this on today rather than replacing it.
+ * Folding the two together would hand the everyday tick a date parameter, which
+ * is the one thing this rule exists to prevent — so the Tracker's top row and
+ * the To do list both mark today done, by different commands, and only one of
+ * them is capable of naming any other day.
+ */
 async function complete(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['task_id'])
   const task = await loadTask(db, userId, reqId(b, 'task_id'))
@@ -481,4 +507,66 @@ async function setTaskOrder(db: DB, userId: number, now: ISODate, b: Record<stri
   // Stored opaquely. The order is disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
   await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
+}
+
+// ---------------------------------------------------------------------------
+// Tracker
+// ---------------------------------------------------------------------------
+
+/**
+ * Correcting the record: a day you forgot to tick, ticked after the fact.
+ *
+ * THE ONLY COMMAND THAT ACCEPTS A DATE, and the narrowness is the entire reason
+ * it is acceptable. It is not `complete` with a parameter — it is a different
+ * gesture, reached from the Tracker grid and nowhere else, and `complete` stays
+ * incapable of naming a day. You reach for this when you forgot Tuesday, not
+ * when you are doing the thing.
+ *
+ * DAILY TASKS ONLY. A daily task's period IS the day named — `periodKey(date,
+ * 'day')` returns the date itself — so a dated completion says exactly one thing
+ * and cannot retroactively satisfy a week, a month or a quarter. It is also
+ * exactly what the grid shows. Widening this to other cadences is a much larger
+ * question about the period model and is not being asked here.
+ *
+ * `now` bounds the date rather than supplying it, which is the whole difference
+ * between this and every other command. The clock is still read once, upstream.
+ *
+ * It does not touch `days`. A mood and a log live there, keyed differently, and
+ * nothing has asked to correct one.
+ *
+ * A named shape — `set_*` — because a grid cell is a value at a coordinate, like
+ * `set_mood` and `set_log`, not an action like `complete`. One command with a
+ * boolean also means the client never has to decide which verb a cell needs.
+ */
+async function setCompletion(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
+  onlyFields(b, ['task_id', 'date', 'done'])
+  const id = reqId(b, 'task_id')
+  const date = reqDate(b, 'date')
+  const done = reqBoolean(b, 'done')
+  const task = await loadTask(db, userId, id)
+
+  if (task.cadence !== 'day') throw new Rejected('only a daily task has a day to correct')
+  if (date > now) throw new Rejected('cannot record a day that has not happened')
+
+  if (done) {
+    // The same (task_id, completed_on) key `complete` relies on: correcting a
+    // cell that is already filled is a no-op, never an error.
+    await db.insert(completions)
+      .values({ task_id: task.id, completed_on: date })
+      .onConflictDoNothing()
+      .run()
+    return
+  }
+
+  // THAT ONE ROW, never `completionForPeriod`'s. A daily task's period is the
+  // day itself, so the two agree — but this command is about a coordinate in the
+  // grid, and the row under the cell is the row it means.
+  await db.delete(completions)
+    .where(and(eq(completions.task_id, task.id), eq(completions.completed_on, date)))
+    .run()
 }
