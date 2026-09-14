@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { HistoryColumn, HistoryRow, ISODate } from '../../shared/types.ts'
-import { errorText, getHistory } from '../api.ts'
+import { command, errorText, getHistory } from '../api.ts'
 import { longDate, shortDate, weekday } from '../dates.ts'
 import { NoticeBar, Sheet, type Notice } from '../ui.tsx'
 import './history.css'
 
 /**
  * The Tracker — the grid. Dates down, active daily tasks across, filled cells
- * for completions, one mood column. Read-only: nothing in the system writes to
- * a past date, so there is nothing here to edit.
+ * for completions, one mood column.
+ *
+ * Writable since v16, and only here: clicking a cell CORRECTS a day you got
+ * wrong. That is a different gesture from ticking something off, and the two
+ * are kept apart in the model rather than by convention — `complete` takes no
+ * date and cannot be handed one, so the everyday path still lands on today
+ * whatever a client tries. This is where you fix a day you missed; it is not a
+ * second place to work.
+ *
+ * What it costs is fidelity. The grid used to record when a thing was MARKED; a
+ * corrected cell is now indistinguishable from one marked on the day. That is
+ * the price of being able to fix a Tuesday you forgot, and it is only ever paid
+ * deliberately, by somebody coming here to change one.
  *
  * The screen is called Tracker; the component, the file, `/api/history` and
  * `HistoryView` are not. v15 renamed the label and nothing else — carrying the
@@ -19,6 +30,32 @@ import './history.css'
  */
 
 const PAGE = 60
+
+/**
+ * One cell's identity: the pair, never the task alone.
+ *
+ * `@` separates them because a task id is digits and a date is `YYYY-MM-DD`, so
+ * neither half can contain one and two different pairs cannot collide.
+ */
+const cellKey = (taskId: number, date: ISODate): string => `${taskId}@${date}`
+
+/**
+ * One row with one task's completion added or taken away — the whole of what a
+ * correction changes, which is why patching can stand in for a refetch.
+ *
+ * `includes` guards the add because a correction and its undo can both be in
+ * flight, and their replies can land in either order; only `.includes` ever
+ * reads this array, but a duplicated id would ride along in the accumulated
+ * rows for as long as the screen was open.
+ */
+const withCompletion = (row: HistoryRow, taskId: number, done: boolean): HistoryRow => ({
+  ...row,
+  completed: done
+    ? row.completed.includes(taskId)
+      ? row.completed
+      : [...row.completed, taskId]
+    : row.completed.filter((id) => id !== taskId),
+})
 
 export default function History() {
   const [columns, setColumns] = useState<HistoryColumn[]>([])
@@ -31,7 +68,36 @@ export default function History() {
   // The row whose log is open. Held by row, not by date, so the sheet renders
   // from the model it was opened from and never re-derives it.
   const [reading, setReading] = useState<HistoryRow | null>(null)
+  /*
+   * What a cell has been ASKED to be, held until the model agrees.
+   *
+   * Keyed by the PAIR, which is the one thing that differs from the mechanism
+   * this mirrors. `Day.tsx`'s intent map is `Map<task_id, boolean>`, and that is
+   * right there, where a task appears on the screen exactly once. Here the same
+   * task appears on every row, so keying by task alone would mean clicking
+   * Tuesday lit up Wednesday and every other day in that column.
+   *
+   * Predicted at all for the reason the ticks are: this is a round trip to a
+   * machine that may have just woken from scale-to-zero, and a cell that does
+   * not fill until the answer lands reads as a click that missed.
+   */
+  const [intent, setIntent] = useState<ReadonlyMap<string, boolean>>(new Map())
   const alive = useRef(true)
+  /** The last command in flight per cell, so the next one waits for it. */
+  const inFlight = useRef(new Map<string, Promise<unknown>>())
+  /*
+   * Which click owns a cell's prediction.
+   *
+   * Comparing the VALUE was not enough: three quick clicks on one cell are
+   * on, off, on — so when the first command settles the map already holds `on`
+   * again from the third, the guard reads it as its own, and the prediction is
+   * dropped while two commands are still queued. The cell then flickers to the
+   * intermediate state as they land. A number per click cannot collide with
+   * itself that way.
+   */
+  const clickSeq = useRef(0)
+  /** Cell -> the sequence number of the click that currently owns it. */
+  const owner = useRef(new Map<string, number>())
 
   useEffect(() => {
     alive.current = true
@@ -80,6 +146,106 @@ export default function History() {
     })()
   }, [nextBefore, loadingMore])
 
+  /** A cell as the screen should draw it: the model, or what was asked of it. */
+  const shownDone = (row: HistoryRow, taskId: number): boolean => {
+    const want = intent.get(cellKey(taskId, row.date))
+    return want === undefined ? row.completed.includes(taskId) : want
+  }
+
+  /*
+   * A corrected cell patches the one row it changed and does NOT refetch. This
+   * is the first place the app's data rule bends, so the reason is written down
+   * rather than left to be rediscovered.
+   *
+   * Everywhere else the client posts a command and refetches the view wholesale.
+   * The Tracker cannot, because it is the one screen that ACCUMULATES:
+   * `loadEarlier` above concatenates older pages onto the rows already on
+   * screen, so refetching the first page after a toggle would throw away every
+   * page somebody had paged back through — correct a cell from six months ago
+   * and the grid snaps back to the last sixty days, losing the place you were
+   * looking at. That is a property of this screen rather than a preference.
+   *
+   * Patching is honest here because the write is the narrowest in the system:
+   * one task, one date, a completion row that either exists or does not. There
+   * is nothing else a refetch would have told us.
+   *
+   * No confirm, because every other tick in the app has none and a confirm on a
+   * grid cell is clumsy. The cost is real and accepted: this is a dense grid of
+   * past days, so a mis-click damages an older record rather than today's. What
+   * stands in for the confirm is that clicking again puts it straight back.
+   */
+  const toggleCell = async (row: HistoryRow, taskId: number): Promise<void> => {
+    // From what is on SCREEN, not from the model — the model has not caught up
+    // with a click still in flight, and the person is answering the screen.
+    const want = !shownDone(row, taskId)
+    const key = cellKey(taskId, row.date)
+    const seq = ++clickSeq.current
+    owner.current.set(key, seq)
+    setIntent((m) => new Map(m).set(key, want))
+    setNotice(null)
+
+    /*
+     * Behind whatever is already going for THIS cell.
+     *
+     * Two clicks send two commands, and unordered they race: a `done: false`
+     * can reach the server before the `done: true` it was undoing, which deletes
+     * nothing and then inserts, leaving the day marked when the person asked for
+     * the opposite. Day.tsx serialises its ticks for the same reason.
+     *
+     * Per cell, not globally: corrections to different days have no bearing on
+     * each other and should not queue behind one another.
+     *
+     * DEFENSIVE rather than demonstrated, and worth saying so. Day's race was
+     * reproduced — it failed about one run in five before the fix — and this one
+     * could not be, most likely because both clicks here post to the SAME url and
+     * so tend to share a connection, where Day's two went to different ones. The
+     * reasoning is identical and the cost is eight lines, so the two surfaces
+     * behave the same rather than one of them being right by luck of routing.
+     */
+    const prior = inFlight.current.get(key) ?? Promise.resolve()
+    const mine = prior.then(() =>
+      command('set_completion', { task_id: taskId, date: row.date, done: want }),
+    )
+    inFlight.current.set(
+      key,
+      mine.catch(() => undefined),
+    )
+
+    try {
+      await mine
+      if (!alive.current) return
+      // Against `prev` rather than against the row this closure captured: a
+      // page of older rows may have been appended while the command was away.
+      setRows((prev) =>
+        prev.map((r) => (r.date === row.date ? withCompletion(r, taskId, want) : r)),
+      )
+    } catch (e) {
+      // The write did not happen, so the prediction is a lie. It is dropped
+      // below and the screen is accurate again the moment it is.
+      if (alive.current) setNotice({ text: errorText(e), tone: 'error' })
+    } finally {
+      /*
+       * A newer click owns the cell now; it will clear itself when it settles.
+       * Without this a quick correct-and-undo would lose the second click's
+       * prediction the moment the first one's reply arrived.
+       *
+       * The check and the bookkeeping sit OUTSIDE the updater on purpose. React
+       * invokes an updater twice under StrictMode, so releasing ownership inside
+       * one meant the second invocation saw it already released, took the
+       * "somebody else owns this" branch, and returned the map unchanged — the
+       * prediction stuck and a refused correction never reverted.
+       */
+      if (alive.current && owner.current.get(key) === seq) {
+        owner.current.delete(key)
+        setIntent((m) => {
+          const next = new Map(m)
+          next.delete(key)
+          return next
+        })
+      }
+    }
+  }
+
   /* Both states keep the `.hist` root. history.css hangs the Tracker's escape
      from the 720px reading column off `.app:has(> .hist)`, so a state that
      drops the wrapper is drawn in the narrow column and the whole screen snaps
@@ -101,7 +267,14 @@ export default function History() {
     <div className="hist">
       <header className="hist-head">
         <h1 className="hist-head__title">Tracker</h1>
-        <p className="hist-head__sub">Daily tasks, most recent first. A record, not a checklist.</p>
+        {/* "A record, not a checklist" retired with v16, which made the cells
+            writable. What replaces it has to carry both halves: the record can
+            be corrected, and correcting is not working. The doing happens on To
+            do, and this line is the last thing standing between a dense grid of
+            checkboxes and somebody using it as a second list. */}
+        <p className="hist-head__sub">
+          Daily tasks, most recent first. A record you can correct, not a list to work from.
+        </p>
       </header>
 
       {columns.length === 0 && rows.length === 0 ? (
@@ -164,7 +337,7 @@ export default function History() {
                       )}
                     </td>
                     {columns.map((col) => {
-                      const done = row.completed.includes(col.task_id)
+                      const done = shownDone(row, col.task_id)
                       return (
                         <td
                           key={col.task_id}
@@ -175,7 +348,35 @@ export default function History() {
                               : undefined
                           }
                         >
-                          {done && <span className="sr">done</span>}
+                          {/* The control goes INSIDE the cell; the `td` does not
+                              become it. A `td` carrying role="checkbox" stops
+                              being a grid cell to a screen reader, which loses
+                              the row and column position that is the only thing
+                              making a cell mean anything. Same shape as the log
+                              column above, and as `ui.tsx`'s Tick.
+
+                              The name carries BOTH coordinates. A checkbox in a
+                              grid named only for its task appears once per row in
+                              a screen reader's list with nothing to tell the
+                              copies apart, and is unreachable by voice. The long
+                              date rather than the row header's short form,
+                              because this one is read aloud rather than scanned.
+
+                              The hidden "done" is the cell's VALUE as text.
+                              `aria-checked` carries the state to the control
+                              itself, but a cell holding nothing but a control
+                              reads as empty when a row is read across — and the
+                              pattern across a row is what this grid is for. */}
+                          <button
+                            type="button"
+                            className="hist-cell__tick"
+                            role="checkbox"
+                            aria-checked={done}
+                            aria-label={`${col.name}, ${longDate(row.date)}`}
+                            onClick={() => void toggleCell(row, col.task_id)}
+                          >
+                            {done && <span className="sr">done</span>}
+                          </button>
                         </td>
                       )
                     })}

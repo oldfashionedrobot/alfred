@@ -115,7 +115,7 @@ export interface DayTask {
 }
 
 /**
- * One future day of this week, in `DayView.upcoming`.
+ * One future day of the VIEWED week, in `DayView.upcoming`.
  *
  * `tasks` is what is PLACED on that date and not already satisfied for its
  * period.
@@ -133,35 +133,72 @@ export interface UpcomingDay {
   tasks: DayTask[]
 }
 
+/**
+ * ONE MODEL, TWO WEEKS. `date` is today; `week_dates` is the week being looked
+ * at, which since v16 need not be the same one.
+ *
+ * Everything anchored to TODAY stays anchored to today whatever week is on
+ * screen — `date`, `tasks`, `placeable_dates`, `placement`. Only the pane fields
+ * follow the paging. Letting placement follow it as well would let a weekly task
+ * be placed outside its own week, and `effectiveDate` is backward-only: such a
+ * task would be neither overdue, nor unplaced, nor done, and its obligation
+ * would go unmet with nothing on any screen saying so.
+ */
 export interface DayView {
+  /** Today, never the viewed week. Every write still lands here. */
   date: ISODate
   mood: string | null
   log: string | null
   /** Active moods in sort_order — the picker row. */
   moods: Mood[]
   /**
-   * Everything today holds, done and not, in render order — the client never
+   * Everything TODAY holds, done and not, in render order — the client never
    * sorts. Done rows are last, and carry `is_done` rather than a second array.
+   *
+   * Rides along unrendered while a later week is viewed. One endpoint answering
+   * one question is worth more than the bytes; a second endpoint for "just the
+   * panes" would be two things to keep in step.
    */
   tasks: DayTask[]
   /**
-   * All seven days of this week, Sunday first. The day strip renders one button
-   * each and disables those before `date`; the client never derives a week.
+   * All seven days of the VIEWED week, Sunday first. The day strip renders one
+   * button each and disables those before `date`; the client never derives a
+   * week.
    */
   week_dates: ISODate[]
   /**
-   * Today through Saturday — the picker's chips, and the days that have panes.
-   * One derivation for both, so they cannot disagree. NOT the whole placeable
-   * range any more: `placement` bounds what lies beyond this week.
+   * Today through THIS Saturday — the picker's chips, and nothing else.
+   *
+   * It was the pane list too, on the grounds that one derivation cannot disagree
+   * with itself. Paging forced the two apart: the panes became the viewed week's
+   * days while the chips stay bounded from today. The reason that note existed
+   * is still live — these two are easy to conflate — so the panes got a field of
+   * their own rather than this one stretched to mean both.
    */
   placeable_dates: ISODate[]
-  /** One entry per placeable cadence. See `Placement`. */
+  /** One entry per placeable cadence, bounded from today. See `Placement`. */
   placement: Placement[]
   /**
-   * Tomorrow through Saturday — `placeable_dates` minus today. Empty on a
-   * Saturday, which is what makes that day one pane and no special case.
+   * Every pane in the viewed week, in order: today through Saturday for this
+   * week, all seven days for a later one. This week's days already gone are not
+   * panes — the past belongs to the Tracker.
+   */
+  panes: ISODate[]
+  /**
+   * `panes` minus today's. Empty on a Saturday of this week, which is what makes
+   * that day one pane and no special case; all seven of a later week, which has
+   * no today pane at all.
    */
   upcoming: UpcomingDay[]
+  /**
+   * The furthest `planned_date` over this user's active tasks, or null when
+   * nothing is placed anywhere.
+   *
+   * It bounds how far the strip pages: everything scheduled is reachable and
+   * nothing beyond it is. A fixed horizon would get both wrong at once — it lets
+   * you page through nothing, and it hides a task placed past the edge.
+   */
+  last_placed: ISODate | null
 }
 
 // ---------------------------------------------------------------------------

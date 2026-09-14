@@ -11,6 +11,7 @@ import {
 import { runCommand } from './commands.ts'
 import { db, isReplica } from './db.ts'
 import { ApiFailure, BadRequest, NotFound, Unauthorized } from './errors.ts'
+import { periodStart } from './period.ts'
 import { today } from './today.ts'
 import { buildDayView } from './views/day.ts'
 import { buildHistoryView } from './views/history.ts'
@@ -93,7 +94,11 @@ export async function handleApi(req: Request): Promise<Response> {
      */
     if (req.method === 'POST' && path === '/api/claim') {
       const { token, password, timezone } = objectBody(await readBody(req))
-      if (typeof token !== 'string' || typeof password !== 'string' || typeof timezone !== 'string') {
+      if (
+        typeof token !== 'string' ||
+        typeof password !== 'string' ||
+        typeof timezone !== 'string'
+      ) {
         throw new BadRequest('token, password and timezone are required')
       }
       if (password.length < MIN_PASSWORD) {
@@ -166,11 +171,13 @@ export async function handleApi(req: Request): Promise<Response> {
         case '/api/account':
           return json({ username: user.username, timezone: user.timezone })
         case '/api/day':
-          return json(await buildDayView(db, user))
+          return json(await buildDayView(db, user, weekWanted(url.searchParams, user.timezone)))
         case '/api/todo':
           return json(await buildTodoView(db, user))
         case '/api/history':
-          return json(await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)))
+          return json(
+            await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)),
+          )
       }
     }
 
@@ -246,7 +253,10 @@ async function readBody(req: Request): Promise<unknown> {
  * The whole query-string boundary for History, and the only one: `limit` is
  * validated and bounded here, not again downstream.
  */
-function historyOptions(params: URLSearchParams, zone: string): { limit?: number; before?: ISODate } {
+function historyOptions(
+  params: URLSearchParams,
+  zone: string,
+): { limit?: number; before?: ISODate } {
   const opts: { limit?: number; before?: ISODate } = {}
 
   const limit = params.get('limit')
@@ -268,4 +278,28 @@ function historyOptions(params: URLSearchParams, zone: string): { limit?: number
   }
 
   return opts
+}
+
+/**
+ * Which week `/api/day` is being asked for — any date inside it, absent meaning
+ * this one. The same shape `historyOptions` applies to `before`, pointed the
+ * other way: the Tracker pages back, To do pages forward.
+ *
+ * FORWARD ONLY. The past belongs to the Tracker, which already shows every past
+ * day and now lets you correct one; a read-only pane refusing every gesture
+ * would be a second way to look at a day you can already see.
+ *
+ * The comparison is on week STARTS rather than the dates themselves. Any date
+ * inside a week names it, so a Monday names this week just as well as today
+ * does — and comparing raw dates would refuse it as "before this week".
+ */
+function weekWanted(params: URLSearchParams, zone: string): ISODate | undefined {
+  const week = params.get('week')
+  if (week === null) return undefined
+  if (!isISODate(week)) throw new BadRequest('week must be a date in YYYY-MM-DD form')
+  // Non-null: periodStart returns null only for the unbounded one-off period.
+  if (periodStart(week, 'week')! < periodStart(today(zone), 'week')!) {
+    throw new BadRequest('week must not be before this week')
+  }
+  return week
 }

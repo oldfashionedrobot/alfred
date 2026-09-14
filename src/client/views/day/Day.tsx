@@ -1,10 +1,10 @@
 import './day.css'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../../api.ts'
-import { longDate } from '../../dates.ts'
+import { addDays, longDate } from '../../dates.ts'
 import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
 import Backlog from '../Todo.tsx'
 import { MoodAndLog, MoodButton } from './MoodAndLog.tsx'
@@ -82,15 +82,40 @@ export default function Day() {
    */
   const [intent, setIntent] = useState<ReadonlyMap<number, boolean>>(new Map())
 
+  /*
+   * The last command in flight for a row, so the next one waits for it.
+   *
+   * Two taps send two commands, and without this they race: the second can reach
+   * the server first, so an `uncomplete` lands before the `complete` it was
+   * undoing and the row ends up done when the person asked for the opposite.
+   * A ref rather than state — nothing renders from it, and a re-render between
+   * the two taps would otherwise lose the chain.
+   */
+  const inFlight = useRef(new Map<number, Promise<unknown>>())
+
   // The week's panes. Named rather than destructured flat, because the backlog
   // track below is a second instance of the same hook and `index` cannot mean
   // both.
   const days = usePagedTrack()
 
+  /*
+   * WHICH WEEK HAS PANES. Null is this one, which is what the server answers
+   * when asked nothing.
+   *
+   * It is state rather than a parameter threaded at the call site because three
+   * separate things depend on it and would otherwise each grow their own idea of
+   * it: the fetch, the refetch after a command, and where the track lands when a
+   * week arrives. `date` and `tasks` are unaffected — those are today's whatever
+   * is being viewed, because the same-day rule is a rule about writes.
+   */
+  const [week, setWeek] = useState<ISODate | null>(null)
+  /** Which pane to land on when a week's panes arrive. */
+  const [landOn, setLandOn] = useState<'first' | 'last'>('first')
+
   useEffect(() => {
     let alive = true
     setLoadError(null)
-    Promise.all([getDay(), getTodo()])
+    Promise.all([getDay(week ?? undefined), getTodo()])
       .then(([d, t]) => {
         if (!alive) return
         setView(d)
@@ -102,12 +127,14 @@ export default function Day() {
     return () => {
       alive = false
     }
-  }, [reloads])
+  }, [reloads, week])
 
   /** Refetch both models and replace them wholesale — never merged, never patched. */
   async function refresh(): Promise<void> {
     try {
-      const [d, t] = await Promise.all([getDay(), getTodo()])
+      // The week goes with it. Without this a command fired from a later pane —
+      // an unplan, a move — would refetch THIS week and bounce the view home.
+      const [d, t] = await Promise.all([getDay(week ?? undefined), getTodo()])
       setView(d)
       setTodo(t)
     } catch (e: unknown) {
@@ -143,6 +170,28 @@ export default function Day() {
     }
   }
 
+  /*
+   * Where the track sits when a week's panes arrive.
+   *
+   * `usePagedTrack` reads its index back off `scrollLeft`, which is right while
+   * the pane SET is stable and wrong the moment it is replaced: loading a week
+   * leaves the scroller where it was, so you land mid-week on an index that
+   * describes the week you just left.
+   *
+   * Above the early return, not beside the code it serves — a hook after a
+   * conditional return is a hook React will not see on every render. Keyed on
+   * the viewed week's Sunday, so it fires when the panes change and at no other
+   * time.
+   */
+  const viewedWeek = view?.week_dates[0] ?? null
+  const paneCount = view?.panes.length ?? 0
+  useEffect(() => {
+    if (viewedWeek === null) return
+    days.goTo(landOn === 'first' ? 0 : paneCount - 1)
+    // `days`, `landOn` and `paneCount` are read, not depended on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewedWeek])
+
   if (!view || !todo) {
     if (loadError) {
       return (
@@ -158,6 +207,52 @@ export default function Day() {
   }
 
   const reordering = orderIds !== null
+
+  /*
+   * Where the track sits when a week's panes arrive.
+   *
+   * `usePagedTrack` reads its index back off `scrollLeft`, which is right while
+   * the pane SET is stable and wrong the moment it is replaced: loading a week
+   * leaves the scroller wherever it was, so you land mid-week on an index that
+   * describes the week you just left. Keyed on the viewed week's Sunday, so it
+   * fires exactly when the panes change and not on every render.
+   */
+  // Past the early return, so the view exists and so does its week. The nullable
+  // one above is only nullable because the hook that reads it runs before the
+  // model has landed.
+  const shownWeek = view.week_dates[0]!
+
+  /** Viewing something other than the current week. */
+  const laterWeek = shownWeek > view.date
+  /** Something is placed beyond the week on screen. */
+  const moreAhead = view.last_placed !== null && view.last_placed > view.week_dates[6]!
+
+  /*
+   * One control does days and weeks. Stepping past either end of the panes moves
+   * a week rather than doing nothing — which is why the strip asks to move
+   * instead of stepping an index itself.
+   *
+   * A swipe cannot do this: the track snaps and contains its overscroll, so a
+   * gesture at the last pane simply stops. Weeks are the arrows' job, days are
+   * either's. Recorded in the plan, and accepted.
+   */
+  const stepPane = (dir: -1 | 1) => {
+    // Measured, not remembered: a click that lands mid-scroll would otherwise
+    // step from the pane being left, which at a week's edge is the difference
+    // between one pane back and one WEEK back.
+    const next = days.indexNow() + dir
+    if (next >= 0 && next < view.panes.length) {
+      days.goTo(next)
+      return
+    }
+    if (dir === 1 && moreAhead) {
+      setLandOn('first')
+      setWeek(addDays(shownWeek, 7))
+    } else if (dir === -1 && laterWeek) {
+      setLandOn('last')
+      setWeek(addDays(shownWeek, -7))
+    }
+  }
 
   // Every row on the screen, today's and the days beside it, so the edit button
   // works wherever it is drawn.
@@ -233,8 +328,16 @@ export default function Day() {
     // with a tap still in flight, and the person is answering the screen.
     const want = !asShown(task).is_done
     setIntent((m) => new Map(m).set(task.id, want))
+    // Behind whatever is already going for this row. Commands for one task are
+    // ordered; commands for different tasks are not, and do not need to be.
+    const prior = inFlight.current.get(task.id) ?? Promise.resolve()
+    const mine = prior.then(() => run(want ? 'complete' : 'uncomplete', { task_id: task.id }))
+    inFlight.current.set(
+      task.id,
+      mine.catch(() => undefined),
+    )
     try {
-      await run(want ? 'complete' : 'uncomplete', { task_id: task.id })
+      await mine
     } finally {
       setIntent((m) => {
         // A newer tap owns the row now; it will clear itself when it settles.
@@ -303,13 +406,22 @@ export default function Day() {
       <DayStrip
         dates={view.week_dates}
         today={view.date}
-        panes={view.placeable_dates}
-        // Index-aligned with placeable_dates, like the panes themselves: today
-        // is what is still to do, and an upcoming pane is already filtered to
-        // what is outstanding on it.
-        counts={[outstanding.length, ...view.upcoming.map((u) => u.tasks.length)]}
+        panes={view.panes}
+        // Index-aligned with `panes` rather than built as today-plus-the-rest:
+        // in a later week there is no today pane to put first. Today's count is
+        // what is still to do; an upcoming pane is already filtered to what is
+        // outstanding on it. Counting for a label, not deriving state.
+        counts={view.panes.map((d) =>
+          d === view.date
+            ? outstanding.length
+            : (view.upcoming.find((u) => u.date === d)?.tasks.length ?? 0),
+        )}
         index={days.index}
         onGo={days.goTo}
+        onPrev={() => stepPane(-1)}
+        onNext={() => stepPane(1)}
+        canPrev={days.index > 0 || laterWeek}
+        canNext={days.index < view.panes.length - 1 || moreAhead}
         disabled={busy || reordering}
       />
 
@@ -321,91 +433,96 @@ export default function Day() {
         trackRef={days.trackRef}
         onScroll={days.onScroll}
       >
-        <div className="pane pane--today">
-          {/* Named by its own heading rather than by an aria-label that said
+        {/* Today's pane exists only in the week that contains today. Paging
+            forward leaves it behind, which is what keeps "only today can be
+            ticked" true without a flag anywhere. */}
+        {!laterWeek && (
+          <div className="pane pane--today">
+            {/* Named by its own heading rather than by an aria-label that said
               something else. The two had already drifted — the section was
               "Active tasks" while the heading read "Today" — and now that done
               rows live here too, only one of those was still true. */}
-          <section className="day-section" aria-labelledby={todayHeadingId}>
-            <div className="day-section-bar">
-              <h2 className="day-h2" id={todayHeadingId}>
-                Today
-              </h2>
-              {/* The short path to "something I am doing today": capture, with
+            <section className="day-section" aria-labelledby={todayHeadingId}>
+              <div className="day-section-bar">
+                <h2 className="day-h2" id={todayHeadingId}>
+                  Today
+                </h2>
+                {/* The short path to "something I am doing today": capture, with
                   the day already chosen. The FAB beside it captures to the
                   backlog, which is the other half of the same gesture. */}
-              <div className="day-section-actions">
-                <button
-                  className="btn btn--small btn--quiet"
-                  onClick={() => {
-                    setCaptureToday(true)
-                    setCapturing(true)
-                  }}
-                  disabled={busy || reordering}
-                >
-                  Add task
-                </button>
-                <button
-                  className="btn btn--small btn--quiet"
-                  aria-pressed={reordering}
-                  onClick={toggleReorder}
-                  disabled={busy || outstanding.length === 0}
-                >
-                  {reordering ? 'Done reordering' : 'Reorder'}
-                </button>
+                <div className="day-section-actions">
+                  <button
+                    className="btn btn--small btn--quiet"
+                    onClick={() => {
+                      setCaptureToday(true)
+                      setCapturing(true)
+                    }}
+                    disabled={busy || reordering}
+                  >
+                    Add task
+                  </button>
+                  <button
+                    className="btn btn--small btn--quiet"
+                    aria-pressed={reordering}
+                    onClick={toggleReorder}
+                    disabled={busy || outstanding.length === 0}
+                  >
+                    {reordering ? 'Done reordering' : 'Reorder'}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {rows.length === 0 ? (
-              <p className="day-empty">Nothing on today's list.</p>
-            ) : reordering ? (
-              <>
-                <p className="day-hint">Drag to rearrange. Baseline tasks stay above the rest.</p>
-                {(['baseline', 'rest'] as const).map((band) =>
-                  bands[band].length === 0 ? null : (
-                    <DragBand
-                      key={band}
-                      tasks={bands[band]}
-                      onReorder={(from, to) => reorderBand(band, from, to)}
-                      onMoveToTop={(id) => moveWithinBand(band, id, 'top')}
-                      onMoveToBottom={(id) => moveWithinBand(band, id, 'bottom')}
-                    />
-                  ),
-                )}
-              </>
-            ) : (
-              <ul className="day-list">
-                {rows.map((task, i) => {
-                  return (
-                    <TaskRow
-                      key={task.id}
-                      task={asShown(task)}
-                      today={view.date}
-                      bandStart={i === dividerAt}
-                      busy={busy}
-                      onComplete={() => toggleDone(task)}
-                      onUncomplete={() => toggleDone(task)}
-                      onUnplan={() => run('unplan', { task_id: task.id })}
-                      placeable={view.placeable_dates}
-                      placeableMax={maxFor(task.cadence)}
-                      onEdit={() => setEditingId(task.id)}
-                      pickerOpen={pickerFor === task.id}
-                      onOpenPicker={() => setPickerFor(task.id)}
-                      onClosePicker={() => setPickerFor(null)}
-                      onPlace={async (date) => {
-                        if (await run('place', { task_id: task.id, date })) setPickerFor(null)
-                      }}
-                    />
-                  )
-                })}
-              </ul>
-            )}
-          </section>
+              {rows.length === 0 ? (
+                <p className="day-empty">Nothing on today's list.</p>
+              ) : reordering ? (
+                <>
+                  <p className="day-hint">Drag to rearrange. Baseline tasks stay above the rest.</p>
+                  {(['baseline', 'rest'] as const).map((band) =>
+                    bands[band].length === 0 ? null : (
+                      <DragBand
+                        key={band}
+                        tasks={bands[band]}
+                        onReorder={(from, to) => reorderBand(band, from, to)}
+                        onMoveToTop={(id) => moveWithinBand(band, id, 'top')}
+                        onMoveToBottom={(id) => moveWithinBand(band, id, 'bottom')}
+                      />
+                    ),
+                  )}
+                </>
+              ) : (
+                <ul className="day-list">
+                  {rows.map((task, i) => {
+                    return (
+                      <TaskRow
+                        key={task.id}
+                        task={asShown(task)}
+                        today={view.date}
+                        bandStart={i === dividerAt}
+                        busy={busy}
+                        onComplete={() => toggleDone(task)}
+                        onUncomplete={() => toggleDone(task)}
+                        onUnplan={() => run('unplan', { task_id: task.id })}
+                        placeable={view.placeable_dates}
+                        placeableMax={maxFor(task.cadence)}
+                        onEdit={() => setEditingId(task.id)}
+                        pickerOpen={pickerFor === task.id}
+                        onOpenPicker={() => setPickerFor(task.id)}
+                        onClosePicker={() => setPickerFor(null)}
+                        onPlace={async (date) => {
+                          if (await run('place', { task_id: task.id, date })) setPickerFor(null)
+                        }}
+                      />
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
 
-          {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
+            {/* Period-satisfied, not "done today": a weekly task ticked on Tuesday
               belongs here all week, and a task placed today can arrive here already
               satisfied by an earlier completion in the same period. */}
-        </div>
+          </div>
+        )}
 
         {/* Placed tasks only, and only those still outstanding — a done task adds
             no load to Thursday. Dailies are absent because one can never hold a

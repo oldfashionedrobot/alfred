@@ -24,6 +24,18 @@ export default defineConfig({
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    /*
+     * The suite runs as somebody who has asked for less motion.
+     *
+     * Not a detail: the day track scrolls smoothly, and a test that has to wait
+     * for an animation ends up measuring the animation. Five different waits
+     * were tried against it — the pane existing, the strip's aria-current, two
+     * guessed durations, and polling scrollLeft for stillness — and every one
+     * was a way of not answering whether the animation should be running at all.
+     * The app honours the preference, Playwright emulates it, and the track
+     * lands in one frame.
+     */
+    reducedMotion: 'reduce',
   },
 
   /*

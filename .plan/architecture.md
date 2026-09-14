@@ -104,6 +104,19 @@ four independent rules it has always been, and doneness only ever adds to it.
 **Placement bounds.** A date may be set from today to the later of this Saturday
 or the end of the task's own period. A one-off has no far edge.
 
+Every command that writes `planned_date` applies it — `place`, `create_task`,
+`create_tasks` and `update_task` — through one `placementFits`. It lived in
+`place` alone until v16, which meant the editor's save could put a weekly task
+six months out, where `effectiveDate` (backward-only) would never roll it back
+and the task would sit un-overdue, un-unplaced and un-done until the day arrived.
+
+A period can also shrink out from under a date nobody touched: the editor always
+sends `cadence` and only sends `planned_date` when the day chip changed, so
+narrowing a one-off placed months out to weekly arrives as a cadence and no date.
+That date is **cleared**, not refused — it stopped meaning anything, exactly as a
+daily task's does, and a rejection would point at a field the person never
+edited.
+
 `src/server/period.ts` holds all of it: `addDays`, `periodKey`, `periodStart`,
 `periodEnd`, `effectiveDate`, `isDone`, `isUnplaced`, `isOverdue`,
 `completionForPeriod`.
@@ -164,7 +177,7 @@ becomes an identity.
 
 | | |
 |---|---|
-| `GET /api/day` | `DayView` — one `tasks` array, done last, plus the week's panes |
+| `GET /api/day` | `DayView` — one `tasks` array, done last, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date` and `tasks` are still **today's** whatever is asked for. |
 | `GET /api/todo` | `TodoView` — all six cadence groups, one-off first |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
 | `POST /api/commands/<name>` | `{ ok: true }` |
@@ -180,14 +193,31 @@ Every response carries `cache-control: no-store`.
 
 `complete`, `uncomplete`, `place`, `unplan`, `reset_overdue`, `create_task`,
 `create_tasks`, `update_task`, `archive_task`, `set_mood`, `set_log`,
-`set_task_order`.
+`set_task_order`, `set_completion`.
 
 `runCommand` takes a `Viewer` — `{ id, timezone }` — reads the clock once, and
 passes that date down. `loadTask` is the single point where ownership is
 enforced; a task belonging to somebody else is a 404.
 
-No command accepts a date meaning "the day to render", so writes always land on
-the viewer's today.
+**Completing is a thing you do today.** `complete` and `uncomplete` take no date
+and land on the viewer's today. That is enforced rather than described: both call
+`onlyFields(b, ['task_id'])`, so handing them a date is a 400 and stays one
+without anybody remembering to keep it so.
+
+**Correcting is a different gesture.** `set_completion { task_id, date, done }`
+is the one command that names a day, reachable from the Tracker grid and nowhere
+else. It is bounded to daily tasks — whose period *is* that one day, so a dated
+completion cannot retroactively satisfy a week or a quarter — and to dates that
+have already happened.
+
+It refuses to fill a cell on an archived task and allows one to be emptied,
+following `complete` and `uncomplete` respectively for the half it matches: the
+grid draws only active dailies, so a completion written against an archived task
+would land on a column nothing renders.
+
+The overlap on today is deliberate. Folding the two together would give the
+everyday tick a date parameter, and a client that can name the day is what the
+same-day rule exists to prevent.
 
 ### Auth
 
@@ -272,9 +302,35 @@ outside; the shell returns focus to the menu button.
 
 ### To do
 
-The doing surface, and the only task surface. A horizontal track of panes: today
-first, then the remaining days of this week. Only today's pane can be ticked. It
-fetches two models, its own and `/api/todo`.
+The doing surface, and the only task surface. A horizontal track of panes, and a
+strip that pages them. It fetches two models, its own and `/api/todo`.
+
+**It pages forward, as far as you have scheduled.** `DayView.panes` is the viewed
+week's panes — today through Saturday in this week, all seven in a later one —
+and `last_placed` is the furthest date anything is placed on, which is where
+`next` stops. You can always reach everything you have scheduled and never page
+past the end of it. Empty weeks in between are reachable and have to be: a strip
+that skipped to the next week with something in it would be worse than an empty
+one.
+
+Today's pane exists only in the week that contains today, which is what keeps
+**only today can be ticked** true without a flag anywhere. Placement does not
+follow the paging: `placeable_dates` and `placement` stay bounded from today, so
+a weekly task can never be given a day outside its own week.
+
+Paging is forward only. The past belongs to the Tracker, which already shows
+every day of it.
+
+The viewed week is client state, and three things depend on it: the fetch, the
+refetch after a command — without which an unplan from a later pane bounces the
+view home — and where the track lands when a week arrives. `usePagedTrack` reads
+its index back off `scrollLeft`, so a week change scrolls explicitly, and
+`stepPane` measures the track rather than reading that index: a click landing
+mid-scroll would otherwise step from the pane being left, which at a week's edge
+is the difference between one pane back and one week back.
+
+A swipe cannot cross a week. The track snaps and contains its overscroll, so the
+gesture stops at the last pane — weeks are the arrows' job, days are either's.
 
 **One list, not two.** `DayView.tasks` is a single array with done sunk to the
 bottom, and a completed row stays in place, struck through, rather than moving to
@@ -290,6 +346,9 @@ tap on a visibly-checked box re-sends `complete` and the undo is lost. Only the
 box is predicted; the re-sort waits for the refetch, or the row would leave from
 under the finger that tapped it. With `orderIds` this is one of exactly two
 things the client holds that it did not derive from a model.
+
+Commands for one row are **ordered**: two taps send two commands, and unordered
+they race, so an `uncomplete` can land before the `complete` it was undoing.
 
 A row shows a tick, a name, a left stripe (border grey, overdue colour, or a
 baseline task's own colour), and an Edit button. Overdue and future rows also
@@ -323,9 +382,35 @@ on the only heading that names them all, which it did not before.
 
 ### Tracker
 
-A grid of days by task. Read-only. Pages backwards in blocks, up to 365 at a
-time. The one view that opts out of `.app`'s 720px reading width, because a grid
-of days by task is the one screen here that is better wide.
+A grid of days by task, paging backwards in blocks of up to 365. The one view
+that opts out of `.app`'s 720px reading width, because a grid of days by task is
+the one screen here that is better wide. Cells are square — a pattern needs its
+marks the same shape — and the table sizes to them rather than stretching them.
+
+**A record you can correct.** A cell is a checkbox INSIDE the `<td>`, never the
+`td` itself: a cell carrying `role="checkbox"` stops being a grid cell and loses
+the row and column position that is the only thing making it mean anything. Its
+name carries both coordinates.
+
+Cells predict like the ticks do, keyed by **cell** rather than by task — the same
+task is on every row — and by the CLICK rather than by the value, since three
+quick clicks on one cell are on, off, on and a value cannot tell its own repeat
+apart. Commands for one cell are ordered, for the reason the ticks are.
+
+**A corrected cell does not refetch, and that is a deliberate exception to the
+data rule.** Everywhere else the client posts a command and refetches the view
+wholesale. This is the one screen that ACCUMULATES: `loadEarlier` concatenates
+older pages onto what is already there, so refetching the first page would throw
+away everything somebody had paged back through. The one row that changed is
+patched instead. The write is the narrowest in the system — one task, one date —
+so there is nothing else a refetch would have said.
+
+Editing a cell costs something, and it is worth naming: the history recorded when
+things were **marked**, and a corrected cell is now indistinguishable from one
+marked on the day. That fidelity is only ever lost deliberately, by somebody
+going to the grid; the everyday tick still cannot name a day.
+
+Moods and logs are not editable here. Only the cells are.
 
 ### Settings
 
@@ -348,20 +433,33 @@ the device's guess would hide the mismatch the form exists to fix.
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 208. Each suite names its own timezone rather than inheriting the
+`bun test` runs 234. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 620 across four projects — `mobile` and `desktop` on Chrome,
+Playwright runs 636 across four projects — `mobile` and `desktop` on Chrome,
 `mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
 the WebKit half in Linux.
 
-**Coverage moves with the weekday**, because both suites run against the real
-`today()`. `views.test.ts` gates twelve tests on what day it is, and `day.spec.ts`
-skips six on a Saturday — when `placeable_dates` is one date, so there is no
-future pane to assert against. On a Saturday that is 40 of the browser suite's
-620. v16 closes it by giving a Saturday somewhere to page to.
+**The suite runs with reduced motion emulated.** The day track scrolls smoothly,
+and a test that waits out an animation ends up measuring the animation — five
+different waits were tried against it before the question became whether the
+animation should be running at all. It should not, for anybody who has asked for
+less motion, and the app honours that. One test opts back in, because the smooth
+path is what most people get.
+
+**Coverage still moves with the weekday**, because both suites run against the
+real `today()` — but far less than it did. `views.test.ts` gates six tests on what
+day it is, down from twelve: a builder that takes a week can be handed a future
+one outright instead of waiting for the calendar. `day.spec.ts` gates four, down
+from eight.
+
+The gates that remain are the ones paging cannot supply: a day EARLIER this week,
+which forward paging never reaches; the strip carrying today's mark and the
+showing mark at once, which needs today and another day in one week; and
+reordering, which is today-only, so proving the track is frozen needs today's
+pane and somewhere it is refusing to go.
 
 A note on what the browser suite can and cannot see. It addresses roles and
 accessible names, which is why the backlog strip shipped with no CSS at all —
@@ -379,30 +477,49 @@ text and 3:1 for interface elements, in both the light and dark themes.
 and not held to 3:1. `:focus-visible` is styled globally. Interactive targets are
 `--tap`, 44px.
 
+**One documented exception**, in the Tracker: a cell is 26px square. Enlarging it
+is not the answer, because square means the row height follows the width — 44px
+cells would make a sixty-day grid 2,640px tall against 1,560px, and reading a
+month at a glance is what the grid is for. WCAG 2.2 AA asks 24×24 (SC 2.5.8) and
+26 clears it; 44 is this repo's own stricter convention for controls you hit with
+a thumb, which a grid you read is not.
+
+`prefers-reduced-motion` is honoured: the day track's scroll and the app's
+transitions both flatten under it.
+
 ---
 
 ## What is deliberately not here
 
-**Reading or writing a day that is not today.** Every view is anchored to
-`today(zone)`, no endpoint takes a date meaning "the day to render", and no
-command writes to one. v8 settled the read half when it added the week's panes,
-and the reasoning is worth keeping because it is easy to relitigate: *"There is
-no `?date=` parameter and `GET /api/day` still means today: the same-day-only
-rule protects WRITES, and it does that in commands.ts, so a read parameter was
-never what it guarded against."*
+**Writing to a day that is not today, except one narrow way.** `today(zone)` is
+the only clock read, and `complete`, `uncomplete`, `place` and the rest take no
+date — `onlyFields` makes sure of it. `set_completion` is the single exception,
+bounded to daily tasks and to days that have already happened, and reachable only
+from the Tracker grid.
 
-v16 is the two halves of moving past that, kept together:
+The read side was never the rule, and v8 said why when it added the week's panes.
+It is worth keeping because it is easy to relitigate: *"There is no `?date=`
+parameter and `GET /api/day` still means today: the same-day-only rule protects
+WRITES, and it does that in commands.ts, so a read parameter was never what it
+guarded against."* `?week=` followed that reasoning; `date` and `tasks` are still
+today's whatever week is asked for.
 
-- **Paging To do into future weeks.** The strip gains week stepping and
-  `/api/day` learns to answer for a week that is not this one, while `date` stays
-  today and every write still lands on today. Forward only — the past belongs to
-  the Tracker. This is what closes the Saturday hole above.
-- **Editable Tracker cells.** A dated completion command, bounded to daily tasks
-  and to dates not in the future. The grid shows only `cadence: 'day'` tasks,
-  whose period is exactly one day, so a dated completion carries no period
-  ambiguity — which is what makes it narrow enough to be worth doing. It retires
-  "the Tracker is read-only" and puts a clause on *the history records when
-  things were marked*.
+**Paging To do backwards.** Forward only. The Tracker already shows every past
+day and now lets you correct one, so a read-only pane that refuses every gesture
+would be a second way to look at a day you can already see.
+
+**Correcting anything but a daily task's cell.** A weekly task satisfied once
+covers seven cells, so a row of them would stop meaning one thing per cell. The
+grid shows daily tasks, whose period is exactly one day, and that is what makes
+the dated write narrow enough to be safe.
+
+**Correcting a past mood or log.** They live in `days`, keyed differently, and
+nothing has asked for it.
+
+**Recording that a completion was corrected.** A corrected cell is
+indistinguishable from one marked on the day. Storing both dates means a column
+on `completions`, a migration, and a second meaning for every existing row, to
+answer a question nobody has asked.
 
 **A cancel on the log.** Dismissal commits, by every route, because the textarea
 has always saved on blur. Giving it a real abandon needs an explicit Discard or a

@@ -573,8 +573,13 @@ test('a quick undo lands, even before the first tick has', async ({ page, app })
   await expect(tick(page, 'Slow tick')).toBeVisible()
 
   release!()
+
+  // Wait for BOTH to have gone before asking what the server thinks. Polling
+  // is_done alone is not a synchronisation point — it is already false until the
+  // held `complete` commits, so the poll passes on its first look and the undo
+  // has not been sent yet.
+  await expect.poll(() => sent).toEqual(['complete', 'uncomplete'])
   await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(false)
-  expect(sent).toEqual(['complete', 'uncomplete'])
 })
 
 /*
@@ -1467,9 +1472,71 @@ function completionsOf(app: App, name: string): number {
   return Number(rows[0]!.n)
 }
 
-/** The first day after today, or null on a Saturday when there is none. */
-async function firstUpcoming(app: App): Promise<string | null> {
-  return (await dayView(app)).upcoming[0]?.date ?? null
+/**
+ * The same weekday next week — a future day on EVERY day of the week.
+ *
+ * Six tests below used to take `upcoming[0]` and sit out every Saturday, when
+ * the week is over and there is no later day in it. v16 pages, so they seed a
+ * day in the next week instead and go to it.
+ *
+ * Seven days rather than two, so the target is always exactly one week ahead
+ * whatever day it is run on, and the paging is one crossing rather than a
+ * number that changes with the calendar.
+ */
+const nextWeekSameDay = (app: App): string => addDays(app.today, 7)
+
+/**
+ * Step the strip forward until `date`'s pane is on screen.
+ *
+ * Returns at once when the pane is already in the document, which it is for any
+ * day of the current week. Crossing a week boundary only works once something is
+ * placed beyond it — paging is bounded by the furthest placed task — so callers
+ * seed first.
+ */
+/**
+ * Step the strip forward until `date`'s pane is the one on screen.
+ *
+ * Retrying the assertion the caller actually wants is what makes this reliable.
+ * Two cheaper conditions were tried and neither holds: "the pane exists" is true
+ * the moment its whole week enters the document, which leaves the track parked
+ * at whichever end it arrived at; and a bare click loop outruns the smooth
+ * scroll, so the index — read back off scrollLeft — is still describing the pane
+ * before the last one and the same step gets re-issued.
+ *
+ * Crossing a week only works once something is placed beyond it, since paging is
+ * bounded by the furthest placed task. Callers seed first.
+ */
+/**
+ * Step the strip forward until `date`'s pane is the one on screen.
+ *
+ * Short because the suite emulates reduced motion, so the track lands in one
+ * frame and there is no animation to wait out. Five other waits were tried first
+ * — the pane merely existing, the strip's aria-current, two guessed durations,
+ * and polling scrollLeft for stillness — and each was a way of measuring the
+ * animation rather than asking whether it should be running. See `reducedMotion`
+ * in playwright.config.ts.
+ *
+ * "Showing", not "present": a whole week's panes enter the document at once, so
+ * existence is true the moment the week loads.
+ *
+ * Crossing a week only works once something is placed beyond it, since paging is
+ * bounded by the furthest placed task. Callers seed first.
+ */
+async function pageToPane(page: Page, date: string): Promise<void> {
+  const pane = paneFor(page, date)
+  const next = page.getByRole('button', { name: 'Next day' })
+
+  for (let i = 0; i < 12; i++) {
+    const showing =
+      (await pane.count()) > 0 &&
+      (await pane.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        return r.left > -2 && r.right < window.innerWidth + 2
+      }))
+    if (showing) return
+    await next.click()
+  }
+  await expect(pane).toBeInViewport({ ratio: 0.5 })
 }
 
 /*
@@ -1558,9 +1625,19 @@ test('each day button carries how much is outstanding on it', async ({ page, app
   await expect.poll(() => nameOf(app.today)).toContain(', 1 task')
 })
 
+/*
+ * One of two here that paging does NOT free, and the gate says so rather than
+ * pointing at a version that will fix it.
+ *
+ * This is about the strip carrying two marks at once — where am I, and where is
+ * today — which only means anything while today is in the week on screen. Page
+ * to another week and there is no today button to keep marked, so the assertion
+ * has nothing to make. A Saturday has no other day in its week, and that is the
+ * calendar rather than a gap in the app.
+ */
 test('today stays marked while you are looking at another day', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
+  test.skip(day.upcoming.length === 0, 'today and another day must share a week')
   const next = day.upcoming[0]!.date
 
   await page.goto(app.url)
@@ -1582,53 +1659,101 @@ test('today stays marked while you are looking at another day', async ({ page, a
 })
 
 test('next and previous move between the panes', async ({ page, app }) => {
-  const next = await firstUpcoming(app)
-  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
+  // Seeded a week out so there is always somewhere to go, including on the
+  // Saturday this test used to sit out.
+  const target = nextWeekSameDay(app)
+  app.seed.task({ name: 'Grocery run', cadence: null, planned_date: target })
 
   await page.goto(app.url)
   await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
 
-  await page.getByRole('button', { name: 'Next day' }).click()
-  await expect(paneFor(page, next!)).toBeInViewport({ ratio: 0.5 })
+  await pageToPane(page, target)
+  await expect(paneFor(page, target)).toBeInViewport({ ratio: 0.5 })
   await expect(activeRegion(page)).not.toBeInViewport({ ratio: 0.5 })
 
+  /*
+   * And previous moves it back off again.
+   *
+   * Which pane it lands on is deliberately not asserted. The track scrolls
+   * smoothly and a click that lands mid-scroll steps from wherever it has got
+   * to, so the exact destination is a race by design rather than a contract —
+   * and pinning it made this the one test in the file that could not be trusted.
+   * That both controls MOVE the track is what the name claims, and precise
+   * navigation is covered by "a day button jumps straight to that day".
+   */
   await page.getByRole('button', { name: 'Previous day' }).click()
-  await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
+  await expect(paneFor(page, target)).not.toBeInViewport({ ratio: 0.5 })
+})
+
+/*
+ * The suite runs with reduced motion emulated, which makes the track land in one
+ * frame — and that is the MINORITY setting. Most people get the smooth scroll,
+ * so one test opts back into it, or a regression in the branch nothing else
+ * takes would ship unseen.
+ *
+ * One click and one auto-retrying assertion, deliberately: it was clicking
+ * REPEATEDLY into an unfinished scroll that made this class of test flaky, not
+ * the animation itself.
+ */
+test.describe('with motion', () => {
+  test.use({ reducedMotion: 'no-preference' })
+
+  test('the strip still lands on a pane when the scroll is animated', async ({ page, app }) => {
+    const target = nextWeekSameDay(app)
+    app.seed.task({ name: 'Grocery run', cadence: null, planned_date: target })
+
+    await page.goto(app.url)
+    await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
+
+    await page.getByRole('button', { name: 'Next day' }).click()
+    await expect(activeRegion(page)).not.toBeInViewport({ ratio: 0.5 })
+  })
 })
 
 test('a day button jumps straight to that day', async ({ page, app }) => {
-  const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
-  const target = day.upcoming[day.upcoming.length - 1]!.date
+  // Seeded a week out so the strip always has a further day to jump to. Once
+  // there, every one of the seven buttons is a pane, which is the case this
+  // asserts and the one a Saturday could never reach.
+  const target = nextWeekSameDay(app)
+  app.seed.task({ name: 'Grocery run', cadence: null, planned_date: target })
 
   await page.goto(app.url)
-  await dayButtons(page).nth(day.week_dates.indexOf(target)).click()
-  await expect(paneFor(page, target)).toBeInViewport({ ratio: 0.5 })
+  await pageToPane(page, target)
+
+  // Every day of a later week is a pane, so any button jumps — including the
+  // Sunday at the far end from wherever the crossing landed. That is the case a
+  // Saturday could never reach, where only today was ever a pane.
+  const sunday = addDays(target, -dowOf(target))
+  await dayButtons(page).first().click()
+  await expect(paneFor(page, sunday)).toBeInViewport({ ratio: 0.5 })
 })
 
 test('a task placed on a future day is on that pane and not on today', async ({ page, app }) => {
-  const next = await firstUpcoming(app)
-  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
-  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+  // A one-off, not a weekly: a weekly task's own bound stops at this Saturday,
+  // so it can never hold a date in another week — and since v16 the server
+  // refuses one rather than letting the editor write it.
+  const next = nextWeekSameDay(app)
+  app.seed.task({ name: 'Grocery run', cadence: null, planned_date: next })
   app.seed.task({ name: 'Feed Barney', cadence: 'day' })
 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Feed Barney'])
 
-  const rows = paneFor(page, next!).getByRole('listitem')
+  await pageToPane(page, next)
+  const rows = paneFor(page, next).getByRole('listitem')
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText('Grocery run')
   // A daily task is on every day equally, so it is on no future pane at all.
-  await expect(paneFor(page, next!).getByText('Feed Barney')).toHaveCount(0)
+  await expect(paneFor(page, next).getByText('Feed Barney')).toHaveCount(0)
 })
 
 test('a future row cannot be ticked', async ({ page, app }) => {
-  const next = await firstUpcoming(app)
-  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
-  app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+  const next = nextWeekSameDay(app)
+  app.seed.task({ name: 'Grocery run', cadence: null, planned_date: next })
 
   await page.goto(app.url)
-  const futurePane = paneFor(page, next!)
+  await pageToPane(page, next)
+  const futurePane = paneFor(page, next)
   await expect(futurePane.getByRole('listitem')).toHaveCount(1)
 
   // Not a disabled control — not a control. `Tick` renders a static box with no
@@ -1660,30 +1785,34 @@ test('a future row moves to another day, and unplans', async ({ page, app }) => 
 })
 
 test('a task satisfied for its period is not on the day it was placed', async ({ page, app }) => {
-  const next = await firstUpcoming(app)
-  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
-  // Placed later this week, but ticked today: the week's obligation is met, so
-  // that day carries no load and the row is dropped rather than struck through.
-  const id = app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
+  // A MONTHLY task placed next week and ticked today. Weekly was the original
+  // fixture, but a weekly task's period ends this Saturday so it cannot hold a
+  // date in another week at all; monthly keeps the point — the period's
+  // obligation is met, so that day carries no load and the row is dropped
+  // rather than struck through.
+  const next = nextWeekSameDay(app)
+  const id = app.seed.task({ name: 'Grocery run', cadence: 'month', planned_date: next })
   app.seed.completion(id, app.today)
 
   await page.goto(app.url)
-  await expect(paneFor(page, next!).getByText('Grocery run')).toHaveCount(0)
+  // Paged to, or the pane is not in the document and the absence below would be
+  // true for the wrong reason.
+  await pageToPane(page, next)
+  await expect(paneFor(page, next).getByText('Grocery run')).toHaveCount(0)
   expect(plannedDate(app, id)).toBe(next)
 })
 
 test('the track scrolls sideways in itself, never the page body', async ({ page, app }) => {
-  const next = await firstUpcoming(app)
-  test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
+  const next = nextWeekSameDay(app)
   app.seed.task({
     name: 'A very long errand name that would overflow a narrow pane',
-    cadence: 'week',
-    planned_date: next!,
+    cadence: null,
+    planned_date: next,
   })
 
   await page.goto(app.url)
-  await page.getByRole('button', { name: 'Next day' }).click()
-  await expect(paneFor(page, next!)).toBeInViewport({ ratio: 0.5 })
+  await pageToPane(page, next)
+  await expect(paneFor(page, next)).toBeInViewport({ ratio: 0.5 })
 
   const body = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -1938,9 +2067,14 @@ test("a bulk paste is capped, and the cap is the server's rule", async ({ app })
   ).toBe(400)
 })
 
+/*
+ * The other. Reordering is today-only, so proving the track is frozen needs
+ * today's pane AND somewhere it is refusing to go — both in the same week.
+ * Paging would leave today's pane behind, which is the thing being frozen.
+ */
 test('the week track is frozen while reordering', async ({ page, app }) => {
   const day = await dayView(app)
-  test.skip(day.upcoming.length === 0, 'needs a future pane; a Saturday has none until v16')
+  test.skip(day.upcoming.length === 0, 'needs today and another pane in one week')
   app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
 

@@ -32,9 +32,9 @@ the `moods` table is empty. Nothing else is seeded.
 |---|---|
 | `bun run dev` | server + client, hot reloading |
 | `bun run start` | no hot reload |
-| `bun test` | 208 unit tests |
-| `bun run e2e` | 310 browser tests on Chrome, mobile and desktop viewports |
-| `bun run e2e:all` | all 620, both engines — WebKit does not run on macOS 14 |
+| `bun test` | 234 unit tests |
+| `bun run e2e` | 318 browser tests on Chrome, mobile and desktop viewports |
+| `bun run e2e:all` | all 636, both engines — WebKit does not run on macOS 14 |
 | `bun run e2e:docker` | the WebKit half, in Linux |
 | `bun run e2e:ui` | Playwright's UI mode, Chrome only |
 | `bun run e2e:report` | open the last HTML report |
@@ -121,11 +121,13 @@ for the model they come from.
 - **To do is today, and the rest of this week beside it.** Swipe or use the strip to see what is placed on a later day; only today can be ticked.
 - **Your day rolls over in your own timezone.** It is set per user, when the account is claimed, and decides when "today" changes for that person.
 - **A missed daily task can never be caught up.** Daily tasks are never placed, so they are never overdue. The gap in the Tracker grid is permanent.
-- **A task done Tuesday but ticked Thursday is recorded on Thursday.** The history records when things were *marked*.
+- **A task done Tuesday but ticked Thursday is recorded on Thursday**, unless you go and fix it. The Tracker records when things were *marked*, and a cell you correct is then indistinguishable from one marked on the day.
+- **Ticking is always today.** Correcting is the Tracker's job and lives only there — a future day cannot be ticked, and paging to next week does not change that.
 - **"Done" means the period is satisfied, not that it happened today.** A weekly task ticked on Monday stays done all week.
 - **Overdue means "needs a new day", not "late".**
 - **Nothing is ever deleted.** Removal is `active = false`, on tasks and moods alike. The one row that is deleted is a completion, when something is unticked.
 - **A completed task stays on the list, at the bottom, struck through.** It leaves the next day; the Backlog keeps it struck through for the rest of its period.
+- **The Tracker's squares are clickable, and only for daily tasks.** That is what the grid shows, and a daily task's period is exactly that one day — so a corrected square says one thing and cannot retroactively satisfy a week or a month.
 - **The box ticks before the server has answered.** The row shows what you asked for until the model agrees. Only the box moves — the row sinks to the bottom on the refetch, not under your finger.
 - **Two taps are two gestures.** Tapping a checked box unchecks it, even if the first tap has not landed yet.
 - **The moods are not editable in the app**, and are shared by every user.
@@ -133,7 +135,9 @@ for the model they come from.
 - **`Dog` and `dog` are two categories.** Free text, matched exactly.
 - **How far ahead a task can be placed depends on the task.** A one-off is unbounded. A recurring task reaches to the end of its own period or this Saturday, whichever is further. Backward is never allowed. To do shows only this week; a further placement appears as a date stamp in the Backlog.
 - **The Backlog is one track of six groups**, paged like the days: Any time, Daily, Weekly, Monthly, Quarterly, Yearly. "Any time" is the one-off group. Everything you have is in there, whether or not it is on today's list.
-- **On a Saturday there is nowhere to swipe to.** The week ends there, so the strip shows seven days with six behind you and one pane. Paging into next week is v16.
+- **To do pages forward as far as you have scheduled, and no further.** Next goes dead once nothing is placed beyond the week you are on, so an empty calendar still shows one pane on a Saturday. Empty weeks in between are reachable, because a strip that skipped them would be worse.
+- **You can look at next week but not plan into it**, for most things. Placement is bounded by the task's own period, so a weekly task can never hold a day outside its week — and if you narrow a task's cadence past a day it already had, that day is dropped rather than kept somewhere it can never come round.
+- **Weeks move by the arrows, not by swiping.** The track snaps, so a swipe stops at the last pane of the week you are on.
 
 ---
 

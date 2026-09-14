@@ -25,6 +25,13 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * Day:          complete, uncomplete, place, unplan, reset_overdue
  * Tasks:        create_task, create_tasks, update_task, archive_task
  * Day record:   set_mood, set_log, set_task_order
+ * Tracker:      set_completion
+ *
+ * `set_completion` is the ONE command that accepts a date, and it is narrow on
+ * every side: daily tasks only, never a day that has not happened, and reachable
+ * from the Tracker grid alone. Everything else still lands on the viewer's today
+ * because it has no way to say otherwise — see `complete` for why that is
+ * enforced rather than described.
  *
  * There are no mood-management commands. The mood set is seeded on first run and
  * edited in the database rather than through the app.
@@ -63,11 +70,11 @@ export async function runCommand(
 
     // --- Tasks ------------------------------------------------------------
     case 'create_task':
-      return createTask(db, userId, b)
+      return createTask(db, userId, now, b)
     case 'create_tasks':
-      return createTasks(db, userId, b)
+      return createTasks(db, userId, now, b)
     case 'update_task':
-      return updateTask(db, userId, b)
+      return updateTask(db, userId, now, b)
     case 'archive_task':
       return archiveTask(db, userId, b)
 
@@ -78,6 +85,10 @@ export async function runCommand(
       return setLog(db, userId, now, b)
     case 'set_task_order':
       return setTaskOrder(db, userId, now, b)
+
+    // --- Tracker ----------------------------------------------------------
+    case 'set_completion':
+      return setCompletion(db, userId, now, b)
 
     default:
       // 400, not 404: the path /api/commands/<name> exists, the name in it is a
@@ -199,20 +210,46 @@ async function loadMoodSlug(db: DB, slug: string): Promise<string> {
 // Day
 // ---------------------------------------------------------------------------
 
-async function complete(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+/**
+ * The everyday tick, and IT CANNOT NAME A DAY.
+ *
+ * `complete` and `uncomplete` both call `onlyFields(b, ['task_id'])`, which is
+ * what makes same-day recording structural rather than a rule the client is
+ * trusted to follow: a date sent here is a 400, so no client bug and no client
+ * cleverness moves a tick off today, and it stays that way without anybody
+ * remembering to keep it that way.
+ *
+ * `set_completion` deliberately OVERLAPS this on today rather than replacing it.
+ * Folding the two together would hand the everyday tick a date parameter, which
+ * is the one thing this rule exists to prevent — so the Tracker's top row and
+ * the To do list both mark today done, by different commands, and only one of
+ * them is capable of naming any other day.
+ */
+async function complete(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['task_id'])
   const task = await loadTask(db, userId, reqId(b, 'task_id'))
   if (!task.active) throw new Rejected('that task is archived')
 
   // The (task_id, completed_on) key absorbs a double tap — a repeat is a
   // no-op, never an error.
-  await db.insert(completions)
+  await db
+    .insert(completions)
     .values({ task_id: task.id, completed_on: now })
     .onConflictDoNothing()
     .run()
 }
 
-async function uncomplete(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+async function uncomplete(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['task_id'])
   const task = await loadTask(db, userId, reqId(b, 'task_id'))
 
@@ -222,12 +259,56 @@ async function uncomplete(db: DB, userId: number, now: ISODate, b: Record<string
   const row = completionForPeriod(task, await completionsFor(db, task.id), now)
   if (!row) return // already not done — the asked-for end state
 
-  await db.delete(completions)
-    .where(and(eq(completions.task_id, row.task_id), eq(completions.completed_on, row.completed_on)))
+  await db
+    .delete(completions)
+    .where(
+      and(eq(completions.task_id, row.task_id), eq(completions.completed_on, row.completed_on)),
+    )
     .run()
 }
 
-async function place(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+/**
+ * The bound on a `planned_date`, wherever one is written.
+ *
+ * THIS WEEK UNION THE TASK'S OWN PERIOD. The period half is what makes a
+ * placement mean anything: `planned_date` names a day INSIDE the current period.
+ * Outside it, `effectiveDate` (backward-only) would never roll the date back, so
+ * the task would sit un-overdue, un-unplaced and un-done while its obligation
+ * went unmet, invisibly, every period until the date arrived.
+ *
+ * It lived in `place` alone until v16, which is to say three of the four
+ * commands that write the column did not apply it: `create_task`,
+ * `create_tasks` and `update_task` took any valid date through `reqDateOrNull`.
+ * A weekly task could be given a date six months out through the editor's save
+ * and would sit there, and v16's paging is what would finally have drawn it —
+ * on a pane its own cadence can never reach.
+ *
+ * Unreachable through the interface, like every other rejection here. The client
+ * bounds the picker from the same `placement` the views ship; this is what makes
+ * the interface being wrong a visible error rather than a silent bad write.
+ */
+function placementFits(now: ISODate, cadence: Cadence | null, date: ISODate | null): boolean {
+  // A daily task never holds a date at all; its callers null the column out.
+  if (date === null || cadence === 'day') return true
+  if (date < now) return false
+  // null is a one-off: its period never ends, so there is no far edge to hit.
+  const max = placementMax(now, cadence)
+  return max === null || date <= max
+}
+
+/** The same rule as a rejection, for the commands that are being ASKED for a date. */
+function checkPlacement(now: ISODate, cadence: Cadence | null, date: ISODate | null): void {
+  if (placementFits(now, cadence, date)) return
+  if (date !== null && date < now) throw new Rejected('cannot place before today')
+  throw new Rejected(`cannot place beyond ${placementMax(now, cadence)}`)
+}
+
+async function place(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['task_id', 'date'])
   const id = reqId(b, 'task_id')
   const date = reqDate(b, 'date')
@@ -239,17 +320,7 @@ async function place(db: DB, userId: number, now: ISODate, b: Record<string, unk
   // The same derivation the views ship as `placement`, so the picker and this
   // rejection cannot disagree — which is the whole reason the server ships the
   // bound at all.
-  //
-  // THIS WEEK UNION THE TASK'S OWN PERIOD. The period half is what makes a
-  // placement mean anything: `planned_date` names a day INSIDE the current
-  // period. Outside it, `effectiveDate` (backward-only) would never roll the
-  // date back, so the task would sit un-overdue, un-unplaced and un-done while
-  // its obligation went unmet, invisibly, every period until the date arrived.
-  const max = placementMax(now, task.cadence)
-
-  if (date < now) throw new Rejected('cannot place before today')
-  // null is a one-off: its period never ends, so there is no far edge to hit.
-  if (max !== null && date > max) throw new Rejected(`cannot place beyond ${max}`)
+  checkPlacement(now, task.cadence, date)
 
   await db.update(tasks).set({ planned_date: date }).where(eq(tasks.id, task.id)).run()
 }
@@ -267,7 +338,12 @@ async function unplan(db: DB, userId: number, b: Record<string, unknown>): Promi
  * The read and the clear are one transaction so the set cleared is exactly the
  * set computed.
  */
-async function resetOverdue(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+async function resetOverdue(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, [])
 
   // No transaction, and it does not need one.
@@ -286,9 +362,7 @@ async function resetOverdue(db: DB, userId: number, now: ISODate, b: Record<stri
   const candidates = await db
     .select()
     .from(tasks)
-    .where(
-      and(eq(tasks.user_id, userId), eq(tasks.active, true), isNotNull(tasks.planned_date)),
-    )
+    .where(and(eq(tasks.user_id, userId), eq(tasks.active, true), isNotNull(tasks.planned_date)))
   if (candidates.length === 0) return
 
   // The one implementation of this grouping, bounded to the current period.
@@ -306,7 +380,12 @@ async function resetOverdue(db: DB, userId: number, now: ISODate, b: Record<stri
 // ---------------------------------------------------------------------------
 
 /** The `+` on Day. One field, deliberately. */
-async function createTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function createTask(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['name', 'is_baseline', 'cadence', 'planned_date', 'color', 'category'])
   const name = reqName(b, 'name')
   const is_baseline = 'is_baseline' in b ? reqBoolean(b, 'is_baseline') : false
@@ -314,8 +393,10 @@ async function createTask(db: DB, userId: number, b: Record<string, unknown>): P
   const planned = 'planned_date' in b ? reqDateOrNull(b, 'planned_date') : null
   const color = 'color' in b ? reqColorOrNull(b, 'color') : null
   const category = 'category' in b ? reqTextOrNull(b, 'category') : null
+  checkPlacement(now, cadence, planned)
 
-  await db.insert(tasks)
+  await db
+    .insert(tasks)
     .values({
       user_id: userId,
       name,
@@ -350,7 +431,12 @@ const MAX_BULK = 100
  * with a name and nothing else already did the same thing. This does something
  * `create_task` cannot express at all.
  */
-async function createTasks(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function createTasks(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['names', 'planned_date'])
   const raw = b['names']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
@@ -370,8 +456,12 @@ async function createTasks(db: DB, userId: number, b: Record<string, unknown>): 
 
   // One date for the whole batch: "these five things, today" is the gesture.
   const planned = 'planned_date' in b ? reqDateOrNull(b, 'planned_date') : null
+  // Bulk capture makes one-offs, whose period never ends — so the far edge never
+  // bites here and the near one still does.
+  checkPlacement(now, null, planned)
 
-  await db.insert(tasks)
+  await db
+    .insert(tasks)
     .values(
       names.map((name) => ({
         user_id: userId,
@@ -388,7 +478,12 @@ async function createTasks(db: DB, userId: number, b: Record<string, unknown>): 
     .run()
 }
 
-async function updateTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
+async function updateTask(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['id', 'name', 'is_baseline', 'cadence', 'planned_date', 'color', 'category'])
   const task = await loadTask(db, userId, reqId(b, 'id'))
 
@@ -407,6 +502,10 @@ async function updateTask(db: DB, userId: number, b: Record<string, unknown>): P
   if ('color' in b) patch.color = reqColorOrNull(b, 'color')
   if ('category' in b) patch.category = reqTextOrNull(b, 'category')
 
+  // Against the cadence the task will have, not the one it had: a save can move
+  // a task to a shorter period and a date in the same breath.
+  if ('planned_date' in b) checkPlacement(now, cadence, patch.planned_date ?? null)
+
   if (Object.keys(patch).length === 0) return
 
   // A daily task is implicitly on every day and is never placed, so a date on
@@ -414,6 +513,23 @@ async function updateTask(db: DB, userId: number, b: Record<string, unknown>): P
   // null is the same write, and asking whether it was already null is a branch
   // guarding a state that cannot occur.
   if (cadence === 'day') patch.planned_date = null
+  /*
+   * A period can shrink out from under a date that is not being touched.
+   *
+   * The editor always sends `cadence` and only sends `planned_date` when the day
+   * chip was changed, so moving a one-off placed months out to Weekly arrives
+   * here as a cadence and no date — and the row would keep a date its new period
+   * can never reach, which is the un-overdue, un-unplaced, un-done state the
+   * bound exists to prevent.
+   *
+   * Cleared rather than refused. The date stopped meaning anything when the
+   * period shrank under it, exactly as a daily task's does above, and rejecting
+   * a save nobody made a date change in would be a 409 pointing at a field the
+   * person never touched.
+   */
+  if (!('planned_date' in b) && !placementFits(now, cadence, task.planned_date)) {
+    patch.planned_date = null
+  }
 
   await db.update(tasks).set(patch).where(eq(tasks.id, task.id)).run()
 }
@@ -436,7 +552,8 @@ async function upsertDay(
   now: ISODate,
   patch: { mood?: string | null; log?: string | null; task_order?: string | null },
 ): Promise<void> {
-  await db.insert(days)
+  await db
+    .insert(days)
     // The key is (user_id, date), so two people record their own mood on the
     // same date without colliding.
     .values({ user_id: userId, date: now, ...patch })
@@ -448,7 +565,12 @@ async function upsertDay(
  * Records the day's mood. The mood set itself is not editable through the API —
  * it is seeded on first run and changed in the database.
  */
-async function setMood(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+async function setMood(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['slug'])
   if (!('slug' in b)) throw new BadRequest('slug is required')
 
@@ -459,7 +581,12 @@ async function setMood(db: DB, userId: number, now: ISODate, b: Record<string, u
   await upsertDay(db, userId, now, { mood: slug })
 }
 
-async function setLog(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+async function setLog(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['text'])
   if (!('text' in b)) throw new BadRequest('text is required')
 
@@ -471,7 +598,12 @@ async function setLog(db: DB, userId: number, now: ISODate, b: Record<string, un
   await upsertDay(db, userId, now, { log: text })
 }
 
-async function setTaskOrder(db: DB, userId: number, now: ISODate, b: Record<string, unknown>): Promise<void> {
+async function setTaskOrder(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
   onlyFields(b, ['task_ids'])
   const raw = b['task_ids']
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'number' || !Number.isInteger(v))) {
@@ -481,4 +613,83 @@ async function setTaskOrder(db: DB, userId: number, now: ISODate, b: Record<stri
   // Stored opaquely. The order is disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
   await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
+}
+
+// ---------------------------------------------------------------------------
+// Tracker
+// ---------------------------------------------------------------------------
+
+/**
+ * Correcting the record: a day you forgot to tick, ticked after the fact.
+ *
+ * THE ONLY COMMAND THAT ACCEPTS A DATE, and the narrowness is the entire reason
+ * it is acceptable. It is not `complete` with a parameter — it is a different
+ * gesture, reached from the Tracker grid and nowhere else, and `complete` stays
+ * incapable of naming a day. You reach for this when you forgot Tuesday, not
+ * when you are doing the thing.
+ *
+ * DAILY TASKS ONLY. A daily task's period IS the day named — `periodKey(date,
+ * 'day')` returns the date itself — so a dated completion says exactly one thing
+ * and cannot retroactively satisfy a week, a month or a quarter. It is also
+ * exactly what the grid shows. Widening this to other cadences is a much larger
+ * question about the period model and is not being asked here.
+ *
+ * `now` bounds the date rather than supplying it, which is the whole difference
+ * between this and every other command. The clock is still read once, upstream.
+ *
+ * It does not touch `days`. A mood and a log live there, keyed differently, and
+ * nothing has asked to correct one.
+ *
+ * A named shape — `set_*` — because a grid cell is a value at a coordinate, like
+ * `set_mood` and `set_log`, not an action like `complete`. One command with a
+ * boolean also means the client never has to decide which verb a cell needs.
+ */
+async function setCompletion(
+  db: DB,
+  userId: number,
+  now: ISODate,
+  b: Record<string, unknown>,
+): Promise<void> {
+  onlyFields(b, ['task_id', 'date', 'done'])
+  const id = reqId(b, 'task_id')
+  const date = reqDate(b, 'date')
+  const done = reqBoolean(b, 'done')
+  const task = await loadTask(db, userId, id)
+
+  if (task.cadence !== 'day') throw new Rejected('only a daily task has a day to correct')
+  if (date > now) throw new Rejected('cannot record a day that has not happened')
+  /*
+   * Archived, in the half that matches each precedent.
+   *
+   * This command does the work of two, and the two disagree on purpose:
+   * `complete` and `place` refuse an archived task because adding to one is
+   * work on something retired, while `uncomplete` allows it because removing a
+   * record is cleanup. So does this — refusing to fill a cell, allowing one to
+   * be emptied.
+   *
+   * It is not only symmetry. The grid draws ACTIVE dailies, so a completion
+   * written against an archived task lands on a column nothing renders: a row
+   * that cannot be seen and, without the other half of this rule, could not be
+   * removed either.
+   */
+  if (done && !task.active) throw new Rejected('that task is archived')
+
+  if (done) {
+    // The same (task_id, completed_on) key `complete` relies on: correcting a
+    // cell that is already filled is a no-op, never an error.
+    await db
+      .insert(completions)
+      .values({ task_id: task.id, completed_on: date })
+      .onConflictDoNothing()
+      .run()
+    return
+  }
+
+  // THAT ONE ROW, never `completionForPeriod`'s. A daily task's period is the
+  // day itself, so the two agree — but this command is about a coordinate in the
+  // grid, and the row under the cell is the row it means.
+  await db
+    .delete(completions)
+    .where(and(eq(completions.task_id, task.id), eq(completions.completed_on, date)))
+    .run()
 }
