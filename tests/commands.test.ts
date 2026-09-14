@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from 'bun:test'
 import { eq } from 'drizzle-orm'
 
+import type { ISODate } from '../src/shared/types.ts'
 import type { DB } from '../src/server/db.ts'
 import * as schema from '../src/server/schema.ts'
 import { runCommand } from '../src/server/commands.ts'
@@ -28,6 +29,16 @@ const ZONE = 'UTC'
 
 const TODAY = today(ZONE)
 const VIEWER = { id: OWNER, timezone: ZONE }
+
+/** `n` calendar days from `date` — written out rather than borrowed from
+ *  `period.ts`, so a test cannot pass by restating the implementation. */
+const shift = (date: ISODate, n: number): ISODate => {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+const YESTERDAY = shift(TODAY, -1)
+const TOMORROW = shift(TODAY, 1)
 
 let h: Harness
 let db: DB
@@ -67,6 +78,101 @@ describe('complete', () => {
       .where(eq(schema.completions.task_id, task!.id))
     expect(rows).toHaveLength(1)
     expect(rows[0]!.completed_on).toBe(TODAY)
+  })
+})
+
+describe('set_completion', () => {
+  /*
+   * The only command in the system that accepts a date, so this block is mostly
+   * about the bounds. The gesture itself is one row: present, or not.
+   */
+
+  const ticks = (id: number) =>
+    db.select().from(schema.completions).where(eq(schema.completions.task_id, id)).all()
+
+  async function addTask(over: Partial<typeof schema.tasks.$inferInsert> = {}): Promise<number> {
+    const [row] = await db
+      .insert(schema.tasks)
+      .values({ user_id: OWNER, name: 'Feed Barney', cadence: 'day', active: true, ...over })
+      .returning({ id: schema.tasks.id })
+    return row!.id
+  }
+
+  test('writes a row at the named date rather than at today', async () => {
+    const id = await addTask()
+    await runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: true })
+
+    expect((await ticks(id)).map((c) => c.completed_on)).toEqual([YESTERDAY])
+    // The mood, the log and the arrangement live in `days` and are not part of
+    // this gesture — correcting a cell must not conjure a day record.
+    expect(await db.select().from(schema.days).all()).toEqual([])
+  })
+
+  test('a repeat is a no-op, exactly as completing twice is', async () => {
+    const id = await addTask()
+    await runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: true })
+    await runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: true })
+    expect(await ticks(id)).toHaveLength(1)
+  })
+
+  test('done: false deletes the named row and leaves the rest', async () => {
+    const id = await addTask()
+    await db.insert(schema.completions).values([
+      { task_id: id, completed_on: YESTERDAY },
+      { task_id: id, completed_on: TODAY },
+    ])
+
+    await runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: false })
+    // The CELL, not the period. `uncomplete` deletes whichever row satisfies the
+    // current period; this deletes the one the cell sits on and nothing else.
+    expect((await ticks(id)).map((c) => c.completed_on)).toEqual([TODAY])
+  })
+
+  test('refuses a task that is not daily', async () => {
+    const id = await addTask({ cadence: 'week', planned_date: TODAY })
+    // A weekly task satisfied once covers seven cells, so a dated completion on
+    // one would stop meaning one thing per cell.
+    await expect(
+      runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: true }),
+    ).rejects.toThrow(/daily/)
+    expect(await ticks(id)).toEqual([])
+  })
+
+  test('refuses a day that has not happened', async () => {
+    const id = await addTask()
+    await expect(
+      runCommand(db, VIEWER, 'set_completion', { task_id: id, date: TOMORROW, done: true }),
+    ).rejects.toThrow(/has not happened/)
+    expect(await ticks(id)).toEqual([])
+  })
+
+  test("refuses another user's task, as a 404", async () => {
+    const [other] = await db
+      .insert(schema.users)
+      .values({ username: 'other', password_hash: '', active: true })
+      .returning({ id: schema.users.id })
+    const id = await addTask({ user_id: other!.id })
+
+    // 404 rather than 403, like every command: a 403 would confirm the id exists.
+    await expect(
+      runCommand(db, VIEWER, 'set_completion', { task_id: id, date: YESTERDAY, done: true }),
+    ).rejects.toThrow(/no task/)
+    expect(await ticks(id)).toEqual([])
+  })
+
+  test('complete and uncomplete still cannot be handed a date', async () => {
+    const id = await addTask()
+    // THE STRUCTURAL HALF of the same-day rule. `onlyFields(b, ['task_id'])` is
+    // what makes the everyday tick unable to name a day whatever a client tries,
+    // and it is the reason set_completion is a separate command rather than a
+    // parameter on this one. If this ever passes, the rule is gone.
+    await expect(
+      runCommand(db, VIEWER, 'complete', { task_id: id, date: YESTERDAY }),
+    ).rejects.toThrow(/unexpected field/)
+    await expect(
+      runCommand(db, VIEWER, 'uncomplete', { task_id: id, date: YESTERDAY }),
+    ).rejects.toThrow(/unexpected field/)
+    expect(await ticks(id)).toEqual([])
   })
 })
 
