@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import type { DayView, HistoryView, TodoTask, TodoView } from '../src/shared/types.ts'
 import { test, expect, addDays, type App } from './fixtures.ts'
 
@@ -1472,11 +1472,6 @@ function completionsOf(app: App, name: string): number {
   return Number(rows[0]!.n)
 }
 
-/** The first day after today, or null on a Saturday when this week has none. */
-async function firstUpcoming(app: App): Promise<string | null> {
-  return (await dayView(app)).upcoming[0]?.date ?? null
-}
-
 /**
  * The same weekday next week — a future day on EVERY day of the week.
  *
@@ -1688,6 +1683,31 @@ test('next and previous move between the panes', async ({ page, app }) => {
    */
   await page.getByRole('button', { name: 'Previous day' }).click()
   await expect(paneFor(page, target)).not.toBeInViewport({ ratio: 0.5 })
+})
+
+/*
+ * The suite runs with reduced motion emulated, which makes the track land in one
+ * frame — and that is the MINORITY setting. Most people get the smooth scroll,
+ * so one test opts back into it, or a regression in the branch nothing else
+ * takes would ship unseen.
+ *
+ * One click and one auto-retrying assertion, deliberately: it was clicking
+ * REPEATEDLY into an unfinished scroll that made this class of test flaky, not
+ * the animation itself.
+ */
+test.describe('with motion', () => {
+  test.use({ reducedMotion: 'no-preference' })
+
+  test('the strip still lands on a pane when the scroll is animated', async ({ page, app }) => {
+    const target = nextWeekSameDay(app)
+    app.seed.task({ name: 'Grocery run', cadence: null, planned_date: target })
+
+    await page.goto(app.url)
+    await expect(activeRegion(page)).toBeInViewport({ ratio: 0.5 })
+
+    await page.getByRole('button', { name: 'Next day' }).click()
+    await expect(activeRegion(page)).not.toBeInViewport({ ratio: 0.5 })
+  })
 })
 
 test('a day button jumps straight to that day', async ({ page, app }) => {

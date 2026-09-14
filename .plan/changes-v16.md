@@ -370,26 +370,27 @@ and should not be swept up in the rename.
 Eight gates in `day.spec.ts` skip when `placeable_dates` is one date, which is
 every Saturday — 40 of the 620 browser tests.
 
-The first draft of this section said the gates simply come out. They cannot, and
-the reason is the one recorded under the horizon decision: paging is bounded by
-`last_placed`, so a future pane exists only when something is placed ahead. On a
-Saturday with an empty schedule, there is still one pane.
+An earlier draft said the gates simply come out. They do not, for the reason
+recorded under the horizon decision: paging is bounded by `last_placed`, so a
+future pane exists only when something is placed ahead, and an empty schedule on
+a Saturday still shows one pane.
 
-What actually closes the hole is that the gates stop being *unavoidable*. Every
-one of those tests seeds its own data — and today they seed it **from**
-`upcoming[0]`, which is why a Saturday defeats them:
+**What happened when it was built: six of the eight came out, and two stayed.**
+The six seeded their day from `upcoming[0]` — the thing a Saturday lacks — and
+now seed a date of their own a week ahead and page to it, which works on any day.
+Their fixtures moved from `cadence: 'week'` to a one-off, because a weekly task's
+bound cannot reach another week at all.
 
-```ts
-const next = await firstUpcoming(app)
-test.skip(next === null, 'needs a future pane; a Saturday has none until v16')
-app.seed.task({ name: 'Grocery run', cadence: 'week', planned_date: next! })
-```
+The two that stayed are about *this* week rather than about reaching a future
+day, and no amount of paging supplies them:
 
-After this they seed a date of their own — `addDays(app.today, 2)` and its week —
-then page to it, which works on any day of the week. That is a rewrite of eight
-tests rather than the deletion of eight lines, and it is the real cost of closing
-this. A weekly task cannot be placed outside its week, so the seeds move to
-cadences whose bound reaches: a monthly, a quarterly, or a one-off.
+| | |
+|---|---|
+| `today stays marked while you are looking at another day` | the strip carries two marks at once, which only means anything while today is in the week on screen. Page away and there is no today button to keep marked. |
+| `the week track is frozen while reordering` | reordering is today-only, so proving the track is frozen needs today's pane AND somewhere it is refusing to go, both in one week. |
+
+Their gates are reworded to say that, rather than pointing at a version that will
+fix them.
 
 **`views.test.ts` gets a cleanup the first draft of this section denied.** It
 claimed all twelve weekday gates stay, on the grounds that paging does not change

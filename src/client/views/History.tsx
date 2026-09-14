@@ -83,6 +83,8 @@ export default function History() {
    */
   const [intent, setIntent] = useState<ReadonlyMap<string, boolean>>(new Map())
   const alive = useRef(true)
+  /** The last command in flight per cell, so the next one waits for it. */
+  const inFlight = useRef(new Map<string, Promise<unknown>>())
 
   useEffect(() => {
     alive.current = true
@@ -166,8 +168,36 @@ export default function History() {
     const key = cellKey(taskId, row.date)
     setIntent((m) => new Map(m).set(key, want))
     setNotice(null)
+
+    /*
+     * Behind whatever is already going for THIS cell.
+     *
+     * Two clicks send two commands, and unordered they race: a `done: false`
+     * can reach the server before the `done: true` it was undoing, which deletes
+     * nothing and then inserts, leaving the day marked when the person asked for
+     * the opposite. Day.tsx serialises its ticks for the same reason.
+     *
+     * Per cell, not globally: corrections to different days have no bearing on
+     * each other and should not queue behind one another.
+     *
+     * DEFENSIVE rather than demonstrated, and worth saying so. Day's race was
+     * reproduced — it failed about one run in five before the fix — and this one
+     * could not be, most likely because both clicks here post to the SAME url and
+     * so tend to share a connection, where Day's two went to different ones. The
+     * reasoning is identical and the cost is eight lines, so the two surfaces
+     * behave the same rather than one of them being right by luck of routing.
+     */
+    const prior = inFlight.current.get(key) ?? Promise.resolve()
+    const mine = prior.then(() =>
+      command('set_completion', { task_id: taskId, date: row.date, done: want }),
+    )
+    inFlight.current.set(
+      key,
+      mine.catch(() => undefined),
+    )
+
     try {
-      await command('set_completion', { task_id: taskId, date: row.date, done: want })
+      await mine
       if (!alive.current) return
       // Against `prev` rather than against the row this closure captured: a
       // page of older rows may have been appended while the command was away.

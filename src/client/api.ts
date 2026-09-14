@@ -88,18 +88,6 @@ export async function command(name: string, body: Record<string, unknown> = {}):
     body: JSON.stringify(body),
   })
 }
-
-/**
- * Correct one day of one daily task, from the Tracker grid.
- *
- * Deliberately not `command('complete')` with a date bolted on: the everyday
- * tick cannot name a day and must stay that way, so correcting the past is a
- * different call with a different name. The server refuses a future date and any
- * task whose period is longer than a day.
- */
-export const setCompletion = (task_id: number, date: ISODate, done: boolean) =>
-  command('set_completion', { task_id, date, done })
-
 /**
  * Signing in. Deliberately NOT routed through `request`: a wrong password is a
  * 401, and `request` treats a 401 as "you have been signed out" and never
