@@ -344,8 +344,21 @@ the model agrees, so the box moves on the tap rather than after the round trip.
 The command is chosen from what is on screen, not from the model — otherwise a
 tap on a visibly-checked box re-sends `complete` and the undo is lost. Only the
 box is predicted; the re-sort waits for the refetch, or the row would leave from
-under the finger that tapped it. With `orderIds` this is one of exactly two
-things the client holds that it did not derive from a model.
+under the finger that tapped it.
+
+**What the client holds that it did not derive from a model**, in full, because
+the point of the rule is that you can count them:
+
+| | |
+|---|---|
+| `orderIds` | Day.tsx — the reorder edit state, a locally rearranged id list |
+| `intent` | Day.tsx, Todo.tsx, History.tsx — the done state asked for, until the model agrees |
+
+Two kinds, four instances. It said "exactly two" until v16 gave the Tracker its
+own prediction, which is how a sentence like that earns its keep: it is supposed
+to be checkable, and it stopped being true the moment a third surface started
+predicting. Nothing else is held, and the model is still replaced wholesale on
+refetch everywhere except the Tracker, which says why below.
 
 Commands for one row are **ordered**: two taps send two commands, and unordered
 they race, so an `uncomplete` can land before the `complete` it was undoing.
