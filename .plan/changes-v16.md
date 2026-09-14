@@ -248,6 +248,23 @@ clock is what bounds the date, not what supplies it.
 
 ## Client
 
+### The viewed week is state, and several things depend on it
+
+Building this as "add a parameter" is how it goes wrong. The week being looked at
+is a piece of client state, and three separate things already assume it is always
+this week:
+
+| | |
+|---|---|
+| `refresh()` | calls `getDay()` with no argument, so any command fired from a later pane — an unplan, a move — refetches this week and bounces the view home. `getDay` takes the week and `refresh` passes the one being viewed. |
+| `usePagedTrack` | reads its index back off `scrollLeft`. Loading a week replaces the panes while the scroller stays where it was, leaving you mid-week on a stale index. A week change scrolls to the first pane going forward, the last coming back — explicitly, not as a side effect. |
+| `DayStrip` | disables prev at `index <= 0` and next at `index >= panes.length - 1`. Both have to consider the week as well: prev at pane 0 must work when a later week is being viewed, and next at the last pane must work while `last_placed` is beyond it. |
+
+`api.ts` gains the parameter on `getDay`, which is its only change.
+
+Thread the viewed week first and these fall out. Retrofit it and it gets added in
+three places separately, which is the same mistake in three files.
+
 ### The strip pages weeks
 
 The `‹ ›` buttons step through panes as they do now, and stepping past either end
@@ -348,8 +365,17 @@ tests rather than the deletion of eight lines, and it is the real cost of closin
 this. A weekly task cannot be placed outside its week, so the seeds move to
 cadences whose bound reaches: a monthly, a quarterly, or a one-off.
 
-`views.test.ts` keeps its twelve weekday gates: those turn on what period a date
-falls in, which paging does not change.
+**`views.test.ts` gets a cleanup the first draft of this section denied.** It
+claimed all twelve weekday gates stay, on the grounds that paging does not change
+what period a date falls in. Eight of the twelve sit inside the `DayView.upcoming`
+block, and once `buildDayView` takes a week a unit test can hand it a future week
+outright rather than waiting for the calendar — so six of those gates can go.
+
+The two that stay are the two that are genuinely about the calendar rather than
+about reaching a future day: one asserts a task placed EARLIER this week appears
+on no pane, which forward paging cannot supply, and one asserts `upcoming` is
+empty on a Saturday, which is the behaviour itself. The four `NO_EARLIER_DAY`
+gates outside the block stay for the same reason.
 
 ---
 
@@ -358,6 +384,13 @@ falls in, which paging does not change.
 **Editing anything but a daily task's cell.** A weekly task satisfied once covers
 seven cells, so a row of cells would stop meaning one thing per cell. The grid
 shows daily tasks and that is why this is narrow enough to do.
+
+**Correcting a day before anything has ever been recorded.** `buildHistoryView`
+returns no rows when `earliestRecord` is null, and the grid draws *"Nothing
+recorded yet."* — so there are no cells to click, and a brand-new account cannot
+backfill. It resolves itself the moment anything is ticked, and building a
+cell-less grid a way to grow cells is machinery for the first five minutes of a
+household's use.
 
 **Editing a past mood or log.** The same argument would extend to them and the
 same command would not — they live in `days`, keyed differently, and nothing has
