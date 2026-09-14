@@ -26,6 +26,7 @@ import { useRef, useState, type ReactNode, type RefObject, type UIEvent } from '
 export function usePagedTrack(): {
   trackRef: RefObject<HTMLDivElement | null>
   index: number
+  indexNow: () => number
   goTo: (i: number) => void
   onScroll: (e: UIEvent<HTMLDivElement>) => void
 } {
@@ -45,10 +46,20 @@ export function usePagedTrack(): {
     return (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft
   }
 
+  /**
+   * Smooth, unless the person has asked for less motion.
+   *
+   * A page's worth of content sliding sideways is exactly the kind of movement
+   * `prefers-reduced-motion` exists for, and honouring it is one line. It also
+   * makes the track land in one frame, which is why the browser suite emulates
+   * the preference — a test that has to wait for an animation is a test that
+   * measures the animation.
+   */
   const goTo = (i: number) => {
     const track = trackRef.current
     if (!track || i < 0 || i >= track.children.length) return
-    track.scrollTo({ left: i * paneStep(track), behavior: 'smooth' })
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    track.scrollTo({ left: i * paneStep(track), behavior: still ? 'auto' : 'smooth' })
   }
 
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
@@ -63,7 +74,24 @@ export function usePagedTrack(): {
     setIndex(Math.min(track.children.length - 1, Math.max(0, i)))
   }
 
-  return { trackRef, index, goTo, onScroll }
+  /**
+   * Where the track is RIGHT NOW, measured rather than remembered.
+   *
+   * `index` is state, updated from the scroll handler, so during a smooth scroll
+   * it still describes the pane being left. That is fine for rendering — a
+   * highlight one frame behind is invisible — and wrong for deciding what the
+   * next step is: a second click mid-scroll would step from the old position,
+   * and at the end of a week that turned "back one pane" into "back one week".
+   */
+  const indexNow = (): number => {
+    const track = trackRef.current
+    if (!track) return index
+    const step = paneStep(track)
+    if (step <= 0) return 0
+    return Math.min(track.children.length - 1, Math.max(0, Math.round(track.scrollLeft / step)))
+  }
+
+  return { trackRef, index, indexNow, goTo, onScroll }
 }
 
 /**

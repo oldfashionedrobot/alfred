@@ -1,5 +1,5 @@
 import './day.css'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
 import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
@@ -81,6 +81,17 @@ export default function Day() {
    * refetch, or the row would leave from under the finger that tapped it.
    */
   const [intent, setIntent] = useState<ReadonlyMap<number, boolean>>(new Map())
+
+  /*
+   * The last command in flight for a row, so the next one waits for it.
+   *
+   * Two taps send two commands, and without this they race: the second can reach
+   * the server first, so an `uncomplete` lands before the `complete` it was
+   * undoing and the row ends up done when the person asked for the opposite.
+   * A ref rather than state — nothing renders from it, and a re-render between
+   * the two taps would otherwise lose the chain.
+   */
+  const inFlight = useRef(new Map<number, Promise<unknown>>())
 
   // The week's panes. Named rather than destructured flat, because the backlog
   // track below is a second instance of the same hook and `index` cannot mean
@@ -226,7 +237,10 @@ export default function Day() {
    * either's. Recorded in the plan, and accepted.
    */
   const stepPane = (dir: -1 | 1) => {
-    const next = days.index + dir
+    // Measured, not remembered: a click that lands mid-scroll would otherwise
+    // step from the pane being left, which at a week's edge is the difference
+    // between one pane back and one WEEK back.
+    const next = days.indexNow() + dir
     if (next >= 0 && next < view.panes.length) {
       days.goTo(next)
       return
@@ -314,8 +328,16 @@ export default function Day() {
     // with a tap still in flight, and the person is answering the screen.
     const want = !asShown(task).is_done
     setIntent((m) => new Map(m).set(task.id, want))
+    // Behind whatever is already going for this row. Commands for one task are
+    // ordered; commands for different tasks are not, and do not need to be.
+    const prior = inFlight.current.get(task.id) ?? Promise.resolve()
+    const mine = prior.then(() => run(want ? 'complete' : 'uncomplete', { task_id: task.id }))
+    inFlight.current.set(
+      task.id,
+      mine.catch(() => undefined),
+    )
     try {
-      await run(want ? 'complete' : 'uncomplete', { task_id: task.id })
+      await mine
     } finally {
       setIntent((m) => {
         // A newer tap owns the row now; it will clear itself when it settles.
