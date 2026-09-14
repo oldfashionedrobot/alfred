@@ -305,6 +305,20 @@ and meaningless in a screen reader's list. Clicking toggles. A future date has n
 cell to click, which the grid already satisfies by never rendering rows ahead of
 today.
 
+**The cells are square again, and that fix rides along here.** v15 lifted the
+Tracker's reading-width cap so the grid could use the window, and gave the table
+`width: 100%` so the extra would not sit as blank paper. The table handed that
+width to the task columns instead: at six columns on a desktop a cell came out
+181px wide and 26px tall, a row of stripes rather than the block of squares the
+grid is read as. The table now sizes to its columns and stops at the box, and a
+cell is one number in both dimensions.
+
+It is a v15 regression rather than a v16 feature, and it ships here because this
+is the iteration that makes a cell something you aim at — the size of the thing
+you click is not a detail to settle separately from making it clickable. The
+scroll test moves from 24 seeded columns to 60: at 26px a column is small enough
+that 24 of them no longer overflow a desktop box, so the old seed proved nothing.
+
 **A cell is 26px square, which is under the house target size.** The
 architecture reference says interactive targets are `--tap`, 44px. A clickable
 cell breaks that, and enlarging it is not the answer: square means the row height
