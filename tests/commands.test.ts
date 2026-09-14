@@ -94,6 +94,43 @@ describe('the placement bound', () => {
     ).rejects.toThrow(/cannot place before today/)
   })
 
+  test('narrowing the cadence clears a date the new period cannot reach', async () => {
+    /*
+     * The editor always sends `cadence` and only sends `planned_date` when the
+     * day chip changed, so this arrives as a cadence and no date. Bounding only
+     * the date that was SENT missed it, and the row kept a date its new period
+     * can never reach — un-overdue, un-unplaced, un-done.
+     *
+     * Cleared, not refused: nobody touched the date, so a 409 would point at a
+     * field the person never edited.
+     */
+    await runCommand(db, VIEWER, 'create_task', {
+      name: 'Drifter',
+      cadence: null,
+      planned_date: FAR,
+    })
+    const [before] = await db.select().from(schema.tasks).where(eq(schema.tasks.name, 'Drifter'))
+    expect(before!.planned_date).toBe(FAR)
+
+    await runCommand(db, VIEWER, 'update_task', { id: before!.id, cadence: 'week' })
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, before!.id))
+    expect(after!.cadence).toBe('week')
+    expect(after!.planned_date).toBeNull()
+  })
+
+  test('a date the new period CAN reach survives the same save', async () => {
+    await runCommand(db, VIEWER, 'create_task', {
+      name: 'Keeps',
+      cadence: null,
+      planned_date: TODAY,
+    })
+    const [before] = await db.select().from(schema.tasks).where(eq(schema.tasks.name, 'Keeps'))
+
+    await runCommand(db, VIEWER, 'update_task', { id: before!.id, cadence: 'week' })
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, before!.id))
+    expect(after!.planned_date).toBe(TODAY)
+  })
+
   test('a one-off has no far edge, so a distant date is fine', async () => {
     await runCommand(db, VIEWER, 'create_task', { name: 'Once', cadence: null, planned_date: FAR })
     const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.name, 'Once'))
@@ -120,6 +157,41 @@ describe('the placement bound', () => {
     }
     const rows = await db.select().from(schema.tasks)
     expect(rows.filter((r) => r.planned_date === TODAY)).toHaveLength(5)
+  })
+})
+
+describe('set_completion and an archived task', () => {
+  /*
+   * This command does the work of two, and the two disagree on purpose:
+   * `complete` and `place` refuse an archived task, `uncomplete` allows it. So
+   * does this — refusing to fill a cell, allowing one to be emptied. The grid
+   * draws only ACTIVE dailies, so a completion written against an archived task
+   * would land on a column nothing renders.
+   */
+  async function archivedDaily() {
+    const [t] = await db
+      .insert(schema.tasks)
+      .values({ user_id: OWNER, name: 'Gone', cadence: 'day', active: false })
+      .returning()
+    return t!.id
+  }
+
+  test('filling a cell is refused', async () => {
+    const id = await archivedDaily()
+    expect(
+      runCommand(db, VIEWER, 'set_completion', { task_id: id, date: TODAY, done: true }),
+    ).rejects.toThrow(/archived/)
+  })
+
+  test('emptying one is allowed, so a stray record can still be cleaned up', async () => {
+    const id = await archivedDaily()
+    await db.insert(schema.completions).values({ task_id: id, completed_on: TODAY })
+    await runCommand(db, VIEWER, 'set_completion', { task_id: id, date: TODAY, done: false })
+    const rows = await db
+      .select()
+      .from(schema.completions)
+      .where(eq(schema.completions.task_id, id))
+    expect(rows).toHaveLength(0)
   })
 })
 

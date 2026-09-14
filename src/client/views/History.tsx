@@ -85,6 +85,19 @@ export default function History() {
   const alive = useRef(true)
   /** The last command in flight per cell, so the next one waits for it. */
   const inFlight = useRef(new Map<string, Promise<unknown>>())
+  /*
+   * Which click owns a cell's prediction.
+   *
+   * Comparing the VALUE was not enough: three quick clicks on one cell are
+   * on, off, on — so when the first command settles the map already holds `on`
+   * again from the third, the guard reads it as its own, and the prediction is
+   * dropped while two commands are still queued. The cell then flickers to the
+   * intermediate state as they land. A number per click cannot collide with
+   * itself that way.
+   */
+  const clickSeq = useRef(0)
+  /** Cell -> the sequence number of the click that currently owns it. */
+  const owner = useRef(new Map<string, number>())
 
   useEffect(() => {
     alive.current = true
@@ -166,6 +179,8 @@ export default function History() {
     // with a click still in flight, and the person is answering the screen.
     const want = !shownDone(row, taskId)
     const key = cellKey(taskId, row.date)
+    const seq = ++clickSeq.current
+    owner.current.set(key, seq)
     setIntent((m) => new Map(m).set(key, want))
     setNotice(null)
 
@@ -209,16 +224,25 @@ export default function History() {
       // below and the screen is accurate again the moment it is.
       if (alive.current) setNotice({ text: errorText(e), tone: 'error' })
     } finally {
-      if (alive.current)
+      /*
+       * A newer click owns the cell now; it will clear itself when it settles.
+       * Without this a quick correct-and-undo would lose the second click's
+       * prediction the moment the first one's reply arrived.
+       *
+       * The check and the bookkeeping sit OUTSIDE the updater on purpose. React
+       * invokes an updater twice under StrictMode, so releasing ownership inside
+       * one meant the second invocation saw it already released, took the
+       * "somebody else owns this" branch, and returned the map unchanged — the
+       * prediction stuck and a refused correction never reverted.
+       */
+      if (alive.current && owner.current.get(key) === seq) {
+        owner.current.delete(key)
         setIntent((m) => {
-          // A newer click owns the cell now; it will clear itself when it
-          // settles. Without this a quick correct-and-undo would lose the second
-          // click's prediction the moment the first one's reply arrived.
-          if (m.get(key) !== want) return m
           const next = new Map(m)
           next.delete(key)
           return next
         })
+      }
     }
   }
 

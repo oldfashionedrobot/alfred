@@ -287,13 +287,20 @@ async function uncomplete(
  * bounds the picker from the same `placement` the views ship; this is what makes
  * the interface being wrong a visible error rather than a silent bad write.
  */
-function checkPlacement(now: ISODate, cadence: Cadence | null, date: ISODate | null): void {
+function placementFits(now: ISODate, cadence: Cadence | null, date: ISODate | null): boolean {
   // A daily task never holds a date at all; its callers null the column out.
-  if (date === null || cadence === 'day') return
-  if (date < now) throw new Rejected('cannot place before today')
+  if (date === null || cadence === 'day') return true
+  if (date < now) return false
   // null is a one-off: its period never ends, so there is no far edge to hit.
   const max = placementMax(now, cadence)
-  if (max !== null && date > max) throw new Rejected(`cannot place beyond ${max}`)
+  return max === null || date <= max
+}
+
+/** The same rule as a rejection, for the commands that are being ASKED for a date. */
+function checkPlacement(now: ISODate, cadence: Cadence | null, date: ISODate | null): void {
+  if (placementFits(now, cadence, date)) return
+  if (date !== null && date < now) throw new Rejected('cannot place before today')
+  throw new Rejected(`cannot place beyond ${placementMax(now, cadence)}`)
 }
 
 async function place(
@@ -506,6 +513,23 @@ async function updateTask(
   // null is the same write, and asking whether it was already null is a branch
   // guarding a state that cannot occur.
   if (cadence === 'day') patch.planned_date = null
+  /*
+   * A period can shrink out from under a date that is not being touched.
+   *
+   * The editor always sends `cadence` and only sends `planned_date` when the day
+   * chip was changed, so moving a one-off placed months out to Weekly arrives
+   * here as a cadence and no date — and the row would keep a date its new period
+   * can never reach, which is the un-overdue, un-unplaced, un-done state the
+   * bound exists to prevent.
+   *
+   * Cleared rather than refused. The date stopped meaning anything when the
+   * period shrank under it, exactly as a daily task's does above, and rejecting
+   * a save nobody made a date change in would be a 409 pointing at a field the
+   * person never touched.
+   */
+  if (!('planned_date' in b) && !placementFits(now, cadence, task.planned_date)) {
+    patch.planned_date = null
+  }
 
   await db.update(tasks).set(patch).where(eq(tasks.id, task.id)).run()
 }
@@ -634,6 +658,21 @@ async function setCompletion(
 
   if (task.cadence !== 'day') throw new Rejected('only a daily task has a day to correct')
   if (date > now) throw new Rejected('cannot record a day that has not happened')
+  /*
+   * Archived, in the half that matches each precedent.
+   *
+   * This command does the work of two, and the two disagree on purpose:
+   * `complete` and `place` refuse an archived task because adding to one is
+   * work on something retired, while `uncomplete` allows it because removing a
+   * record is cleanup. So does this — refusing to fill a cell, allowing one to
+   * be emptied.
+   *
+   * It is not only symmetry. The grid draws ACTIVE dailies, so a completion
+   * written against an archived task lands on a column nothing renders: a row
+   * that cannot be seen and, without the other half of this rule, could not be
+   * removed either.
+   */
+  if (done && !task.active) throw new Rejected('that task is archived')
 
   if (done) {
     // The same (task_id, completed_on) key `complete` relies on: correcting a
