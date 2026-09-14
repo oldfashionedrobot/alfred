@@ -305,6 +305,18 @@ and meaningless in a screen reader's list. Clicking toggles. A future date has n
 cell to click, which the grid already satisfies by never rendering rows ahead of
 today.
 
+**A cell is 26px square, which is under the house target size.** The
+architecture reference says interactive targets are `--tap`, 44px. A clickable
+cell breaks that, and enlarging it is not the answer: square means the row height
+follows the width, so 44px cells would make a sixty-day grid 2,640px tall instead
+of 1,560px, and the whole point of the grid is reading a month at a glance.
+
+So this is an exception, and the reference should say so rather than quietly
+stop being true. It is defensible on its own terms: WCAG 2.2 AA asks for 24×24
+(SC 2.5.8) and 26px clears it; the 44px figure is the repo's own stricter
+convention, set for controls you hit with a thumb while walking. A grid you read
+is not that, and AA's minimum is 24px precisely because dense grids exist.
+
 **The predicted state is keyed by cell, not by task.** Day's intent map is
 `Map<task_id, boolean>`, which is right where a task appears once. In the grid
 the same task appears on every row, so the key is the pair — `task_id` and the
