@@ -284,17 +284,20 @@ test('the grid is read-only: clicking cells changes nothing', async ({ page, app
 // ===========================================================================
 
 test('the grid scrolls sideways in its own box, never the page body', async ({ page, app }) => {
-  // Enough columns to overflow the widest project viewport: the shell is
-  // 720px wide at most, and a task column is 30px.
+  // Enough columns to overflow the widest project viewport — which is now the
+  // WINDOW, not a 720px shell, since the Tracker lifts the reading-width cap.
+  // A task column is one square cell (26px) and the fixed columns are ~138px, so
+  // 24 of them came to 782px inside a 1246px desktop box and stopped scrolling.
+  // 60 is comfortably past it at both viewports.
   let first = 0
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 60; i++) {
     const id = app.seed.task({ name: `Daily task ${String(i).padStart(2, '0')}`, cadence: 'day' })
     if (i === 0) first = id
   }
   app.seed.completion(first, app.today)
 
   await openHistory(page, app)
-  await expect(page.getByRole('columnheader')).toHaveCount(27) // Log + Date + Mood + 24
+  await expect(page.getByRole('columnheader')).toHaveCount(63) // Log + Date + Mood + 60
 
   const box = await scroller(page).evaluate((el) => ({
     scrollWidth: el.scrollWidth,

@@ -65,12 +65,16 @@
 }
 
 .hist-grid {
-  /* Fill the box instead of shrinking to the columns. With the cap above
-     lifted, a shrink-to-fit table would leave the window's extra width as blank
-     paper to the right of the grid rather than giving it to the cells. A table
-     never goes below its own min-content width, so on a phone this is still the
-     sum of the column minimums and .hist-scroll still scrolls. */
-  width: 100%;
+  /* Shrink to the columns, and never past the box.
+     A cell is a SQUARE — the grid is read as a pattern, and a pattern needs its
+     marks the same shape. `width: 100%` gave the table the window and the table
+     gave it to the task columns, which at six columns on a desktop made every
+     cell 181px wide and 26px tall: a row of stripes rather than a block of
+     squares. Sizing to content keeps them square and lets the box scroll when
+     there are more days than fit, which is the behaviour that was wanted from
+     lifting the cap in the first place. */
+  width: auto;
+  max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -117,8 +121,16 @@
    .hist-scroll takes over, which is what a phone gets. The cost is recorded
    rather than hidden: a phone now shows about three task columns at a time
    where 30px showed seven. */
+/* One number for both dimensions, so "square" cannot drift into "nearly
+   square" the next time either is touched. 26px clears WCAG 2.2 AA's 24px
+   target minimum, which matters from v16 when a cell becomes clickable. */
+:root {
+  --hist-cell: 26px;
+}
+
 .hist-h--task {
-  min-width: 74px;
+  width: var(--hist-cell);
+  min-width: var(--hist-cell);
 }
 
 .hist-h--mood {
@@ -183,7 +195,7 @@
 
 .hist-mood,
 .hist-cell {
-  height: 26px;
+  height: var(--hist-cell);
   padding: 2px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   background-color: var(--surface);
@@ -198,10 +210,11 @@
   line-height: 1;
 }
 
-/* Floor, not width — the header above carries the reason. Both halves of the
-   column have to say it: a table column is as wide as its widest cell. */
+/* Square, and the same square as the row is tall. Both halves of the column
+   have to say it: a table column is as wide as its widest cell. */
 .hist-cell {
-  min-width: 74px;
+  width: var(--hist-cell);
+  min-width: var(--hist-cell);
 }
 
 /* An empty cell is a fact, not a prompt — it stays quiet and says nothing.
