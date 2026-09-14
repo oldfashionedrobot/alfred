@@ -171,9 +171,9 @@ One workflow, on every push to `main` and every pull request.
 | Step | |
 |---|---|
 | `bunx tsc --noEmit` | covers `e2e/` too |
-| `bun test` | 208 unit tests |
+| `bun test` | 234 unit tests |
 | `bunx playwright install --with-deps chrome webkit` | both engines |
-| `bunx playwright test` | 620 browser tests across four projects |
+| `bunx playwright test` | 636 browser tests across four projects |
 | `docker build` | so a Dockerfile mistake fails before a deploy is attempted |
 | `flyctl deploy --ha=false` | `main` only, after the above are green |
 | smoke test | asks the public URL for `/api/status` and asserts the deployed SHA |
