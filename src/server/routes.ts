@@ -94,7 +94,11 @@ export async function handleApi(req: Request): Promise<Response> {
      */
     if (req.method === 'POST' && path === '/api/claim') {
       const { token, password, timezone } = objectBody(await readBody(req))
-      if (typeof token !== 'string' || typeof password !== 'string' || typeof timezone !== 'string') {
+      if (
+        typeof token !== 'string' ||
+        typeof password !== 'string' ||
+        typeof timezone !== 'string'
+      ) {
         throw new BadRequest('token, password and timezone are required')
       }
       if (password.length < MIN_PASSWORD) {
@@ -171,7 +175,9 @@ export async function handleApi(req: Request): Promise<Response> {
         case '/api/todo':
           return json(await buildTodoView(db, user))
         case '/api/history':
-          return json(await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)))
+          return json(
+            await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)),
+          )
       }
     }
 
@@ -247,7 +253,10 @@ async function readBody(req: Request): Promise<unknown> {
  * The whole query-string boundary for History, and the only one: `limit` is
  * validated and bounded here, not again downstream.
  */
-function historyOptions(params: URLSearchParams, zone: string): { limit?: number; before?: ISODate } {
+function historyOptions(
+  params: URLSearchParams,
+  zone: string,
+): { limit?: number; before?: ISODate } {
   const opts: { limit?: number; before?: ISODate } = {}
 
   const limit = params.get('limit')

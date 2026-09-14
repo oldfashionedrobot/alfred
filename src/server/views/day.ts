@@ -141,7 +141,11 @@ export async function buildDayView(db: DB, viewer: Viewer, week?: ISODate): Prom
     panes,
     // Today is excluded HERE rather than inside buildUpcoming, because a later
     // week holds no today pane to exclude.
-    upcoming: buildUpcoming(taskRows, byTask, panes.filter((d) => d !== date)),
+    upcoming: buildUpcoming(
+      taskRows,
+      byTask,
+      panes.filter((d) => d !== date),
+    ),
     last_placed: lastPlaced(taskRows),
   }
 }
