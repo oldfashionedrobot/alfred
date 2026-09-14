@@ -53,6 +53,76 @@ afterEach(() => closeDb(h))
 
 const rows = () => db.select().from(schema.tasks).all()
 
+describe('the placement bound', () => {
+  /*
+   * It lived in `place` alone until v16. The other three commands that write
+   * `planned_date` took any valid date, so a weekly task could be given a date
+   * six months out through the editor's save and would sit there — un-overdue,
+   * un-unplaced, un-done — until the day arrived. v16's paging is what would
+   * finally have drawn it, on a pane its own cadence can never reach.
+   *
+   * Unreachable through the interface: the client bounds its picker from the
+   * same `placement` the views ship. These are here so that the interface being
+   * wrong is a visible error rather than a silent bad write.
+   */
+  const FAR = '2099-01-01'
+
+  async function weekly() {
+    const [t] = await db
+      .insert(schema.tasks)
+      .values({ user_id: OWNER, name: 'Weekly', cadence: 'week', active: true })
+      .returning()
+    return t!.id
+  }
+
+  test("update_task refuses a date outside the task's own period", async () => {
+    const id = await weekly()
+    expect(runCommand(db, VIEWER, 'update_task', { id, planned_date: FAR })).rejects.toThrow(
+      /cannot place beyond/,
+    )
+  })
+
+  test('create_task refuses one too', async () => {
+    expect(
+      runCommand(db, VIEWER, 'create_task', { name: 'W', cadence: 'week', planned_date: FAR }),
+    ).rejects.toThrow(/cannot place beyond/)
+  })
+
+  test('create_tasks refuses a date already past', async () => {
+    expect(
+      runCommand(db, VIEWER, 'create_tasks', { names: ['x'], planned_date: '2020-01-01' }),
+    ).rejects.toThrow(/cannot place before today/)
+  })
+
+  test('a one-off has no far edge, so a distant date is fine', async () => {
+    await runCommand(db, VIEWER, 'create_task', { name: 'Once', cadence: null, planned_date: FAR })
+    const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.name, 'Once'))
+    expect(row!.planned_date).toBe(FAR)
+  })
+
+  test('the bound follows the cadence a save MOVES a task to', async () => {
+    // Placed legitimately as a one-off, then made weekly in the same breath as
+    // keeping the date: the bound is the new cadence's, not the old one's.
+    await runCommand(db, VIEWER, 'create_task', { name: 'Moves', cadence: null, planned_date: FAR })
+    const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.name, 'Moves'))
+    expect(
+      runCommand(db, VIEWER, 'update_task', { id: row!.id, cadence: 'week', planned_date: FAR }),
+    ).rejects.toThrow(/cannot place beyond/)
+  })
+
+  test('today is always inside it, for every cadence', async () => {
+    for (const cadence of ['week', 'month', 'quarter', 'year', null] as const) {
+      await runCommand(db, VIEWER, 'create_task', {
+        name: `ok-${String(cadence)}`,
+        cadence,
+        planned_date: TODAY,
+      })
+    }
+    const rows = await db.select().from(schema.tasks)
+    expect(rows.filter((r) => r.planned_date === TODAY)).toHaveLength(5)
+  })
+})
+
 describe('complete', () => {
   /*
    * The (task_id, completed_on) primary key absorbs a repeat, so completing

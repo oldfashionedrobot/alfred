@@ -192,6 +192,10 @@ describe("a command cannot touch another user's task", () => {
     ['unplan', (id) => ({ task_id: id })],
     ['update_task', (id) => ({ id, name: 'renamed by a stranger' })],
     ['archive_task', (id) => ({ id })],
+    // v16. The table's own instruction, followed: a command that takes a task by
+    // id and does not appear here is a command nobody has checked the ownership
+    // of. This one writes to a date, which makes it the one most worth checking.
+    ['set_completion', (id) => ({ task_id: id, date: TODAY, done: true })],
   ]
 
   for (const [name, body] of byId) {
