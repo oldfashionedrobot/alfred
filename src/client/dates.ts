@@ -8,16 +8,67 @@ import type { ISODate } from '../shared/types.ts'
  */
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const DOW_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+const DOW_LONG = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const
+const MON = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
 const MON_LONG = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ] as const
 
 function parts(iso: ISODate): { y: number; m: number; d: number } {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number]
   return { y, m, d }
+}
+
+/**
+ * `n` days from an ISO date.
+ *
+ * Here rather than on the server because the client has to name the week it
+ * wants next, and `?week=` takes any date inside it. That is mechanical calendar
+ * arithmetic on a string the server handed over — not a derivation of task
+ * state, which stays where it has always been. Same UTC discipline as the rest
+ * of this file: the Date never escapes the function, so no local offset can
+ * shift a day.
+ */
+export function addDays(iso: ISODate, n: number): ISODate {
+  const { y, m, d } = parts(iso)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  const yy = String(dt.getUTCFullYear()).padStart(4, '0')
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getUTCDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
 }
 
 /** 0 = Sunday. Date.UTC is used only to get a weekday index, which is timezone-immune. */

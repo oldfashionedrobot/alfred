@@ -15,9 +15,20 @@ import { longDate, weekdayShort } from '../../dates.ts'
  * keeps the strip the same width all week and says plainly that a past day is
  * not somewhere you can go.
  *
- * `panes` is `placeable_dates`, so a day's button and its pane are matched by
- * position in the one list the server derived. `index` comes from the track's
- * scroll position, so this highlights where the panes actually are.
+ * `panes` is `DayView.panes` — the viewed week's panes, in order — so a day's
+ * button and its pane are matched by position in the one list the server
+ * derived. It stopped being `placeable_dates` in v16: paging means the panes are
+ * whatever week you are on while the picker's chips stay this week's, and one
+ * field could no longer mean both.
+ *
+ * `index` comes from the track's scroll position, so this highlights where the
+ * panes actually are.
+ *
+ * PREV AND NEXT ARE NOT PANE STEPPING. They ask the host to move, and the host
+ * decides whether that is the next pane or the next week — which is why this
+ * takes `canPrev` / `canNext` rather than comparing `index` against the ends.
+ * Comparing here would have hard-coded "a week is all there is" into the one
+ * component that now has to page past it.
  */
 export function DayStrip({
   dates,
@@ -26,6 +37,10 @@ export function DayStrip({
   counts,
   index,
   onGo,
+  onPrev,
+  onNext,
+  canPrev,
+  canNext,
   disabled,
 }: {
   dates: ISODate[]
@@ -35,6 +50,11 @@ export function DayStrip({
   counts: number[]
   index: number
   onGo: (i: number) => void
+  /** One step back — a pane, or the week before it. The host decides which. */
+  onPrev: () => void
+  onNext: () => void
+  canPrev: boolean
+  canNext: boolean
   disabled: boolean
 }) {
   const showing = panes[index]
@@ -44,8 +64,8 @@ export function DayStrip({
       <button
         className="day-strip__step"
         aria-label="Previous day"
-        disabled={disabled || index <= 0}
-        onClick={() => onGo(index - 1)}
+        disabled={disabled || !canPrev}
+        onClick={onPrev}
       >
         <span aria-hidden="true">‹</span>
       </button>
@@ -87,8 +107,8 @@ export function DayStrip({
       <button
         className="day-strip__step"
         aria-label="Next day"
-        disabled={disabled || index >= panes.length - 1}
-        onClick={() => onGo(index + 1)}
+        disabled={disabled || !canNext}
+        onClick={onNext}
       >
         <span aria-hidden="true">›</span>
       </button>
