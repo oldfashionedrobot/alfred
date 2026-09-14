@@ -1,5 +1,6 @@
 /* The Tracker — the grid. Dates down, daily tasks across, filled cells for
-   completions, one mood column. Read-only: nothing here is clickable.
+   completions, one mood column. Since v16 a task cell is also a control: it
+   corrects a day that was recorded wrong.
    Gaps are permanent and are drawn as plain empty cells — the grid's job is
    that the pattern reads from across the room.
 
@@ -29,6 +30,19 @@
 }
 
 .hist {
+  /* ONE number, used as both the width and the height of a task cell. The grid
+     is read as a block of squares and two numbers is exactly how it stopped
+     being one, so the width and the height are the same declaration rather than
+     two that have to be kept equal.
+
+     26px, not the 44px `--tap` every other control in this app uses. Square
+     means the row height follows the width, so 44px cells would make a sixty-day
+     grid 2,640px tall instead of 1,560px — and reading a month at a glance is
+     the entire point of the grid. It is a deliberate exception rather than an
+     oversight: WCAG 2.2 AA asks for 24×24 (SC 2.5.8) and 26px clears it; 44px is
+     this repo's own stricter convention, set for controls you hit with a thumb
+     while walking, and a grid you sit and read is not that. */
+  --hist-cell: 26px;
   padding-top: var(--gap-4);
 }
 
@@ -65,16 +79,18 @@
 }
 
 .hist-grid {
-  /* Shrink to the columns, and never past the box.
-     A cell is a SQUARE — the grid is read as a pattern, and a pattern needs its
-     marks the same shape. `width: 100%` gave the table the window and the table
-     gave it to the task columns, which at six columns on a desktop made every
-     cell 181px wide and 26px tall: a row of stripes rather than a block of
-     squares. Sizing to content keeps them square and lets the box scroll when
-     there are more days than fit, which is the behaviour that was wanted from
-     lifting the cap in the first place. */
-  width: auto;
-  max-width: 100%;
+  /* Sizes to its columns, and stops. There was a `width: 100%` here so that the
+     window's extra width — once the cap above was lifted — would not sit as
+     blank paper to the right of the grid. It did not reach the cells: a table
+     hands spare width to the columns that have none of their own, which is the
+     task columns, and at six columns on a desktop that made a cell 181px wide
+     and 26px tall. A row of stripes rather than the block of squares the grid is
+     read as, and now also a click target the size of a paragraph.
+
+     Blank paper beside a narrow grid is the cheaper of the two problems, so it
+     is taken back deliberately. On a phone nothing changes: a table never goes
+     below its own min-content width, so the sum of the columns still overflows
+     and .hist-scroll still scrolls. */
   border-collapse: separate;
   border-spacing: 0;
   font-variant-numeric: tabular-nums;
@@ -110,24 +126,12 @@
   margin: 0 auto;
 }
 
-/* The task columns are the only ones with no `width`, and that is what makes
-   them the columns the table hands its spare room to: log, date and mood keep
-   the widths their contents need, and the days share everything the window
-   leaves over.
-
-   74px is the floor, not the size. It is the date column's width, so a grid
-   with room to spare sits on one module rather than on a row of pinstripes;
-   once the tasks outnumber the room the table grows past its box and
-   .hist-scroll takes over, which is what a phone gets. The cost is recorded
-   rather than hidden: a phone now shows about three task columns at a time
-   where 30px showed seven. */
-/* One number for both dimensions, so "square" cannot drift into "nearly
-   square" the next time either is touched. 26px clears WCAG 2.2 AA's 24px
-   target minimum, which matters from v16 when a cell becomes clickable. */
-:root {
-  --hist-cell: 26px;
-}
-
+/* A task column is one cell wide — stated, not left to the table to decide.
+   Being the only columns WITHOUT a width is what made these the ones the table
+   stretched, which is how a 74px floor meant to keep a roomy grid on the date
+   column's module became a 181px cell instead. A width the table cannot argue
+   with is the fix, and it has to be said on both halves of the column: a table
+   column is as wide as its widest cell. */
 .hist-h--task {
   width: var(--hist-cell);
   min-width: var(--hist-cell);
@@ -210,15 +214,19 @@
   line-height: 1;
 }
 
-/* Square, and the same square as the row is tall. Both halves of the column
-   have to say it: a table column is as wide as its widest cell. */
+/* The other half of the column's width — the header above carries the reason.
+   `position: relative` is the cell's second job: it is the containing block for
+   the control inside it. No z-index with it, so the sticky date and log columns
+   (z-index 1) and the sticky header (2) still pass over the cells. */
 .hist-cell {
+  position: relative;
   width: var(--hist-cell);
   min-width: var(--hist-cell);
 }
 
-/* An empty cell is a fact, not a prompt — it stays quiet and says nothing.
-   A filled one is a solid block: the pattern is the whole point.
+/* An empty cell is still a fact rather than a prompt: it says nothing until you
+   point at it, and the hover below is the only thing that admits it is writable.
+   A filled one is a solid block — the pattern is the whole point.
 
    It takes a baseline task's own colour where the column has one, so a
    completion here matches the colour that task wears on every other screen;
@@ -230,6 +238,44 @@
   background-origin: content-box;
   background-repeat: no-repeat;
   background-size: 100% 100%;
+}
+
+/* The cell's control. It sits INSIDE the `td` rather than being it, because a
+   `td` carrying role="checkbox" stops being a grid cell to a screen reader and
+   loses the row and column position that is the only thing making a cell mean
+   anything — the reason is in History.tsx, at the element itself.
+
+   Placed over the whole cell rather than laid out in it, because the TARGET is
+   what has to clear SC 2.5.8's 24×24 — not the block that gets painted. The
+   cell's 2px padding is what insets the filled block, so a button laid out
+   inside that padding would be a 22px target and would fail the criterion the
+   26px cell was sized to meet. `inset: 0` resolves against the td's PADDING
+   box, which is 26 wide by 25 tall once the 1px row rule is taken off the
+   bottom: both still over 24. A percentage height would also be at the mercy of
+   the table's row layout; this is not. */
+.hist-cell__tick {
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border: none;
+  background-color: transparent;
+  /* Painted into the content box, so the hover hint lands on exactly the square
+     a filled cell fills: the hint is the shape of the thing it is offering to
+     write. Transparent by default, so a filled cell's colour shows through from
+     the `td` underneath. */
+  background-clip: content-box;
+  cursor: pointer;
+}
+
+.hist-cell__tick:hover {
+  background-color: color-mix(in srgb, var(--text-dim) 25%, transparent);
+}
+
+/* The global ring is offset 2px OUTWARDS, which on a 26px cell in a scroll box
+   is drawn across its neighbours and clipped at the edges of the grid. Inset
+   instead — the same override `.track` takes, for the same reason. */
+.hist-cell__tick:focus-visible {
+  outline-offset: -2px;
 }
 
 /* --- footer ------------------------------------------------------------- */

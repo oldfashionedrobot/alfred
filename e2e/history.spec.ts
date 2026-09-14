@@ -3,7 +3,9 @@ import type { Locator, Page } from '@playwright/test'
 
 /**
  * The History view — the grid. Dates down, active daily tasks across, filled
- * cells for completions, one mood column, read-only.
+ * cells for completions, one mood column. Since v16 a task cell is a checkbox
+ * that corrects the day it names; the log column is still read-only and there
+ * is a test below that holds it to that.
  *
  * No date is ever hardcoded: every row expectation is derived from `app.today`
  * via `addDays`, and the grid's own claims are cross-checked against
@@ -47,10 +49,52 @@ function parts(iso: string): { y: number; m: number; d: number } {
   return { y, m, d }
 }
 
+const DOW_LONG = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const
+const MON_LONG = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const
+
+function dow(iso: string): number {
+  const { y, m, d } = parts(iso)
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+}
+
 /** 'Sat 5 Sep' — the row header's own text, and its accessible name. */
 function shortDate(iso: string): string {
-  const { y, m, d } = parts(iso)
-  return `${DOW[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ${MON[m - 1]}`
+  const { m, d } = parts(iso)
+  return `${DOW[dow(iso)]} ${d} ${MON[m - 1]}`
+}
+
+/**
+ * 'Saturday, 5 September' — the long form a cell's accessible name carries.
+ *
+ * Deliberately a second oracle rather than an import of `src/client/dates.ts`:
+ * this suite asserts what a screen reader would be handed, and a spec that
+ * imported the formatter would agree with the app by construction however wrong
+ * both were.
+ */
+function longDate(iso: string): string {
+  const { m, d } = parts(iso)
+  return `${DOW_LONG[dow(iso)]}, ${d} ${MON_LONG[m - 1]}`
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +151,19 @@ function cells(row: Locator): Promise<string[]> {
   return row
     .getByRole('cell')
     .evaluateAll((els) => els.slice(1).map((e) => (e.textContent ?? '').trim()))
+}
+
+/**
+ * A cell's own control, addressed the way a screen reader or a voice command
+ * would reach it: by the pair of coordinates in its name.
+ *
+ * Deliberately not by column index, which is what `cells()` above uses. An index
+ * addresses the grid's LAYOUT, and the reason the name carries both coordinates
+ * is that the layout is not available to everybody — so a test that reached for
+ * the third `td` would be passing on evidence the name was never needed.
+ */
+function cellTick(page: Page, task: string, date: string): Locator {
+  return page.getByRole('checkbox', { name: `${task}, ${longDate(date)}`, exact: true })
 }
 
 const scroller = (page: Page): Locator => page.getByRole('region', { name: 'Tracker grid' })
@@ -250,33 +307,146 @@ test('a retired mood still renders in History', async ({ page, app }) => {
 })
 
 // ===========================================================================
-// Read-only
+// Correcting a day
+//
+// This block was "the grid is read-only: clicking cells changes nothing" until
+// v16, which made the cells writable. That test could not be re-anchored — its
+// premise was the thing being deleted — so it is inverted here: the same three
+// gestures on the same seed, asserted positively.
 // ===========================================================================
 
-test('the grid is read-only: clicking cells changes nothing', async ({ page, app }) => {
+test('a cell corrects the day it names, and the record moves with it', async ({ page, app }) => {
   const task = app.seed.task({ name: 'Take meds', cadence: 'day' })
   app.seed.completion(task, app.today)
   app.seed.completion(task, addDays(app.today, -2))
 
   await openHistory(page, app)
-  const before = await completionCount(app)
-  expect(before).toBe(2)
+  expect(await completionCount(app)).toBe(2)
 
-  // Cell 0 is the log, cell 1 the mood; the single task column is cell 2.
-  const filled = rowFor(page, app.today).getByRole('cell').nth(2)
-  const empty = rowFor(page, addDays(app.today, -1)).getByRole('cell').nth(2)
-  await expect(filled).toHaveText('done')
-  await expect(empty).toHaveText('')
+  const filled = cellTick(page, 'Take meds', app.today)
+  const empty = cellTick(page, 'Take meds', addDays(app.today, -1))
+  await expect(filled).toHaveAttribute('aria-checked', 'true')
+  await expect(empty).toHaveAttribute('aria-checked', 'false')
 
+  // A day ticked by mistake, cleared.
   await filled.click()
-  await empty.click()
-  await filled.dblclick()
+  await expect(filled).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => completionCount(app)).toBe(1)
 
-  // Nothing was written, nothing was cleared, and the grid did not move.
-  expect(await completionCount(app)).toBe(before)
-  await expect(filled).toHaveText('done')
-  await expect(empty).toHaveText('')
+  // A day that was forgotten, filled in.
+  await empty.click()
+  await expect(empty).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(() => completionCount(app)).toBe(2)
+
+  // Instantly reversible, which is what stands in for the confirm the cells
+  // deliberately do not have. Two awaited clicks rather than a `dblclick()`:
+  // two commands racing to the server would be a test of which reply landed
+  // first, and reversibility is what the gesture is actually about.
+  await empty.click()
+  await expect(empty).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => completionCount(app)).toBe(1)
+
+  // The rest of the column is untouched — the prediction is keyed by the cell,
+  // not by the task, so correcting one day cannot light up another.
+  expect(await cells(rowFor(page, addDays(app.today, -2)))).toEqual(['', 'done'])
+  expect(await cells(rowFor(page, app.today))).toEqual(['', ''])
+
+  // Nothing was refetched, so nothing was thrown away: the grid still holds the
+  // rows it held before the correction.
   await expect(dataRows(page)).toHaveCount(3)
+
+  const h = await getHistory(app)
+  expect(h.rows.find((r) => r.date === addDays(app.today, -2))!.completed).toEqual([task])
+  expect(h.rows.find((r) => r.date === app.today)!.completed).toEqual([])
+})
+
+test('a cell fills before the command lands, and reverts when it is refused', async ({
+  page,
+  app,
+}) => {
+  const task = app.seed.task({ name: 'Take meds', cadence: 'day' })
+  app.seed.completion(task, addDays(app.today, -2))
+
+  await openHistory(page, app)
+
+  // Hold the command open. The cell has to fill on the CLICK rather than on the
+  // reply: this app talks to a machine that may have just woken from
+  // scale-to-zero, and a cell that waits reads as a click that missed.
+  let release = (): void => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/commands/set_completion', async (route) => {
+    await held
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Refused by the model.' }),
+    })
+  })
+
+  const cell = cellTick(page, 'Take meds', app.today)
+  await cell.click()
+
+  // Predicted on screen...
+  await expect(cell).toHaveAttribute('aria-checked', 'true')
+  // ...and nothing written, because the command has not been answered yet.
+  expect(await completionCount(app)).toBe(1)
+
+  release()
+
+  // Refused: the prediction is dropped and the reason is on screen. A 409 means
+  // the write did not happen, so the grid is accurate again the moment it is.
+  await expect(cell).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByRole('alert')).toContainText('Refused by the model.')
+  expect(await completionCount(app)).toBe(1)
+  expect(await cells(rowFor(page, app.today))).toEqual(['', ''])
+})
+
+test("a cell's accessible name carries both the task and the day", async ({ page, app }) => {
+  const task = app.seed.task({ name: 'Take meds', cadence: 'day' })
+  app.seed.task({ name: 'Walk Ringo', cadence: 'day' })
+  app.seed.completion(task, addDays(app.today, -1))
+
+  await openHistory(page, app)
+
+  // Every cell in the grid is reachable by its pair. Named only for its task, a
+  // checkbox would appear once per row in a screen reader's list with nothing to
+  // tell the copies apart, and voice control would have no way to pick one.
+  for (const date of [app.today, addDays(app.today, -1)]) {
+    for (const name of ['Take meds', 'Walk Ringo']) {
+      await expect(cellTick(page, name, date)).toHaveCount(1)
+    }
+  }
+
+  // The exact shape, pinned: task, then the long date. The row header's short
+  // form is for scanning a column; this one is read aloud.
+  await expect(
+    page.getByRole('checkbox', { name: `Take meds, ${longDate(app.today)}`, exact: true }),
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('checkbox', { name: `Take meds, ${shortDate(app.today)}`, exact: true }),
+  ).toHaveCount(0)
+})
+
+test('a day that has not happened has no cell to correct', async ({ page, app }) => {
+  const task = app.seed.task({ name: 'Take meds', cadence: 'day' })
+  app.seed.completion(task, app.today)
+
+  await openHistory(page, app)
+
+  // The grid never renders a row ahead of today, so there is no future cell to
+  // refuse — the bound is the absence of the control rather than a disabled one.
+  const tomorrow = addDays(app.today, 1)
+  await expect(rowFor(page, tomorrow)).toHaveCount(0)
+  await expect(cellTick(page, 'Take meds', tomorrow)).toHaveCount(0)
+
+  // Today is the newest row there is, and its cell is the newest correctable one.
+  await expect(dataRows(page).first().getByRole('rowheader')).toHaveText(shortDate(app.today))
+  await expect(cellTick(page, 'Take meds', app.today)).toHaveCount(1)
+
+  const h = await getHistory(app)
+  expect(h.rows[0]!.date).toBe(app.today)
 })
 
 // ===========================================================================
@@ -284,11 +454,17 @@ test('the grid is read-only: clicking cells changes nothing', async ({ page, app
 // ===========================================================================
 
 test('the grid scrolls sideways in its own box, never the page body', async ({ page, app }) => {
-  // Enough columns to overflow the widest project viewport — which is now the
-  // WINDOW, not a 720px shell, since the Tracker lifts the reading-width cap.
-  // A task column is one square cell (26px) and the fixed columns are ~138px, so
-  // 24 of them came to 782px inside a 1246px desktop box and stopped scrolling.
-  // 60 is comfortably past it at both viewports.
+  /*
+   * Enough columns to overflow the WIDEST project viewport, which is the
+   * desktop one at 1280px. The Tracker is the one screen with no reading-width
+   * cap, so that is the number to beat: 60 task columns at 26px is 1,560px of
+   * cells before the log, date and mood columns are counted.
+   *
+   * It was 24 columns, seeded when a task column was 30px wide and the shell
+   * was capped at 720px. Both of those are gone — v16 made the cells 26px
+   * square — and 24 of them no longer overflow a desktop box, so the old seed
+   * would have passed on a phone and proved nothing anywhere else.
+   */
   let first = 0
   for (let i = 0; i < 60; i++) {
     const id = app.seed.task({ name: `Daily task ${String(i).padStart(2, '0')}`, cadence: 'day' })
