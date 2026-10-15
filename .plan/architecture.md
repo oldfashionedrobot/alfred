@@ -45,7 +45,7 @@ Five tables.
 | `id` | integer, autoincrement |
 | `user_id` | owner. Indexed. Every query filters on it. |
 | `name` | text |
-| `is_baseline` | boolean. Sorts above everything else. |
+| `is_baseline` | boolean. A mark on the row — its colour, a heavier name and a tint. Decides no position anywhere since v17. |
 | `cadence` | `day` \| `week` \| `month` \| `quarter` \| `year`, or **null for a one-off** |
 | `planned_date` | `YYYY-MM-DD`, or null. The day this is placed on. |
 | `color` | `#rrggbb`, or null. Rendered only for baseline tasks. |
@@ -60,8 +60,9 @@ completing twice on one date is a no-op. `completed_on` is indexed.
 ### `days`
 
 One row per user per day: `user_id` + `date` as a composite primary key, plus
-`mood` (a foreign key to `moods.slug`), `log` (free text), and `task_order` (a
-JSON array of task ids).
+`mood` (a foreign key to `moods.slug`), `log` (free text), and `task_order` — a
+JSON array of task ids and, since v17, `{ "hour": 0–23 }` entries: the day's
+arrangement and the hour dividers in it, as one list.
 
 ### `moods`
 
@@ -124,15 +125,28 @@ edited.
 **Ordering** is two functions, deliberately not one.
 
 `sortTasks` orders the To do list: **done** last whatever else is true of it,
-then baseline, then the day's own arrangement from `days.task_order`, then
-category (uncategorised last), then name. Done outranks baseline because a
-struck-through row at the top is not what "the bare minimum to function" should
-look like.
+then the day's own arrangement from `days.task_order`, then category
+(uncategorised last), then name. A task the arrangement does not list waits
+above the day's first hour — unscheduled — or, on a day with no hours, falls
+below everything listed.
 
-`byBand` orders a backlog group: overdue, placed, unplaced, done — then baseline,
-category, name. It has bands the To do list does not want and no `task_order`,
-which is the whole point of the other one. Folding them would produce one
-function taking flags to switch off half of itself.
+`byBand` orders a backlog group: overdue, placed, unplaced, done — then category,
+name. It has bands the To do list does not want and no `task_order`, which is
+the whole point of the other one. Folding them would produce one function taking
+flags to switch off half of itself. The category-then-name tail is one function,
+`byCategoryName`, shared by both and by the Tracker's columns.
+
+**Baseline is not a position.** It was a band above everything else until v17,
+when the hour dividers needed live rows to render in exactly their stored order:
+a band hoists rows past their stored neighbours, and a divider placed between two
+of them could not survive it.
+
+**Hours** are entries in `days.task_order`, not properties of a task. The view
+says where each is drawn — above however many live rows the arrangement lists
+before it — so stale ids, duplicates and done rows count for nothing, and
+ticking a task leaves the dividers where they were. `arrangementPosition` in
+`sort.ts` is the one definition of where a task sits, used by both the sort and
+the hour placement.
 
 **Today** is `today(zone)` in `src/server/today.ts`, the only place a date is read
 from the clock. It takes the viewer's timezone.
@@ -150,7 +164,7 @@ src/server/
   schema.ts      drizzle tables
   db.ts          libSQL connection, migrations, mood seed
   period.ts      period derivation
-  sort.ts        the one ordering function
+  sort.ts        the ordering functions
   today.ts       the only clock read for a date
   errors.ts      ApiFailure and its subclasses
   user-cli.ts    account management
@@ -177,11 +191,11 @@ becomes an identity.
 
 | | |
 |---|---|
-| `GET /api/day` | `DayView` — one `tasks` array, done last, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date` and `tasks` are still **today's** whatever is asked for. |
+| `GET /api/day` | `DayView` — one `tasks` array, done last, today's `hours` and the viewer's `timezone`, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date`, `tasks` and `hours` are still **today's** whatever is asked for. |
 | `GET /api/todo` | `TodoView` — all six cadence groups, one-off first |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
 | `POST /api/commands/<name>` | `{ ok: true }` |
-| `GET /api/account` | `{ username, timezone }` — the two fields no view payload carries |
+| `GET /api/account` | `{ username, timezone }` — the two fields a person can change about themselves |
 | `POST /api/account/timezone` | `{ timezone }` |
 | `POST /api/account/password` | `{ current, next }`, and a fresh session cookie |
 
@@ -276,7 +290,7 @@ src/client/
   styles.css         tokens and primitives, including .track and .pane
   icons/             generated favicons
   views/
-    day/             Day.tsx, TaskRow, DayStrip, GroupStrip, PagedTrack, UpcomingPane, CaptureSheet, DragBand, MoodAndLog
+    day/             Day.tsx, TaskRow, DayStrip, GroupStrip, PagedTrack, UpcomingPane, CaptureSheet, DragList, MoodAndLog
     Todo.tsx         the Backlog track
     History.tsx      the Tracker grid
     Login.tsx        the signed-out surface
@@ -287,7 +301,8 @@ src/client/
 The server derives everything. The client renders arrays that arrive already
 ordered and sectioned, posts named commands, and refetches. It never sorts,
 filters, or computes a period. It never asks what day it is — every view model
-carries its own date.
+carries its own date. Since v17 it asks what **hour** it is, in the zone the Day
+model names, for one purpose: where to draw the now-line.
 
 ### The shell
 
@@ -351,10 +366,11 @@ the point of the rule is that you can count them:
 
 | | |
 |---|---|
-| `orderIds` | Day.tsx — the reorder edit state, a locally rearranged id list |
+| `arrangement` | Day.tsx — the reorder edit state, a locally rearranged list of task ids and keyed hours |
 | `intent` | Day.tsx, Todo.tsx, History.tsx — the done state asked for, until the model agrees |
+| the current hour | Day.tsx — `useHourIn`, read in the model's zone once a minute, for the now-line |
 
-Two kinds, four instances. It said "exactly two" until v16 gave the Tracker its
+Three kinds, five instances. It said "exactly two" until v16 gave the Tracker its
 own prediction, which is how a sentence like that earns its keep: it is supposed
 to be checkable, and it stopped being true the moment a third surface started
 predicting. Nothing else is held, and the model is still replaced wholesale on
@@ -367,12 +383,23 @@ A row shows a tick, a name, a left stripe (border grey, overdue colour, or a
 baseline task's own colour), and an Edit button. Overdue and future rows also
 offer a day picker and an unplan.
 
-Reorder is a modal state holding a locally rearranged id list; drags cannot cross
-the baseline boundary because each band is its own drag context. Move to top and
-send to bottom go through the same reorder a drag does, so they obey the bands
-for free. The saved order is the whole rendered list, done ids included — sending
-only the live half would drop their positions, since `sortTasks` arranges the
-done band by the same `task_order`.
+**Hours divide the day.** A divider is a row in the same list — a heading inside
+a list item, so a screen reader hears the day's shape — carrying an hour you put
+there and no other: a 2pm, five tasks, a 5pm. Done rows sink below every hour.
+Anything the arrangement does not place waits above the first hour. A new day
+starts with none.
+
+A **now-line** sits under the divider of the latest hour that has started, or
+above the first before any has; the dividers before it dim their tags, never
+their tasks. It is drawn, never stored, and not drawn while reordering.
+
+Reorder is a modal state that arranges the day: drag rows and hours in one list
+and one drag context, add an hour, re-time one with a native select, take one
+out. Move to top means above every hour; send to bottom means the last hour's
+block. The saved arrangement is the live rows and the hours. Done ids are not
+saved since v17 — the end of the arrangement is the last hour's block, so a task
+already done when the day was laid out would come back under it when unticked;
+unlisted, it waits above the first hour instead.
 
 The mood and the log sit behind a button on the date heading that wears the
 selected mood. They are a once-a-day gesture and were taking permanent space on a
@@ -446,10 +473,10 @@ the device's guess would hide the mismatch the form exists to fix.
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 234. Each suite names its own timezone rather than inheriting the
+`bun test` runs 266. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 636 across four projects — `mobile` and `desktop` on Chrome,
+Playwright runs 164 tests in each of four projects — `mobile` and `desktop` on Chrome,
 `mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
@@ -461,6 +488,12 @@ different waits were tried against it before the question became whether the
 animation should be running at all. It should not, for anybody who has asked for
 less motion, and the app honours that. One test opts back in, because the smooth
 path is what most people get.
+
+**The time of day is pinned, not waited for.** The now-line depends on the
+hour, so its tests fix the browser's clock with Playwright's `page.clock`. The
+account's zone stays New York — moving it would set the hour but not the minute,
+and shift the fixture's idea of today — and the instants are in January, where
+that zone's offset cannot change under the test.
 
 **Coverage still moves with the weekday**, because both suites run against the
 real `today()` — but far less than it did. `views.test.ts` gates six tests on what

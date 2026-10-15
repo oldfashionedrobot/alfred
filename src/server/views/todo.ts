@@ -5,7 +5,7 @@ import type { DB } from '../db.ts'
 import { tasks } from '../schema.ts'
 import type { CompletionRow } from '../schema.ts'
 import { effectiveDate, isDone, isOverdue, periodEnd, periodStart } from '../period.ts'
-import { byBaselineCategoryName } from '../sort.ts'
+import { byCategoryName } from '../sort.ts'
 import { loadCurrentCompletions, placeableDates, placementRanges } from './completions.ts'
 import { today, type Viewer } from '../today.ts'
 
@@ -114,11 +114,10 @@ function keepOneOff(own: CompletionRow[], weekStart: ISODate): boolean {
  *
  * Band 4 wins over the others: a done task sinks whether or not it is placed.
  *
- * This is deliberately NOT `sortTasks()` and must not be folded into it. There
- * is no baseline band — baseline is a flag on daily tasks and every group is one
- * cadence — and no `days.task_order`, which belongs to Day's list, arranged for
- * doing. One function with flags would
- * be worse than two small ones.
+ * This is deliberately NOT `sortTasks()` and must not be folded into it. These
+ * bands are the backlog's own, and there is no `days.task_order` here, which
+ * belongs to Day's list, arranged for doing. One function with flags would be
+ * worse than two small ones.
  */
 function band(t: TodoTask): number {
   if (t.is_done) return 4
@@ -127,16 +126,10 @@ function band(t: TodoTask): number {
 }
 
 function byBand(a: TodoTask, b: TodoTask): number {
-  // Band first, then baseline, then name.
-  //
-  // Baseline sits INSIDE the band rather than above it, so a done baseline task
-  // still sinks below live ones — a struck-through row at the top of the list is
-  // not what "the bare minimum to function" should look like. In practice the
-  // two orderings agree wherever it matters: baseline is a flag on daily tasks,
-  // dailies are never placed and never overdue, so the whole Today group sits in
-  // one band and baseline-within-band is baseline-at-the-top.
+  // Band first, then category, then name. Baseline decides nothing here since
+  // v17 — it is a mark on the row, not a position.
   if (band(a) !== band(b)) return band(a) - band(b)
-  // Baseline, then category, then name — shared with History's columns so the
-  // two screens cannot order the same tasks differently.
-  return byBaselineCategoryName(a, b)
+  // Shared with History's columns so the two screens cannot order the same
+  // tasks differently.
+  return byCategoryName(a, b)
 }

@@ -250,10 +250,14 @@ describe('a command that writes without naming a task stamps the caller', () => 
     const aTask = await addTask(A, "A's daily", { cadence: 'day' })
     await runCommand(db, viewer(A), 'set_mood', { slug: 'happy' })
     await runCommand(db, viewer(A), 'set_log', { text: "A's note" })
-    await runCommand(db, viewer(A), 'set_task_order', { task_ids: [aTask] })
+    await runCommand(db, viewer(A), 'set_task_order', { task_ids: [{ hour: 9 }, aTask] })
 
     await runCommand(db, viewer(B), 'set_mood', { slug: 'balanced' })
     await runCommand(db, viewer(B), 'set_log', { text: "B's note" })
+
+    // A's hours are A's: B's day has no arrangement, so no dividers either.
+    expect((await buildDayView(db, viewer(A))).hours).toEqual([{ hour: 9, before: 0 }])
+    expect((await buildDayView(db, viewer(B))).hours).toEqual([])
 
     // Two rows on the same date rather than one overwriting the other — which is
     // what the (user_id, date) key is for.

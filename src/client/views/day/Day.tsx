@@ -1,10 +1,17 @@
 import './day.css'
-import { useEffect, useId, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useRef, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { TaskEditor } from '../../TaskEditor.tsx'
-import type { Cadence, DayTask, DayView, ISODate, TodoView } from '../../../shared/types.ts'
+import type {
+  Cadence,
+  DayTask,
+  DayView,
+  HourMark,
+  ISODate,
+  TodoView,
+} from '../../../shared/types.ts'
 import { command, errorText, getDay, getTodo } from '../../api.ts'
-import { addDays, longDate } from '../../dates.ts'
+import { addDays, clockIn, longDate, timeLabel } from '../../dates.ts'
 import { NoticeBar, placementMaxFor, type Notice } from '../../ui.tsx'
 import Backlog from '../Todo.tsx'
 import { MoodAndLog, MoodButton } from './MoodAndLog.tsx'
@@ -13,7 +20,7 @@ import { DayStrip } from './DayStrip.tsx'
 import { UpcomingPane } from './UpcomingPane.tsx'
 import { CaptureSheet } from './CaptureSheet.tsx'
 import { Sheet } from '../../ui.tsx'
-import { DragBand } from './DragBand.tsx'
+import { DragList, type ArrangeItem } from './DragList.tsx'
 import { Track, usePagedTrack } from './PagedTrack.tsx'
 
 /*
@@ -23,8 +30,8 @@ import { Track, usePagedTrack } from './PagedTrack.tsx'
  * post a named command, refetch and replace wholesale. Nothing derived from a
  * model is held in state, nothing is sorted here — `view.tasks` arrives in
  * render order, one list with done sunk to the bottom. The one exception is
- * `orderIds`, the reorder edit state, which holds a locally rearranged id list
- * until the toggle closes.
+ * `arrangement`, the reorder edit state, which holds a locally rearranged list of
+ * ids and hours until the toggle closes.
  *
  * Day fetches TWO models: its own and the backlog's. `placeable_dates` rides
  * on DayView exactly so that the picker and the server's 409 on `place` cannot
@@ -35,6 +42,55 @@ import { Track, usePagedTrack } from './PagedTrack.tsx'
  * sections are the panes of the track here. Today's pane is the whole Day view;
  * the rest show what is placed on that date and cannot be ticked.
  */
+
+/** An entry of the arrangement being edited: a task id, or a keyed hour. */
+type Entry = number | { key: string; hour: number }
+
+/** A row of today's list as drawn: a task, or the `index`th of `view.hours`. */
+type Spliced = { kind: 'task'; task: DayTask } | { kind: 'hour'; hour: number; index: number }
+
+/**
+ * Tasks with the hours spliced in where the server placed them — above
+ * `tasks[before]`, in the order `hours` lists them. One function builds both the
+ * list you read and the list Reorder starts from: `before` counts live rows, so
+ * splicing into the live rows alone is already the arrangement.
+ */
+function splice(tasks: DayTask[], hours: HourMark[]): Spliced[] {
+  const out: Spliced[] = []
+  const hoursAt = (i: number) =>
+    hours.forEach((h, index) => {
+      if (h.before === i) out.push({ kind: 'hour', hour: h.hour, index })
+    })
+  tasks.forEach((task, i) => {
+    hoursAt(i)
+    out.push({ kind: 'task', task })
+  })
+  hoursAt(tasks.length)
+  return out
+}
+
+/*
+ * The hour it is now in `zone`, re-read once a minute — the client's only read
+ * of the clock, and only for the now-line. It never asks what DAY it is; every
+ * model still carries its own date.
+ *
+ * Kept as the hour rather than the instant, so Day re-renders when the hour
+ * turns and not on every tick: setting state to the value it already holds is a
+ * render React skips. A woken phone can be up to a minute behind, which is
+ * accepted rather than chased with a visibility listener.
+ */
+function useHourIn(zone: string | null): number | null {
+  const read = () => (zone === null ? null : clockIn(zone, Date.now()).hour)
+  const [hour, setHour] = useState(read)
+  useEffect(() => {
+    setHour(read())
+    const timer = setInterval(() => setHour(read()), 60_000)
+    return () => clearInterval(timer)
+    // `read` closes over `zone` and nothing else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zone])
+  return hour
+}
 
 // --- shell ------------------------------------------------------------------
 
@@ -58,8 +114,12 @@ export default function Day() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [pickerFor, setPickerFor] = useState<number | null>(null)
 
-  // The reorder edit state — the one locally held arrangement in the client.
-  const [orderIds, setOrderIds] = useState<number[] | null>(null)
+  // The reorder edit state — the one locally held arrangement in the client:
+  // task ids and the hours dividing them, in the order being built.
+  const [arrangement, setArrangement] = useState<Entry[] | null>(null)
+  // Mints the keys hours are dragged by. An hour has no identity of its own —
+  // two dividers may hold the same one.
+  const hourKeys = useRef(0)
 
   /*
    * What the person has ASKED a row's done state to be, held until the model
@@ -68,8 +128,9 @@ export default function Day() {
    * `complete` is a round trip to a machine that may have just woken from
    * scale-to-zero, and until it answers the box does not move — which reads as a
    * tap that missed. This is the SECOND thing the client holds that it did not
-   * derive from a model, `orderIds` being the first, and it is named here so it
-   * stays the second. Nothing else is predicted.
+   * derive from a model, `arrangement` being the first and the clock's hour
+   * (`useHourIn`, v17) the third, and they are named here so the count stays
+   * checkable. Nothing else is predicted.
    *
    * An intent rather than a set of ids in flight, because the command has to be
    * chosen from what is ON SCREEN. Reading the model instead re-sent `complete`
@@ -183,6 +244,10 @@ export default function Day() {
    * the viewed week's Sunday, so it fires when the panes change and at no other
    * time.
    */
+  // Also above the early return, for the same reason: the now-line's hour, in
+  // the zone the model names.
+  const nowHour = useHourIn(view?.timezone ?? null)
+
   const viewedWeek = view?.week_dates[0] ?? null
   const paneCount = view?.panes.length ?? 0
   useEffect(() => {
@@ -206,17 +271,8 @@ export default function Day() {
     return <div className="state">Loading today…</div>
   }
 
-  const reordering = orderIds !== null
+  const reordering = arrangement !== null
 
-  /*
-   * Where the track sits when a week's panes arrive.
-   *
-   * `usePagedTrack` reads its index back off `scrollLeft`, which is right while
-   * the pane SET is stable and wrong the moment it is replaced: loading a week
-   * leaves the scroller wherever it was, so you land mid-week on an index that
-   * describes the week you just left. Keyed on the viewed week's Sunday, so it
-   * fires exactly when the panes change and not on every render.
-   */
   // Past the early return, so the view exists and so does its week. The nullable
   // one above is only nullable because the hook that reads it runs before the
   // model has landed.
@@ -271,54 +327,65 @@ export default function Day() {
    */
   const outstanding = view.tasks.filter((t) => !t.is_done)
 
-  const byId = new Map(outstanding.map((t) => [t.id, t]))
-  // In the edit state the locally held arrangement is rendered — and only the
-  // not-done rows are in it, because you arrange what you are doing. Otherwise
-  // the server's order, exactly as given, done last.
-  const rows: DayTask[] = orderIds
-    ? orderIds.flatMap((id) => {
-        const t = byId.get(id)
-        return t ? [t] : []
-      })
-    : view.tasks
+  // The list as drawn: the server's order exactly as given, done last, with the
+  // hours spliced in where it placed them.
+  const spliced = splice(view.tasks, view.hours)
 
   /*
-   * Where the 2px rule between the bands goes: the first non-baseline row, when
-   * something baseline sits above it.
+   * The now-line sits under the divider of the latest hour that has started —
+   * under the later one if two share it — and above the first divider before any
+   * has. Hours before that one dim their tags, never their tasks: a task under
+   * 9am still undone at noon is still owed.
    *
-   * Found once from the list rather than tested against each row's neighbour.
-   * Done rows sort below every live one and carry a SECOND baseline→rest
-   * transition inside their own block, so marking every transition drew the rule
-   * twice — and excluding done rows to fix that removed it altogether whenever
-   * every plain row happened to be ticked. The boundary is a property of the
-   * list, so it is found as one.
+   * It never looks at list order, so a day that runs 9, 2pm, 11 still has one
+   * well-defined place for it. -1 is above the first divider.
    */
-  const dividerAt = rows.some((t) => t.is_baseline) ? rows.findIndex((t) => !t.is_baseline) : -1
-
-  // Bands never mix. Rather than guarding a drag that crosses them, each band
-  // is its own drag context — crossing is not something that can be expressed.
-  const bands = {
-    baseline: rows.filter((t) => t.is_baseline),
-    rest: rows.filter((t) => !t.is_baseline),
-  }
-
-  const reorderBand = (band: 'baseline' | 'rest', from: number, to: number) => {
-    const moved = arrayMove(bands[band], from, to).map((t) => t.id)
-    const other = bands[band === 'baseline' ? 'rest' : 'baseline'].map((t) => t.id)
-    setOrderIds(band === 'baseline' ? [...moved, ...other] : [...other, ...moved])
-  }
+  const current =
+    nowHour === null
+      ? null
+      : view.hours.reduce<number | null>(
+          (best, h) => (h.hour <= nowHour && (best === null || h.hour > best) ? h.hour : best),
+          null,
+        )
+  const lineUnder =
+    current === null ? -1 : view.hours.reduce((at, h, i) => (h.hour === current ? i : at), -1)
+  const nowLine = nowHour !== null && view.hours.length > 0 && (
+    <li className="day-now" aria-hidden="true">
+      <span className="day-now-label">now</span>
+    </li>
+  )
 
   /*
-   * Move to top and send to bottom are a drag expressed as a button, so they go
-   * through the same `reorderBand` a drag does — which is what keeps them inside
-   * the row's own band. Bands never mix, and neither end of a band is the end of
-   * the list.
+   * The arrangement being edited, as rows: tasks resolved from the model, hours
+   * as they stand. Only the live rows are in it, because you arrange what you
+   * are doing.
    */
-  const moveWithinBand = (band: 'baseline' | 'rest', id: number, to: 'top' | 'bottom') => {
-    const from = bands[band].findIndex((t) => t.id === id)
-    if (from < 0) return
-    reorderBand(band, from, to === 'top' ? 0 : bands[band].length - 1)
-  }
+  const byId = new Map(outstanding.map((t) => [t.id, t]))
+  const arranging: ArrangeItem[] = (arrangement ?? []).flatMap((e): ArrangeItem[] => {
+    if (typeof e !== 'number') return [{ kind: 'hour', ...e }]
+    const task = byId.get(e)
+    return task ? [{ kind: 'task', task }] : []
+  })
+  const toEntry = (item: ArrangeItem): Entry =>
+    item.kind === 'task' ? item.task.id : { key: item.key, hour: item.hour }
+  const keyedHour = (hour: number): Entry => ({ key: `h${hourKeys.current++}`, hour })
+
+  /*
+   * Every edit to the arrangement is one of these four, and none writes until
+   * the mode closes. Move to top and send to bottom are a drag expressed as a
+   * button, so they go through `move` too: the top is above every hour —
+   * unscheduled — and the bottom is the last hour's block.
+   */
+  const move = (from: number, to: number) =>
+    setArrangement(arrayMove(arranging, from, to).map(toEntry))
+  const retime = (key: string, hour: number) =>
+    setArrangement(
+      arranging.map((i) => (i.kind === 'hour' && i.key === key ? { key, hour } : toEntry(i))),
+    )
+  const removeHour = (key: string) =>
+    setArrangement(arranging.filter((i) => !(i.kind === 'hour' && i.key === key)).map(toEntry))
+  // At the top, where it can be seen, set to the hour it is now.
+  const addHour = () => setArrangement([keyedHour(nowHour ?? 9), ...arranging.map(toEntry)])
 
   const maxFor = (cadence: Cadence | null): ISODate | null =>
     placementMaxFor(view.placement, view.placeable_dates, cadence)
@@ -358,23 +425,27 @@ export default function Day() {
   const toggleReorder = async () => {
     if (!reordering) {
       setPickerFor(null)
-      setOrderIds(outstanding.map((t) => t.id))
+      setArrangement(
+        splice(outstanding, view.hours).map((s) =>
+          s.kind === 'task' ? s.task.id : keyedHour(s.hour),
+        ),
+      )
       return
     }
     /*
-     * The saved order is the whole rendered list: the rearranged rows, then the
-     * done ones after them. Sending only the not-done half would drop every done
-     * task's id, and `sortTasks` positions the done band by the same
-     * `task_order` — so a task ticked and then unticked would stop returning to
-     * where it was. It lands at the end of the arrangement instead, which is the
-     * honest reading of "the list as you last arranged it".
+     * The saved arrangement is the live rows and the hours, and nothing done.
+     *
+     * Until v17 the done ids went after it, so that a task ticked and unticked
+     * came back where it was. With hours, the end of the arrangement is the last
+     * hour's block, and a task already done when the day was laid out would have
+     * come back under 5pm. Left out, it is unlisted, and an unlisted task waits
+     * above the first hour. A task ticked AFTER this save keeps its slot.
      *
      * Cleared only once the write has landed: clearing first threw the
      * arrangement away on failure, silently (D5).
      */
-    const doneIds = view.tasks.filter((t) => t.is_done).map((t) => t.id)
-    const task_ids = [...(orderIds ?? []), ...doneIds]
-    if (await run('set_task_order', { task_ids })) setOrderIds(null)
+    const task_ids = (arrangement ?? []).map((e) => (typeof e === 'number' ? e : { hour: e.hour }))
+    if (await run('set_task_order', { task_ids })) setArrangement(null)
   }
 
   return (
@@ -472,32 +543,48 @@ export default function Day() {
                 </div>
               </div>
 
-              {rows.length === 0 ? (
-                <p className="day-empty">Nothing on today's list.</p>
-              ) : reordering ? (
+              {reordering ? (
                 <>
-                  <p className="day-hint">Drag to rearrange. Baseline tasks stay above the rest.</p>
-                  {(['baseline', 'rest'] as const).map((band) =>
-                    bands[band].length === 0 ? null : (
-                      <DragBand
-                        key={band}
-                        tasks={bands[band]}
-                        onReorder={(from, to) => reorderBand(band, from, to)}
-                        onMoveToTop={(id) => moveWithinBand(band, id, 'top')}
-                        onMoveToBottom={(id) => moveWithinBand(band, id, 'bottom')}
-                      />
-                    ),
-                  )}
+                  <div className="day-reorder-bar">
+                    <p className="day-hint">Drag to rearrange. Hours divide the day.</p>
+                    <button className="btn btn--small btn--quiet" onClick={addHour}>
+                      Add an hour
+                    </button>
+                  </div>
+                  <DragList
+                    items={arranging}
+                    onMove={move}
+                    onRetime={retime}
+                    onRemove={removeHour}
+                  />
                 </>
+              ) : spliced.length === 0 ? (
+                <p className="day-empty">Nothing on today's list.</p>
               ) : (
                 <ul className="day-list">
-                  {rows.map((task, i) => {
+                  {spliced.map((item) => {
+                    if (item.kind === 'hour') {
+                      // A heading inside a list item: a valid list, and a screen
+                      // reader hears the day's shape and can jump hour to hour.
+                      return (
+                        <Fragment key={`hour-${item.index}`}>
+                          {lineUnder === -1 && item.index === 0 && nowLine}
+                          <li
+                            className="day-hour"
+                            data-past={current !== null && item.hour < current ? '' : undefined}
+                          >
+                            <h3 className="day-hour-tag">{timeLabel(item.hour)}</h3>
+                          </li>
+                          {item.index === lineUnder && nowLine}
+                        </Fragment>
+                      )
+                    }
+                    const task = item.task
                     return (
                       <TaskRow
                         key={task.id}
                         task={asShown(task)}
                         today={view.date}
-                        bandStart={i === dividerAt}
                         busy={busy}
                         onComplete={() => toggleDone(task)}
                         onUncomplete={() => toggleDone(task)}

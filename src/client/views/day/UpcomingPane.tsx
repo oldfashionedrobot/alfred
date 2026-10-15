@@ -57,7 +57,6 @@ export function UpcomingPane({
                 key={task.id}
                 task={task}
                 today={today}
-                bandStart={false}
                 busy={busy}
                 future
                 // Unreachable: a future pane's tick is not a control, and a

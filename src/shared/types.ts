@@ -39,6 +39,37 @@ export function isISODate(v: unknown): v is ISODate {
 }
 
 // ---------------------------------------------------------------------------
+// The day's arrangement
+// ---------------------------------------------------------------------------
+
+/** A divider in today's arrangement: an hour of the day, 0–23. */
+export interface HourEntry {
+  hour: number
+}
+
+/**
+ * One entry of `days.task_order`, and of `set_task_order`'s `task_ids`: a task
+ * id, or an hour. The day's order and its shape are one list, because where a
+ * task sits and which hour it sits under are the same question.
+ */
+export type OrderEntry = number | HourEntry
+
+/**
+ * `{ hour: 0..23 }` and nothing else — exactly one key, an integer in range.
+ *
+ * One definition because two places need it: `set_task_order` refuses what fails
+ * it, and the day view's reader drops what fails it. A typo'd key is not an
+ * hour, the same stance `onlyFields` takes on a command body.
+ */
+export function isHourEntry(v: unknown): v is HourEntry {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
+  const keys = Object.keys(v)
+  if (keys.length !== 1 || keys[0] !== 'hour') return false
+  const h = (v as { hour: unknown }).hour
+  return typeof h === 'number' && Number.isInteger(h) && h >= 0 && h <= 23
+}
+
+// ---------------------------------------------------------------------------
 // Moods
 // ---------------------------------------------------------------------------
 
@@ -114,6 +145,12 @@ export interface DayTask {
   category: string | null
 }
 
+/** A divider on today's list: the hour, and the index in `tasks` it is drawn above. */
+export interface HourMark {
+  hour: number
+  before: number
+}
+
 /**
  * One future day of the VIEWED week, in `DayView.upcoming`.
  *
@@ -160,6 +197,22 @@ export interface DayView {
    * panes" would be two things to keep in step.
    */
   tasks: DayTask[]
+  /**
+   * Today's dividers, in the order they are drawn. Each is drawn above
+   * `tasks[before]`; `before` counts live rows only, so it never exceeds the
+   * number of rows not done, and an hour at the foot of the plan sits above the
+   * done block. Two hours with the same `before` are an empty hour.
+   *
+   * The server places them; the client splices. It never has to reason about a
+   * stale id, a done row or a task the arrangement does not list.
+   */
+  hours: HourMark[]
+  /**
+   * The viewer's stored zone, for the now-line. The client reads the clock for
+   * the HOUR, in this zone — never the browser's, because a day belongs to a
+   * person and not to the device they are holding.
+   */
+  timezone: string
   /**
    * All seven days of the VIEWED week, Sunday first. The day strip renders one
    * button each and disables those before `date`; the client never derives a

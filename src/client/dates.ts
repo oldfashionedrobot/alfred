@@ -133,3 +133,40 @@ function lastOfMonth(y: number, m: number): ISODate {
   const d = new Date(Date.UTC(y, m, 0)).getUTCDate()
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
+
+/**
+ * An instant as it reads in a zone: the date there, and the hour and minute.
+ *
+ * The one conversion from an instant in the client, and always in a zone a model
+ * named — the viewer's stored one, never the browser's. v11 settled that a day
+ * belongs to a person and not to the device they are holding; an hour is the
+ * same claim at finer grain.
+ */
+export function clockIn(
+  zone: string,
+  instant: number,
+): { date: ISODate; hour: number; minute: number } {
+  const got = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const part = (type: Intl.DateTimeFormatPartTypes) => got.find((p) => p.type === type)!.value
+  return {
+    date: `${part('year')}-${part('month')}-${part('day')}`,
+    // Some engines have written midnight as 24 under a 24-hour cycle.
+    hour: Number(part('hour')) % 24,
+    minute: Number(part('minute')),
+  }
+}
+
+/** `9am`, `12pm`, `12am` — and `3:42pm` when there are minutes to say. */
+export function timeLabel(hour: number, minute?: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12
+  const mm = minute === undefined ? '' : `:${String(minute).padStart(2, '0')}`
+  return `${h12}${mm}${hour < 12 ? 'am' : 'pm'}`
+}

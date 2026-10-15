@@ -397,3 +397,59 @@ describe('update_task placement', () => {
     expect(t!.planned_date).toBeNull()
   })
 })
+
+describe('set_task_order', () => {
+  /*
+   * Nothing tested this command until v17, when it learned to carry the day's
+   * hours. The integers-only rule it had before was unpinned; both halves are
+   * pinned here.
+   */
+  const stored = async () => {
+    const [day] = await db.select().from(schema.days).all()
+    return day ? JSON.parse(day.task_order!) : undefined
+  }
+  const order = (task_ids: unknown) => runCommand(db, VIEWER, 'set_task_order', { task_ids })
+
+  test('stores a mixed list exactly as given, out-of-order and repeated hours included', async () => {
+    // Nothing checks that hours ascend or are unique: a day that runs 9, 2pm,
+    // 11 is somebody's day, and the same hour twice is an empty hour.
+    const list = [1, { hour: 9 }, 2, { hour: 9 }, { hour: 14 }, { hour: 11 }]
+    await order(list)
+    expect(await stored()).toEqual(list)
+  })
+
+  test('accepts the first and last hour of the day', async () => {
+    await order([{ hour: 0 }, { hour: 23 }])
+    expect(await stored()).toEqual([{ hour: 0 }, { hour: 23 }])
+  })
+
+  test('still accepts an empty list, stale ids and duplicate ids', async () => {
+    for (const list of [[], [9999, 404], [1, 1, 2]]) {
+      await order(list)
+      expect(await stored()).toEqual(list)
+    }
+  })
+
+  const refused: [string, unknown][] = [
+    ['an hour past 23', [{ hour: 24 }]],
+    ['a negative hour', [{ hour: -1 }]],
+    ['a fractional hour', [{ hour: 9.5 }]],
+    ['an hour as a string', [{ hour: '9' }]],
+    ['a null hour', [{ hour: null }]],
+    ['an empty object', [{}]],
+    ['an extra key', [{ hour: 9, m: 30 }]],
+    ['the wrong key', [{ h: 9 }]],
+    ['a nested array', [[9]]],
+    ['a null entry', [null]],
+    ['a string entry', ['9']],
+    ['a boolean entry', [true]],
+    ['a fractional id', [1.5]],
+    ['not an array at all', { hour: 9 }],
+  ]
+  for (const [what, task_ids] of refused) {
+    test(`refuses ${what}, and writes nothing`, async () => {
+      await expect(order(task_ids)).rejects.toThrow('task_ids must be')
+      expect(await db.select().from(schema.days).all()).toEqual([])
+    })
+  }
+})

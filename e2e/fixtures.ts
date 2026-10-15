@@ -81,7 +81,8 @@ export class Seed {
     d: {
       mood?: string | null
       log?: string | null
-      task_order?: number[] | null
+      /** Task ids, and since v17 the hours dividing them. */
+      task_order?: (number | { hour: number })[] | null
       user_id?: number
     },
   ): void {

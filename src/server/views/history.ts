@@ -9,7 +9,7 @@ import type {
 import type { DB } from '../db.ts'
 import { completions, days, moods, tasks } from '../schema.ts'
 import { addDays } from '../period.ts'
-import { byBaselineCategoryName } from '../sort.ts'
+import { byCategoryName } from '../sort.ts'
 import { today, type Viewer } from '../today.ts'
 
 const DEFAULT_LIMIT = 60
@@ -41,7 +41,7 @@ export async function buildHistoryView(
     .where(and(eq(tasks.user_id, userId), eq(tasks.active, true), eq(tasks.cadence, 'day')))
     .all()
   // The same order the To do panel uses, so a task is in the same place in both.
-  const columns: HistoryColumn[] = [...daily].sort(byBaselineCategoryName).map((t) => ({
+  const columns: HistoryColumn[] = [...daily].sort(byCategoryName).map((t) => ({
     task_id: t.id,
     name: t.name,
     // Baseline only, the same rule the other views apply — so the grid's filled

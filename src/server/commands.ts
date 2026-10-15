@@ -1,5 +1,12 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
-import { isCadence, isHexColor, isISODate, type Cadence, type ISODate } from '../shared/types.ts'
+import {
+  isCadence,
+  isHexColor,
+  isHourEntry,
+  isISODate,
+  type Cadence,
+  type ISODate,
+} from '../shared/types.ts'
 import type { DB } from './db.ts'
 import { BadRequest, NotFound, Rejected } from './errors.ts'
 import { completionForPeriod, isOverdue } from './period.ts'
@@ -604,14 +611,22 @@ async function setTaskOrder(
   now: ISODate,
   b: Record<string, unknown>,
 ): Promise<void> {
+  // `task_ids` carries the day's hours too since v17, and keeps its name: a tab
+  // open across the deploy still posts it, and its integers-only list is a valid
+  // new one.
   onlyFields(b, ['task_ids'])
   const raw = b['task_ids']
-  if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'number' || !Number.isInteger(v))) {
-    throw new BadRequest('task_ids must be an array of integers')
+  if (
+    !Array.isArray(raw) ||
+    raw.some((v) => !(typeof v === 'number' && Number.isInteger(v)) && !isHourEntry(v))
+  ) {
+    throw new BadRequest('task_ids must be an array of task ids and { hour: 0-23 } entries')
   }
 
   // Stored opaquely. The order is disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
+  // Nor is anything checked about the hours beyond their shape: a day that runs
+  // 9, 2pm, 11 is somebody's day, and the same hour twice is an empty hour.
   await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
 }
 

@@ -166,8 +166,9 @@ export async function handleApi(req: Request): Promise<Response> {
 
     if (req.method === 'GET') {
       switch (path) {
-        // Not a view: the two fields a person can change about themselves,
-        // which no view payload carries.
+        // Not a view: the two fields a person can change about themselves.
+        // The Day view carries the zone too since v17, for its now-line — but as
+        // a fact to draw with, not a setting to edit, and the username nowhere.
         case '/api/account':
           return json({ username: user.username, timezone: user.timezone })
         case '/api/day':

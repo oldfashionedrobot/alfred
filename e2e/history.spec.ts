@@ -187,19 +187,19 @@ test('columns are the active daily tasks only, in sort order', async ({ page, ap
     .getByRole('columnheader')
     .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
 
-  // Baseline is band 1; alphabetical within a band. Weekly, one-off and
-  // archived tasks are not columns at all.
+  // Alphabetical, baseline included. Weekly, one-off and archived tasks are
+  // not columns at all.
   expect(headers).toEqual([
     'Log',
     'Date',
     'Mood',
-    'Zzz Baseline Daily',
     'Alpha Daily',
     'Beta Daily',
+    'Zzz Baseline Daily',
   ])
 
   const h = await getHistory(app)
-  expect(h.columns.map((c) => c.name)).toEqual(['Zzz Baseline Daily', 'Alpha Daily', 'Beta Daily'])
+  expect(h.columns.map((c) => c.name)).toEqual(['Alpha Daily', 'Beta Daily', 'Zzz Baseline Daily'])
 })
 
 // ===========================================================================
@@ -597,15 +597,15 @@ test('the grid stays read-only: opening a log changes nothing', async ({ page, a
   expect(after).toEqual(before)
 })
 
-test('columns are ordered by baseline, then category, then name', async ({ page, app }) => {
+test('columns are ordered by category, then name', async ({ page, app }) => {
   const post = (name: string, extra: Record<string, unknown>) =>
     app.fetch('/api/commands/create_task', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name, cadence: 'day', ...extra }),
     })
-  // Alphabetically Aardvark < Brush < Dishes < Zzz; by the real rule the
-  // baseline task leads despite its name, then Dog, House, uncategorised.
+  // Alphabetically Aardvark < Brush < Dishes < Zzz; by the real rule Dog leads,
+  // then House, then Zebra — baseline or not — then uncategorised.
   await post('Zzz vital', { is_baseline: true, category: 'Zebra' })
   await post('Aardvark chore', { category: 'House' })
   await post('Brush Ringo', { category: 'Dog' })
@@ -616,9 +616,9 @@ test('columns are ordered by baseline, then category, then name', async ({ page,
 
   const heads = await page.locator('.hist-h--task').allInnerTexts()
   expect(heads.map((h) => h.trim())).toEqual([
-    'Zzz vital',
     'Brush Ringo',
     'Aardvark chore',
+    'Zzz vital',
     'Dishes',
   ])
 })
@@ -656,7 +656,7 @@ test("a filled cell wears the baseline task's colour, and a plain one does not",
   const painted = await cells.evaluateAll((els) =>
     els.map((el) => getComputedStyle(el).backgroundImage),
   )
-  // Column order puts the baseline task first.
+  // MED sorts before Zebra by name, so the baseline task's column is first.
   expect(painted[0]).toContain('rgb(194, 65, 12)')
   expect(painted[1]).not.toContain('rgb(194, 65, 12)')
 })
