@@ -43,13 +43,6 @@
       "when": 1788888294389,
       "tag": "0005_aromatic_cardiac",
       "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1792080448324,
-      "tag": "0006_real_venom",
-      "breakpoints": true
     }
   ]
 }

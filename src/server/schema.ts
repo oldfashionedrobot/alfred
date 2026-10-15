@@ -1,15 +1,13 @@
 import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlite-core'
-import type { Cadence, ISODate, NoteColor } from '../shared/types.ts'
+import type { Cadence, ISODate } from '../shared/types.ts'
 
 /**
  * Property names are snake_case, identical to the column names and to the wire
  * format. There is no mapping layer anywhere.
  *
- * Dates are TEXT 'YYYY-MM-DD'. The one instant stored as data is a note's
- * `updated_at`, since v18; the others are a session's, a lockout's and an
- * invitation's expiry.
+ * Dates are TEXT 'YYYY-MM-DD', never timestamps.
  *
- * OWNERSHIP. `tasks`, `days` and `notes` carry a user_id; `completions` does not, because
+ * OWNERSHIP. `tasks` and `days` carry a user_id; `completions` does not, because
  * a completion belongs to whoever owns its task and a second copy of that fact
  * could disagree with the first. `moods` is global — it is a vocabulary, not
  * anybody's data.
@@ -20,8 +18,7 @@ import type { Cadence, ISODate, NoteColor } from '../shared/types.ts'
  * is also the only way to set a password — an argon2 hash cannot be typed into a
  * SQL console.
  *
- * `active` rather than deletion, like everywhere else in this model — the one
- * exception being a note deleted forever from Archived, since v18. Deleting a
+ * `active` rather than deletion, like everywhere else in this model. Deleting a
  * user would orphan every task, completion and journal entry they own; setting
  * active to false stops them logging in and leaves the record intact.
  */
@@ -108,7 +105,7 @@ export const days = sqliteTable(
     /** FK -> moods.slug. At most one mood per day. */
     mood: text('mood').references(() => moods.slug),
     log: text('log'),
-    /** JSON array of task ids and, since v17, `{ hour }` dividers, stored opaquely. Named task_order; `order` is reserved. */
+    /** JSON array of task ids, stored opaquely. Named task_order; `order` is reserved. */
     task_order: text('task_order'),
   },
   (t) => [primaryKey({ columns: [t.user_id, t.date] })],
@@ -122,45 +119,8 @@ export const moods = sqliteTable('moods', {
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
 })
 
-/**
- * A note: a title and a Markdown body, on a board of cards.
- *
- * Owned like a task, and nobody else's to see. The body is Markdown — the text
- * you would have typed in any Markdown editor, checklists included — so it reads
- * as text here and in anything exported, and a later link to a task can be an
- * ordinary Markdown link.
- *
- * `archived` is the delete: off the board, restorable, and the only place a note
- * can be deleted forever from.
- */
-export const notes = sqliteTable(
-  'notes',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    /** Owner. Every query filters on it, and `loadNote` enforces it. */
-    user_id: integer('user_id')
-      .notNull()
-      .references(() => users.id),
-    title: text('title').notNull().default(''),
-    /** Markdown. Not validated beyond being a string: Markdown has no invalid documents. */
-    body: text('body').notNull().default(''),
-    /** A palette name — see NOTE_COLORS — or null for the default. Never a hex. */
-    color: text('color').$type<NoteColor>(),
-    pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
-    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
-    /**
-     * Epoch ms of the last change to the title or the body — the first instant
-     * stored as data rather than as a session or an invitation. Pinning,
-     * colouring and archiving do not move it.
-     */
-    updated_at: integer('updated_at').notNull(),
-  },
-  (t) => [index('notes_user_id_idx').on(t.user_id)],
-)
-
 export type TaskRow = typeof tasks.$inferSelect
 export type CompletionRow = typeof completions.$inferSelect
 export type DayRow = typeof days.$inferSelect
 export type MoodRow = typeof moods.$inferSelect
 export type UserRow = typeof users.$inferSelect
-export type NoteRow = typeof notes.$inferSelect

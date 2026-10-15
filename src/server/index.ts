@@ -1,6 +1,5 @@
 import index from '../client/index.html'
 import { warnIfNobodyCanSignIn } from './auth.ts'
-import { builtClient } from './client.ts'
 import { db, initDb } from './db.ts'
 import { handleApi } from './routes.ts'
 
@@ -8,22 +7,6 @@ import { handleApi } from './routes.ts'
 // exists and, on a replica, before the first sync has landed.
 await initDb()
 await warnIfNobodyCanSignIn(db)
-
-/*
- * The client: built ahead and served from a directory when `CLIENT_DIST` names
- * one — the Dockerfile sets it — or bundled from the HTML import on the first
- * request otherwise, with hot reload, for development.
- *
- * Its own switch rather than NODE_ENV, deliberately: NODE_ENV=production also
- * marks the session cookie Secure, which the browser suite cannot use on
- * http://localhost, and the suite has to be able to test the built client.
- *
- * The HTML import stays a static import either way. Bun bundles it lazily, on
- * the first request for it, so in production — where nothing routes to it — it
- * is never bundled at all.
- */
-const dist = process.env.CLIENT_DIST
-const client: Record<string, Response | typeof index> = dist ? builtClient(dist) : { '/*': index }
 
 const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
@@ -36,7 +19,8 @@ const server = Bun.serve({
      * route that have to agree with each other.
      */
     '/api/*': (req: Request) => handleApi(req),
-    ...client,
+    // Bun bundles the client from the HTML entrypoint — no Vite, no separate build.
+    '/*': index,
   },
 })
 

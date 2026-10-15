@@ -5,9 +5,8 @@
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "start": "bun src/server/index.ts",
-    "build:client": "rm -rf dist && bun build ./src/client/index.html --outdir dist --splitting --production --target browser --public-path=/assets/",
     "test": "bun test tests/",
-    "e2e": "playwright test --project=mobile --project=desktop --project=built",
+    "e2e": "playwright test --project=mobile --project=desktop",
     "e2e:all": "playwright test",
     "e2e:docker": "docker build -q -f Dockerfile.test -t alfred-test . && docker run --rm -v \"$PWD\":/app -v alfred-test-nm:/app/node_modules -w /app alfred-test sh -c \"bun install --frozen-lockfile >/dev/null && bunx playwright test --project=mobile-webkit --project=desktop-webkit\"",
     "e2e:ui": "playwright test --ui --project=mobile --project=desktop",
@@ -25,11 +24,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@libsql/client": "^0.18.0",
-    "@tiptap/extension-list": "3.32.0",
-    "@tiptap/markdown": "3.32.0",
-    "@tiptap/pm": "3.32.0",
-    "@tiptap/react": "3.32.0",
-    "@tiptap/starter-kit": "3.32.0",
     "drizzle-orm": "^0.44.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

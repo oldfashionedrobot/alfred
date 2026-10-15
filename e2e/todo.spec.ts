@@ -613,9 +613,9 @@ test('uncategorised rows sort last, whatever their name', async ({ page, app }) 
   expect(todo.categories).toEqual(['House'])
 })
 
-test('a baseline task sorts by its category and name, like any other', async ({ page, app }) => {
-  // The baseline task carries a category that sorts LAST. Until v17 the flag
-  // lifted it above every category; it is a mark on the row now, not a position.
+test('a baseline task sorts above every category', async ({ page, app }) => {
+  // The baseline task carries a category that would sort LAST and a name that
+  // would sort last too, so only the flag can lift it.
   await createTask(app, {
     name: 'Zzz vital',
     cadence: 'day',
@@ -630,7 +630,7 @@ test('a baseline task sorts by its category and name, like any other', async ({ 
 
   await expect
     .poll(() => listing(group(periodic, 'Daily')))
-    .toEqual(['Aardvark admin', 'Zzz vital', 'Dishes'])
+    .toEqual(['Zzz vital', 'Aardvark admin', 'Dishes'])
 })
 
 test('the editor suggests the categories already in use', async ({ page, app }) => {

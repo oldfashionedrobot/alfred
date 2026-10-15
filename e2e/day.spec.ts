@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import type { DayView, HistoryView, TodoTask, TodoView } from '../src/shared/types.ts'
 import { test, expect, addDays, type App } from './fixtures.ts'
 
@@ -147,34 +147,9 @@ function reorderNames(page: Page) {
   // The grip used to be the only one; v15 adds move-to-top and send-to-bottom,
   // and aria-hidden does not keep a glyph out of textContent — so a strip list
   // would have to grow every time a row gains a control.
-  //
-  // An hour reads as `[9am]`, from its select: its text holds all 24 options.
   return sortableRows(page).evaluateAll((els) =>
-    els.map((e) => {
-      const select = e.querySelector('select')
-      if (select) return `[${select.selectedOptions[0]?.textContent ?? ''}]`
-      return (e.querySelector('.day-name-text')?.textContent ?? '').trim()
-    }),
+    els.map((e) => (e.querySelector('.day-name-text')?.textContent ?? '').trim()),
   )
-}
-
-/**
- * Today's list as drawn: task names, hours as `[9am]`, done rows included.
- * The now-line is left out unless asked for, as `now`, because where it falls
- * depends on the hour the test happens to run at.
- */
-function shape(page: Page, { withNow = false }: { withNow?: boolean } = {}) {
-  return activeRegion(page)
-    .locator('.day-list > li')
-    .evaluateAll(
-      (els, withNow: boolean) =>
-        els.flatMap((e) => {
-          if (e.classList.contains('day-now')) return withNow ? ['now'] : []
-          if (e.classList.contains('day-hour')) return [`[${(e.textContent ?? '').trim()}]`]
-          return [(e.querySelector('.day-name-text')?.textContent ?? '').trim()]
-        }),
-      withNow,
-    )
 }
 
 /**
@@ -222,12 +197,11 @@ async function watchKeydownListeners(page: Page) {
  */
 async function dragWithKeyboard(
   page: Page,
-  /** A task's name, or the row itself — an hour, whose text is its 24 options. */
-  target: string | Locator,
+  name: string,
   key: 'ArrowUp' | 'ArrowDown',
   { expectMove = true }: { expectMove?: boolean } = {},
 ) {
-  const row = typeof target === 'string' ? sortableRows(page).filter({ hasText: target }) : target
+  const row = sortableRows(page).filter({ hasText: name })
   await watchKeydownListeners(page)
   await row.focus()
 
@@ -355,11 +329,8 @@ function overdueSeed(
 // Rendering and ordering
 // ---------------------------------------------------------------------------
 
-test('baseline is a mark, not a position: it sorts by name like any task', async ({
-  page,
-  app,
-}) => {
-  // Named so the alphabet would put baseline last. Until v17 a band lifted it.
+test('baseline tasks render above non-baseline ones', async ({ page, app }) => {
+  // Named so the alphabet would invert this if the band were not doing the work.
   app.seed.task({ name: 'Zebra baseline', cadence: 'day', is_baseline: true })
   app.seed.task({ name: 'Yak baseline', cadence: 'day', is_baseline: true })
   app.seed.task({ name: 'Apple ordinary', cadence: 'day' })
@@ -369,10 +340,10 @@ test('baseline is a mark, not a position: it sorts by name like any task', async
 
   await expect
     .poll(() => activeNames(page))
-    .toEqual(['Apple ordinary', 'Banana ordinary', 'Yak baseline', 'Zebra baseline'])
+    .toEqual(['Yak baseline', 'Zebra baseline', 'Apple ordinary', 'Banana ordinary'])
 })
 
-test('tasks are alphabetical by default', async ({ page, app }) => {
+test('within a band tasks are alphabetical by default', async ({ page, app }) => {
   // Seeded in an order that is neither alphabetical nor its reverse.
   app.seed.task({ name: 'Mop the floor', cadence: 'day' })
   app.seed.task({ name: 'Air the room', cadence: 'day' })
@@ -386,21 +357,24 @@ test('tasks are alphabetical by default', async ({ page, app }) => {
     .toEqual(['Air the room', 'Call the vet', 'Mop the floor', 'Zip the bag'])
 })
 
-test('days.task_order overrides alphabetical order, baseline included', async ({ page, app }) => {
+test('days.task_order overrides alphabetical order and cannot cross the baseline band', async ({
+  page,
+  app,
+}) => {
   const aBase = app.seed.task({ name: 'A baseline', cadence: 'day', is_baseline: true })
   const bBase = app.seed.task({ name: 'B baseline', cadence: 'day', is_baseline: true })
   const cPlain = app.seed.task({ name: 'C ordinary', cadence: 'day' })
   const dPlain = app.seed.task({ name: 'D ordinary', cadence: 'day' })
 
-  // The two plain tasks first, then B before A — the reverse of the alphabet on
-  // both counts, and nothing lifts the baseline pair back to the top.
+  // Asks for the two non-baseline tasks first, and for B before A inside the
+  // baseline band. The band must win; the within-band request must be honoured.
   app.seed.day(app.today, { task_order: [dPlain, cPlain, bBase, aBase] })
 
   await page.goto(app.url)
 
   await expect
     .poll(() => activeNames(page))
-    .toEqual(['D ordinary', 'C ordinary', 'B baseline', 'A baseline'])
+    .toEqual(['B baseline', 'A baseline', 'D ordinary', 'C ordinary'])
 })
 
 test('dailies and today’s placements appear; a future placement does not', async ({
@@ -606,6 +580,55 @@ test('a quick undo lands, even before the first tick has', async ({ page, app })
   // has not been sent yet.
   await expect.poll(() => sent).toEqual(['complete', 'uncomplete'])
   await expect.poll(async () => (await dayView(app)).tasks[0]!.is_done).toBe(false)
+})
+
+/*
+ * The baseline divider is drawn once, not once per doneness band.
+ *
+ * Done rows sort below every live one and carry their own baseline boundary, so
+ * a list holding both used to show the 2px rule twice.
+ */
+test('the baseline divider is drawn once, even with done rows below', async ({ page, app }) => {
+  const doneBaseline = app.seed.task({
+    name: 'BBB done baseline',
+    cadence: 'day',
+    is_baseline: true,
+  })
+  const donePlain = app.seed.task({ name: 'DDD done plain', cadence: 'day' })
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  app.seed.task({ name: 'CCC plain', cadence: 'day' })
+  app.seed.completion(doneBaseline, app.today)
+  app.seed.completion(donePlain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(4)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
+/*
+ * The case the test above cannot see, because it always leaves a live plain row
+ * above the done band: guarding the divider on doneness drew it correctly there
+ * while removing it ENTIRELY here. The boundary is a property of the list, so
+ * both shapes have to be asserted.
+ */
+test('the baseline divider survives every plain row being done', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA baseline', cadence: 'day', is_baseline: true })
+  const plain = app.seed.task({ name: 'ZZZ plain', cadence: 'day' })
+  app.seed.completion(plain, app.today)
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(1)
+})
+
+/* And it is not drawn when there is no boundary to mark. */
+test('no baseline task means no divider', async ({ page, app }) => {
+  app.seed.task({ name: 'AAA plain', cadence: 'day' })
+  app.seed.task({ name: 'BBB plain', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
+  await expect(activeRegion(page).locator('.day-row--band-start')).toHaveCount(0)
 })
 
 /*
@@ -1060,35 +1083,48 @@ test('dragging a task in the reorder state persists days.task_order', async ({ p
   await expect.poll(() => activeNames(page)).toEqual(['Bravo job', 'Alpha job', 'Charlie job'])
 })
 
-test('a baseline task can be dragged below a plain one and stays there', async ({ page, app }) => {
-  app.seed.task({ name: 'Aardvark baseline', cadence: 'day', is_baseline: true })
+/**
+ * Bands never mix. Each band is its own drag context, so a baseline task and a
+ * non-baseline one are never draggable against each other — the boundary is not
+ * a rule being enforced, it is a move that cannot be expressed.
+ */
+test('a drag cannot move a task across the baseline boundary', async ({ page, app }) => {
+  app.seed.task({ name: 'Zulu baseline', cadence: 'day', is_baseline: true })
+  app.seed.task({ name: 'Alpha job', cadence: 'day' })
   app.seed.task({ name: 'Bravo job', cadence: 'day' })
-  app.seed.task({ name: 'Charlie job', cadence: 'day' })
+
+  await page.goto(app.url)
+  await expect.poll(() => activeNames(page)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
+
+  await page.getByRole('button', { name: /^reorder$/i }).click()
+
+  // The top non-baseline task cannot be lifted above the baseline one.
+  await dragWithKeyboard(page, 'Alpha job', 'ArrowUp', { expectMove: false })
+  await expect.poll(() => reorderNames(page)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
+
+  await page.getByRole('button', { name: /^done reordering$/i }).click()
+  const day = await dayView(app)
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
+})
+
+test('a task moves freely inside its own band, below a baseline one', async ({ page, app }) => {
+  app.seed.task({ name: 'Zulu baseline', cadence: 'day', is_baseline: true })
+  app.seed.task({ name: 'Alpha job', cadence: 'day' })
+  app.seed.task({ name: 'Bravo job', cadence: 'day' })
 
   await page.goto(app.url)
   // Both of Day's fetches have to land before the edit state opens: a re-render
   // arriving mid-drag re-registers the sortable nodes. Every other reorder test
   // waits here for the same reason.
-  await expect
-    .poll(() => activeNames(page))
-    .toEqual(['Aardvark baseline', 'Bravo job', 'Charlie job'])
+  await expect.poll(() => activeNames(page)).toEqual(['Zulu baseline', 'Alpha job', 'Bravo job'])
   await page.getByRole('button', { name: /^reorder$/i }).click()
 
-  // Until v17 each baseline band was its own drag context, and this could not
-  // be expressed at all.
-  await dragWithKeyboard(page, 'Aardvark baseline', 'ArrowDown')
-  await expect
-    .poll(() => reorderNames(page))
-    .toEqual(['Bravo job', 'Aardvark baseline', 'Charlie job'])
+  await dragWithKeyboard(page, 'Bravo job', 'ArrowUp')
+  await expect.poll(() => reorderNames(page)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
 
   await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect
-    .poll(() => activeNames(page))
-    .toEqual(['Bravo job', 'Aardvark baseline', 'Charlie job'])
-  await page.reload()
-  await expect
-    .poll(() => activeNames(page))
-    .toEqual(['Bravo job', 'Aardvark baseline', 'Charlie job'])
+  const day = await dayView(app)
+  expect(notDone(day).map((t) => t.name)).toEqual(['Zulu baseline', 'Bravo job', 'Alpha job'])
 })
 
 test('a pointer drag reorders too', async ({ page, app }) => {
@@ -1172,213 +1208,6 @@ test('the mood button and the panel are frozen while reordering', async ({ page,
 })
 
 // ---------------------------------------------------------------------------
-// Hours — dividers in today's list (v17)
-//
-// Time is pinned with Playwright's clock, never by moving the account's zone:
-// the zone sets the hour but not the minute, so a test that ran across 10:59 →
-// 11:00 would flake, and the fixture reads `app.today` once in New York. The
-// stored zone stays New York and the instants are in January, where its offset
-// is a fixed −5. The client compares no dates, so the fake day does not matter.
-// ---------------------------------------------------------------------------
-
-/** 08:30 in New York — before any divider these tests seed. */
-const BEFORE_NINE = new Date('2026-01-15T13:30:00Z')
-
-test('hours render as headings with no tick, an empty hour included', async ({ page, app }) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  const b = app.seed.task({ name: 'Bravo job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a, { hour: 11 }, { hour: 14 }, b] })
-  await page.clock.setFixedTime(BEFORE_NINE)
-
-  await page.goto(app.url)
-
-  await expect
-    .poll(() => shape(page))
-    .toEqual(['[9am]', 'Alpha job', '[11am]', '[2pm]', 'Bravo job'])
-  await expect(activeRegion(page).getByRole('heading', { level: 3 })).toHaveText([
-    '9am',
-    '11am',
-    '2pm',
-  ])
-  // A divider is not a task: the two ticks are the two tasks'.
-  await expect(activeRegion(page).getByRole('checkbox')).toHaveCount(2)
-})
-
-test('a ticked task leaves its hour and sinks below every hour', async ({ page, app }) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  const b = app.seed.task({ name: 'Bravo job', cadence: 'day' })
-  const c = app.seed.task({ name: 'Charlie job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a, b, { hour: 17 }, c] })
-
-  await page.goto(app.url)
-  await expect
-    .poll(() => shape(page))
-    .toEqual(['[9am]', 'Alpha job', 'Bravo job', '[5pm]', 'Charlie job'])
-
-  await tick(page, 'Bravo job').click()
-
-  await expect
-    .poll(() => shape(page))
-    .toEqual(['[9am]', 'Alpha job', '[5pm]', 'Charlie job', 'Bravo job'])
-  await expect.poll(() => completedNames(page)).toEqual(['Bravo job'])
-})
-
-test('a task added after the day was arranged waits above the first hour', async ({
-  page,
-  app,
-}) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a] })
-  // Not in the arrangement — unscheduled, not filed under 9am or any later hour.
-  app.seed.task({ name: 'Zulu new', cadence: 'day' })
-
-  await page.goto(app.url)
-
-  await expect.poll(() => shape(page)).toEqual(['Zulu new', '[9am]', 'Alpha job'])
-})
-
-test('Reorder adds an hour, sets it, drags it, and the day keeps it', async ({ page, app }) => {
-  app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  app.seed.task({ name: 'Bravo job', cadence: 'day' })
-  // 10:30 in New York — a new hour starts at the hour it is now.
-  await page.clock.setFixedTime(new Date('2026-01-15T15:30:00Z'))
-
-  await page.goto(app.url)
-  await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo job'])
-  await page.getByRole('button', { name: /^reorder$/i }).click()
-
-  await page.getByRole('button', { name: 'Add an hour' }).click()
-  await expect.poll(() => reorderNames(page)).toEqual(['[10am]', 'Alpha job', 'Bravo job'])
-
-  await page
-    .getByRole('button', { name: '10am hour', exact: true })
-    .getByRole('combobox')
-    .selectOption({ label: '2pm' })
-  const hour = page.getByRole('button', { name: '2pm hour', exact: true })
-  await expect(hour).toBeVisible()
-
-  // Addressed by its name: an hour's text is all 24 options, which would match
-  // a text filter written for anything else.
-  await dragWithKeyboard(page, hour, 'ArrowDown')
-  await expect.poll(() => reorderNames(page)).toEqual(['Alpha job', '[2pm]', 'Bravo job'])
-
-  await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect.poll(() => shape(page)).toEqual(['Alpha job', '[2pm]', 'Bravo job'])
-  expect((await dayView(app)).hours).toEqual([{ hour: 14, before: 1 }])
-
-  await page.reload()
-  await expect.poll(() => shape(page)).toEqual(['Alpha job', '[2pm]', 'Bravo job'])
-})
-
-test('removing an hour puts its tasks in the block above', async ({ page, app }) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  const b = app.seed.task({ name: 'Bravo job', cadence: 'day' })
-  const c = app.seed.task({ name: 'Charlie job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a, { hour: 11 }, b, c] })
-
-  await page.goto(app.url)
-  await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo job', 'Charlie job'])
-  await page.getByRole('button', { name: /^reorder$/i }).click()
-
-  await page.getByRole('button', { name: 'Remove the 11am hour' }).click()
-  await expect
-    .poll(() => reorderNames(page))
-    .toEqual(['[9am]', 'Alpha job', 'Bravo job', 'Charlie job'])
-
-  await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect.poll(async () => (await dayView(app)).hours).toEqual([{ hour: 9, before: 0 }])
-})
-
-test('move to top and send to bottom cross hours and baseline rows', async ({ page, app }) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  const b = app.seed.task({ name: 'Bravo baseline', cadence: 'day', is_baseline: true })
-  const c = app.seed.task({ name: 'Charlie job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a, b, { hour: 14 }, c] })
-
-  await page.goto(app.url)
-  await expect.poll(() => activeNames(page)).toEqual(['Alpha job', 'Bravo baseline', 'Charlie job'])
-  await page.getByRole('button', { name: /^reorder$/i }).click()
-
-  // The top is above every hour — unscheduled.
-  await page.getByRole('button', { name: 'Move Charlie job to the top' }).click()
-  await expect
-    .poll(() => reorderNames(page))
-    .toEqual(['Charlie job', '[9am]', 'Alpha job', 'Bravo baseline', '[2pm]'])
-
-  // The bottom is the last hour's block.
-  await page.getByRole('button', { name: 'Send Bravo baseline to the bottom' }).click()
-  await expect
-    .poll(() => reorderNames(page))
-    .toEqual(['Charlie job', '[9am]', 'Alpha job', '[2pm]', 'Bravo baseline'])
-
-  await page.getByRole('button', { name: /^done reordering$/i }).click()
-  await expect
-    .poll(() => shape(page))
-    .toEqual(['Charlie job', '[9am]', 'Alpha job', '[2pm]', 'Bravo baseline'])
-})
-
-test('the now-line is not drawn while reordering', async ({ page, app }) => {
-  const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, a] })
-  await page.clock.setFixedTime(BEFORE_NINE)
-
-  await page.goto(app.url)
-  await expect.poll(() => shape(page, { withNow: true })).toEqual(['now', '[9am]', 'Alpha job'])
-
-  await page.getByRole('button', { name: /^reorder$/i }).click()
-  await expect(activeRegion(page).locator('.day-now')).toHaveCount(0)
-})
-
-test.describe('the now-line, by the stored zone', () => {
-  // The device is in Tokyo; the account is in New York. The account wins.
-  test.use({ timezoneId: 'Asia/Tokyo' })
-
-  test('sits under the hour you are in, and the hours behind dim', async ({ page, app }) => {
-    const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-    const b = app.seed.task({ name: 'Bravo job', cadence: 'day' })
-    const c = app.seed.task({ name: 'Charlie job', cadence: 'day' })
-    app.seed.day(app.today, {
-      task_order: [{ hour: 9 }, a, { hour: 11 }, b, { hour: 14 }, c],
-    })
-    // 11:30 in New York, 01:30 the next day in Tokyo.
-    await page.clock.setFixedTime(new Date('2026-01-15T16:30:00Z'))
-
-    await page.goto(app.url)
-
-    // 11am is not behind at 11:30 — it is the hour you are in.
-    await expect
-      .poll(() => shape(page, { withNow: true }))
-      .toEqual(['[9am]', 'Alpha job', '[11am]', 'now', 'Bravo job', '[2pm]', 'Charlie job'])
-    const hourRow = (label: string) =>
-      activeRegion(page)
-        .locator('.day-hour')
-        .filter({ hasText: new RegExp(`^${label}$`) })
-    await expect(hourRow('9am')).toHaveAttribute('data-past', '')
-    await expect(hourRow('11am')).not.toHaveAttribute('data-past')
-    await expect(hourRow('2pm')).not.toHaveAttribute('data-past')
-  })
-
-  test('moves when the hour turns', async ({ page, app }) => {
-    const a = app.seed.task({ name: 'Alpha job', cadence: 'day' })
-    const b = app.seed.task({ name: 'Bravo job', cadence: 'day' })
-    app.seed.day(app.today, { task_order: [{ hour: 11 }, a, { hour: 12 }, b] })
-    // 11:59:30 in New York.
-    await page.clock.install({ time: new Date('2026-01-15T16:59:30Z') })
-
-    await page.goto(app.url)
-    await expect
-      .poll(() => shape(page, { withNow: true }))
-      .toEqual(['[11am]', 'now', 'Alpha job', '[12pm]', 'Bravo job'])
-
-    await page.clock.runFor('01:00')
-
-    await expect
-      .poll(() => shape(page, { withNow: true }))
-      .toEqual(['[11am]', 'Alpha job', '[12pm]', 'now', 'Bravo job'])
-  })
-})
-
-// ---------------------------------------------------------------------------
 // The Routine and Backlog panels, hosted here
 // ---------------------------------------------------------------------------
 
@@ -1442,11 +1271,8 @@ test('no console errors while exercising the main gestures', async ({ page, app 
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  const daily = app.seed.task({ name: 'Gesture daily', cadence: 'day' })
-  const overdue = app.seed.task(overdueSeed(app.today, 'Gesture overdue', 3))
-  // An hour too, so the reorder below keys and removes one — a duplicate React
-  // key or a confused dnd-kit id is a console error, not a visible one.
-  app.seed.day(app.today, { task_order: [{ hour: 9 }, daily, overdue] })
+  app.seed.task({ name: 'Gesture daily', cadence: 'day' })
+  app.seed.task(overdueSeed(app.today, 'Gesture overdue', 3))
 
   await page.goto(app.url)
   await expect.poll(() => activeNames(page)).toEqual(['Gesture daily', 'Gesture overdue'])
@@ -1487,11 +1313,6 @@ test('no console errors while exercising the main gestures', async ({ page, app 
     .click()
 
   await page.getByRole('button', { name: /^reorder$/i }).click()
-  await page.getByRole('button', { name: 'Add an hour' }).click()
-  await page
-    .getByRole('button', { name: /^Remove the \d+(am|pm) hour$/ })
-    .first()
-    .click()
   await page.getByRole('button', { name: /^done reordering$/i }).click()
   await expect(page.getByRole('button', { name: /^reorder$/i })).toBeVisible()
 

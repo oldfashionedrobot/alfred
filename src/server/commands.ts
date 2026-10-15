@@ -1,19 +1,9 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
-import {
-  isCadence,
-  isHexColor,
-  isBlankNote,
-  isHourEntry,
-  isISODate,
-  isNoteColor,
-  type Cadence,
-  type ISODate,
-  type NoteColor,
-} from '../shared/types.ts'
+import { isCadence, isHexColor, isISODate, type Cadence, type ISODate } from '../shared/types.ts'
 import type { DB } from './db.ts'
 import { BadRequest, NotFound, Rejected } from './errors.ts'
 import { completionForPeriod, isOverdue } from './period.ts'
-import { completions, days, moods, notes, tasks, type NoteRow, type TaskRow } from './schema.ts'
+import { completions, days, moods, tasks, type TaskRow } from './schema.ts'
 import { today, type Viewer } from './today.ts'
 import { loadCurrentCompletions, placementMax } from './views/completions.ts'
 
@@ -21,9 +11,7 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * Every named command. Commands map 1:1 to gestures in the views.
  *
  * On success a command returns nothing — the route replies { ok: true } and the
- * client refetches the view it is on. The one exception is `create_note`, which
- * returns the new note's id: a note saves while it is being typed, and every save
- * after the first has to name it. On failure, throw BadRequest / NotFound /
+ * client refetches the view it is on. On failure, throw BadRequest / NotFound /
  * Rejected from ./errors.ts.
  *
  * This is the only place untrusted data enters the system, so every field is
@@ -38,7 +26,6 @@ import { loadCurrentCompletions, placementMax } from './views/completions.ts'
  * Tasks:        create_task, create_tasks, update_task, archive_task
  * Day record:   set_mood, set_log, set_task_order
  * Tracker:      set_completion
- * Notes:        create_note, update_note, delete_note
  *
  * `set_completion` is the ONE command that accepts a date, and it is narrow on
  * every side: daily tasks only, never a day that has not happened, and reachable
@@ -55,7 +42,7 @@ export async function runCommand(
   viewer: Viewer,
   name: string,
   body: unknown,
-): Promise<{ id: number } | void> {
+): Promise<void> {
   const b = asObject(body)
   const userId = viewer.id
 
@@ -65,12 +52,8 @@ export async function runCommand(
    * Not tidiness: `uncomplete` used to read it twice in one call path, and two
    * reads either side of midnight would delete a completion for a day the check
    * never considered. One date per request cannot disagree with itself.
-   *
-   * A note's `updated_at` needs the instant as well as the date, so the instant
-   * is what is read, and today is derived from it — still one read.
    */
-  const clock = new Date()
-  const now = today(viewer.timezone, clock)
+  const now = today(viewer.timezone)
 
   switch (name) {
     // --- Day --------------------------------------------------------------
@@ -106,14 +89,6 @@ export async function runCommand(
     // --- Tracker ----------------------------------------------------------
     case 'set_completion':
       return setCompletion(db, userId, now, b)
-
-    // --- Notes ------------------------------------------------------------
-    case 'create_note':
-      return createNote(db, userId, clock.getTime(), b)
-    case 'update_note':
-      return updateNote(db, userId, clock.getTime(), b)
-    case 'delete_note':
-      return deleteNote(db, userId, b)
 
     default:
       // 400, not 404: the path /api/commands/<name> exists, the name in it is a
@@ -189,19 +164,6 @@ function reqTextOrNull(b: Record<string, unknown>, key: string): string | null {
   return t === '' ? null : t
 }
 
-/** Any string, the empty one included, stored exactly — never trimmed. */
-function reqString(b: Record<string, unknown>, key: string): string {
-  const v = b[key]
-  if (typeof v !== 'string') throw new BadRequest(`${key} must be a string`)
-  return v
-}
-
-function reqNoteColorOrNull(b: Record<string, unknown>, key: string): NoteColor | null {
-  if (b[key] === null) return null
-  if (!isNoteColor(b[key])) throw new BadRequest(`${key} must be a palette colour or null`)
-  return b[key]
-}
-
 function reqColorOrNull(b: Record<string, unknown>, key: string): string | null {
   if (b[key] === null) return null
   if (!isHexColor(b[key])) throw new BadRequest(`${key} must be a '#rrggbb' colour`)
@@ -232,17 +194,6 @@ async function loadTask(db: DB, userId: number, id: number): Promise<TaskRow> {
     .get()
   if (!task) throw new NotFound(`no task ${id}`)
   return task
-}
-
-/** The note lookup, scoped to the user exactly as `loadTask` is. */
-async function loadNote(db: DB, userId: number, id: number): Promise<NoteRow> {
-  const note = await db
-    .select()
-    .from(notes)
-    .where(and(eq(notes.id, id), eq(notes.user_id, userId)))
-    .get()
-  if (!note) throw new NotFound(`no note ${id}`)
-  return note
 }
 
 async function completionsFor(db: DB, taskId: number) {
@@ -583,10 +534,7 @@ async function updateTask(
   await db.update(tasks).set(patch).where(eq(tasks.id, task.id)).run()
 }
 
-/**
- * The only removal for a task: a task is never deleted. The one delete in the
- * system is a note's, and only from Archived — see `deleteNote`.
- */
+/** The only removal in the system. There is no delete anywhere. */
 async function archiveTask(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
   onlyFields(b, ['id'])
   const task = await loadTask(db, userId, reqId(b, 'id'))
@@ -656,22 +604,14 @@ async function setTaskOrder(
   now: ISODate,
   b: Record<string, unknown>,
 ): Promise<void> {
-  // `task_ids` carries the day's hours too since v17, and keeps its name: a tab
-  // open across the deploy still posts it, and its integers-only list is a valid
-  // new one.
   onlyFields(b, ['task_ids'])
   const raw = b['task_ids']
-  if (
-    !Array.isArray(raw) ||
-    raw.some((v) => !(typeof v === 'number' && Number.isInteger(v)) && !isHourEntry(v))
-  ) {
-    throw new BadRequest('task_ids must be an array of task ids and { hour: 0-23 } entries')
+  if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'number' || !Number.isInteger(v))) {
+    throw new BadRequest('task_ids must be an array of integers')
   }
 
   // Stored opaquely. The order is disposable, per-day and
   // tolerant of stale ids, so completeness and existence are deliberately unchecked.
-  // Nor is anything checked about the hours beyond their shape: a day that runs
-  // 9, 2pm, 11 is somebody's day, and the same hour twice is an empty hour.
   await upsertDay(db, userId, now, { task_order: JSON.stringify(raw) })
 }
 
@@ -752,85 +692,4 @@ async function setCompletion(
     .delete(completions)
     .where(and(eq(completions.task_id, task.id), eq(completions.completed_on, date)))
     .run()
-}
-
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
-/**
- * A new note, and its id — the one command that answers with anything.
- *
- * The client creates a note on its first save that has something in it: text, a
- * colour or a pin. So a note opened and closed blank never reaches here, and
- * there is nothing to discard.
- */
-async function createNote(
-  db: DB,
-  userId: number,
-  at: number,
-  b: Record<string, unknown>,
-): Promise<{ id: number }> {
-  onlyFields(b, ['title', 'body', 'color', 'pinned'])
-  const [row] = await db
-    .insert(notes)
-    .values({
-      user_id: userId,
-      title: 'title' in b ? reqString(b, 'title') : '',
-      body: 'body' in b ? reqString(b, 'body') : '',
-      color: 'color' in b ? reqNoteColorOrNull(b, 'color') : null,
-      pinned: 'pinned' in b ? reqBoolean(b, 'pinned') : false,
-      updated_at: at,
-    })
-    .returning({ id: notes.id })
-  return { id: row!.id }
-}
-
-/**
- * Any of the title, the body, the colour, the pin and the archived flag.
- *
- * `updated_at` moves only when the title or the body CHANGES — not when the same
- * text is saved again, and not on a pin, a colour or an archive. The board is
- * ordered by it, so pinning a note must not reshuffle the very section you were
- * looking at.
- */
-async function updateNote(
-  db: DB,
-  userId: number,
-  at: number,
-  b: Record<string, unknown>,
-): Promise<void> {
-  onlyFields(b, ['id', 'title', 'body', 'color', 'pinned', 'archived'])
-  const note = await loadNote(db, userId, reqId(b, 'id'))
-
-  const patch: Partial<Omit<NoteRow, 'id' | 'user_id'>> = {}
-  if ('title' in b) patch.title = reqString(b, 'title')
-  if ('body' in b) patch.body = reqString(b, 'body')
-  if ('color' in b) patch.color = reqNoteColorOrNull(b, 'color')
-  if ('pinned' in b) patch.pinned = reqBoolean(b, 'pinned')
-  if ('archived' in b) patch.archived = reqBoolean(b, 'archived')
-
-  const edited =
-    (patch.title !== undefined && patch.title !== note.title) ||
-    (patch.body !== undefined && patch.body !== note.body)
-  if (edited) patch.updated_at = at
-  if (Object.keys(patch).length === 0) return
-
-  await db.update(notes).set(patch).where(eq(notes.id, note.id)).run()
-}
-
-/**
- * Forever — the one delete in the system.
- *
- * Refused unless the note is archived or empty. The first is the rule that
- * forever lives in Archived, enforced rather than described; the second is what
- * lets a note emptied and closed be discarded, the way a blank new one is.
- */
-async function deleteNote(db: DB, userId: number, b: Record<string, unknown>): Promise<void> {
-  onlyFields(b, ['id'])
-  const note = await loadNote(db, userId, reqId(b, 'id'))
-  if (!note.archived && !isBlankNote(note)) {
-    throw new Rejected('a note is deleted forever only from Archived')
-  }
-  await db.delete(notes).where(eq(notes.id, note.id)).run()
 }

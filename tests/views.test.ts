@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from 'bun:test'
 import { closeDb, freshDb, type Harness } from './harness.ts'
 
-import type { Cadence, ISODate, OrderEntry } from '../src/shared/types.ts'
+import type { Cadence, ISODate } from '../src/shared/types.ts'
 import { TODO_GROUPS } from '../src/shared/types.ts'
 import type { TodoGroup, TodoView } from '../src/shared/types.ts'
 import type { DB } from '../src/server/db.ts'
@@ -12,7 +12,6 @@ import { placeableDates, placementMax, placementRanges } from '../src/server/vie
 import { isDone } from '../src/server/period.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
-import { buildNotesView } from '../src/server/views/notes.ts'
 
 /**
  * The view builders, against a real on-disk SQLite database.
@@ -160,10 +159,9 @@ async function addTask(spec: TaskSpec): Promise<number> {
   return id
 }
 
-/** `task_order` as a string is stored raw, so the reader's rubbish cases can be seeded. */
 async function setDay(
   date: ISODate,
-  fields: { mood?: string; log?: string; task_order?: OrderEntry[] | string; user_id?: number },
+  fields: { mood?: string; log?: string; task_order?: number[]; user_id?: number },
 ): Promise<void> {
   await db
     .insert(schema.days)
@@ -172,12 +170,7 @@ async function setDay(
       date,
       mood: fields.mood ?? null,
       log: fields.log ?? null,
-      task_order:
-        fields.task_order === undefined
-          ? null
-          : typeof fields.task_order === 'string'
-            ? fields.task_order
-            : JSON.stringify(fields.task_order),
+      task_order: fields.task_order === undefined ? null : JSON.stringify(fields.task_order),
     })
     .run()
 }
@@ -367,21 +360,22 @@ describe('buildDayView', () => {
     expect((await buildHistoryView(db, VIEWER, {})).columns).toEqual([])
   })
 
-  test('names are alphabetical, baseline included', async () => {
+  test('baseline is the top band and names are alphabetical within a band', async () => {
     await addTask({ name: 'Apple', cadence: 'day' })
     await addTask({ name: 'Banana', cadence: 'day' })
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true })
 
-    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Apple', 'Banana', 'Zebra'])
+    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Zebra', 'Apple', 'Banana'])
   })
 
-  test('days.task_order is respected; an unlisted baseline task falls below listed ones', async () => {
+  test('days.task_order is respected, and never moves a task across the baseline band', async () => {
     const apple = await addTask({ name: 'Apple', cadence: 'day' })
     const banana = await addTask({ name: 'Banana', cadence: 'day' })
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true })
+    // Zebra is listed last but is baseline, so it still leads.
     await setDay(TODAY, { task_order: [banana, apple] })
 
-    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Banana', 'Apple', 'Zebra'])
+    expect(names((await buildDayView(db, VIEWER)).tasks)).toEqual(['Zebra', 'Banana', 'Apple'])
   })
 
   test('done rows sink to the bottom of the one list, baseline included', async () => {
@@ -390,7 +384,9 @@ describe('buildDayView', () => {
     await addTask({ name: 'Zebra', cadence: 'day', is_baseline: true, done_on: [TODAY] })
 
     const view = await buildDayView(db, VIEWER)
-    expect(names(view.tasks)).toEqual(['Banana', 'Apple', 'Zebra'])
+    // Zebra is baseline and would lead the list, but it is ticked: done outranks
+    // baseline, and baseline then leads inside the done band.
+    expect(names(view.tasks)).toEqual(['Banana', 'Zebra', 'Apple'])
     expect(view.tasks.map((t) => t.is_done)).toEqual([false, true, true])
   })
 
@@ -398,8 +394,8 @@ describe('buildDayView', () => {
     const apple = await addTask({ name: 'Apple', cadence: 'day' })
     const banana = await addTask({ name: 'Banana', cadence: 'day', done_on: [TODAY] })
     const cherry = await addTask({ name: 'Cherry', cadence: 'day', done_on: [TODAY] })
-    // Banana and Cherry were ticked after the day was arranged, so both keep
-    // their slots — the arrangement is read back across both halves.
+    // The client saves the whole rendered list — the live rows it dragged, then
+    // the done ones after them. Both halves are read back here.
     await setDay(TODAY, { task_order: [apple, cherry, banana] })
 
     const view = await buildDayView(db, VIEWER)
@@ -669,14 +665,14 @@ describe('DayView.upcoming', () => {
     expect(pane.tasks.map((t) => t.name)).toEqual(['Change the filter'])
   })
 
-  test('a pane is sorted by name, baseline included', async () => {
+  test('a pane is sorted baseline first, then by name', async () => {
     await addTask({ name: 'Zebra', cadence: null, planned_date: LATER_DAY })
     await addTask({ name: 'Apple', cadence: null, planned_date: LATER_DAY })
     await addTask({ name: 'Middle', cadence: null, planned_date: LATER_DAY, is_baseline: true })
 
     const view = await buildDayView(db, VIEWER, LATER_DAY)
     const pane = view.upcoming.find((u) => u.date === LATER_DAY)!
-    expect(pane.tasks.map((t) => t.name)).toEqual(['Apple', 'Middle', 'Zebra'])
+    expect(pane.tasks.map((t) => t.name)).toEqual(['Middle', 'Apple', 'Zebra'])
   })
 
   test('colour is carried on a future row, baseline only', async () => {
@@ -700,162 +696,6 @@ describe('DayView.upcoming', () => {
       ['Painted', '#aabbcc'],
       ['Unpainted', null],
     ])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Hours — the dividers in today's arrangement (v17)
-// ---------------------------------------------------------------------------
-
-describe('buildDayView — hours', () => {
-  const day = (a: string) => addTask({ name: a, cadence: 'day' })
-  const view = () => buildDayView(db, VIEWER)
-
-  test('no arrangement is no hours', async () => {
-    await day('Apple')
-    expect((await view()).hours).toEqual([])
-  })
-
-  test('a row saved before v17 keeps its order and has no hours', async () => {
-    const a = await day('Apple')
-    const b = await day('Banana')
-    await setDay(TODAY, { task_order: [b, a] })
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Banana', 'Apple'])
-    expect(v.hours).toEqual([])
-  })
-
-  test('each hour is drawn above the live rows listed after it', async () => {
-    const a = await day('Aaa')
-    const b = await day('Bbb')
-    const c = await day('Ccc')
-    await setDay(TODAY, { task_order: [{ hour: 9 }, a, b, { hour: 11 }, c] })
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Aaa', 'Bbb', 'Ccc'])
-    expect(v.hours).toEqual([
-      { hour: 9, before: 0 },
-      { hour: 11, before: 2 },
-    ])
-  })
-
-  test('two hours together are an empty hour, drawn in stored order', async () => {
-    const a = await day('Aaa')
-    const b = await day('Bbb')
-    await setDay(TODAY, { task_order: [a, { hour: 14 }, { hour: 11 }, b] })
-    expect((await view()).hours).toEqual([
-      { hour: 14, before: 1 },
-      { hour: 11, before: 1 },
-    ])
-  })
-
-  test('an hour at the foot of the plan sits above the done block', async () => {
-    const a = await day('Aaa')
-    const b = await day('Bbb')
-    const c = await addTask({ name: 'Ccc', cadence: 'day', done_on: [TODAY] })
-    await setDay(TODAY, { task_order: [{ hour: 9 }, a, b, { hour: 17 }, c] })
-    const v = await view()
-    expect(v.tasks.map((t) => t.is_done)).toEqual([false, false, true])
-    // `before` counts live rows only: 2, not tasks.length.
-    expect(v.hours).toEqual([
-      { hour: 9, before: 0 },
-      { hour: 17, before: 2 },
-    ])
-  })
-
-  test('a task ticked after arranging leaves its hour, and the next hour keeps its tasks', async () => {
-    const a = await day('Aaa')
-    const b = await addTask({ name: 'Bbb', cadence: 'day', done_on: [TODAY] })
-    const c = await day('Ccc')
-    const d = await day('Ddd')
-    await setDay(TODAY, { task_order: [{ hour: 9 }, a, b, { hour: 11 }, c, { hour: 14 }, d] })
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Aaa', 'Ccc', 'Ddd', 'Bbb'])
-    // 11am still sits directly above Ccc, and 2pm above Ddd.
-    expect(v.hours).toEqual([
-      { hour: 9, before: 0 },
-      { hour: 11, before: 1 },
-      { hour: 14, before: 2 },
-    ])
-  })
-
-  test('stale and duplicated ids move nothing', async () => {
-    const a = await day('Aaa')
-    const b = await day('Bbb')
-    // 99 and 98 match no task; Aaa is listed twice.
-    await setDay(TODAY, { task_order: [99, { hour: 9 }, 98, a, a, { hour: 11 }, b] })
-    expect((await view()).hours).toEqual([
-      { hour: 9, before: 0 },
-      { hour: 11, before: 1 },
-    ])
-  })
-
-  test('a task the arrangement does not place waits above the first hour', async () => {
-    const a = await day('Aaa')
-    await setDay(TODAY, { task_order: [{ hour: 9 }, a] })
-    // Added after the day was arranged — unscheduled, not filed under 9am.
-    await day('Zzz new')
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Zzz new', 'Aaa'])
-    expect(v.hours).toEqual([{ hour: 9, before: 1 }])
-  })
-
-  test('without hours, an unlisted task still falls to the bottom', async () => {
-    const a = await day('Zzz')
-    await setDay(TODAY, { task_order: [a] })
-    await day('Aaa new')
-    expect(names((await view()).tasks)).toEqual(['Zzz', 'Aaa new'])
-  })
-
-  test('a baseline task can sit under 2pm', async () => {
-    const a = await day('Aaa')
-    const base = await addTask({ name: 'Meds', cadence: 'day', is_baseline: true })
-    await setDay(TODAY, { task_order: [a, { hour: 14 }, base] })
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Aaa', 'Meds'])
-    expect(v.hours).toEqual([{ hour: 14, before: 1 }])
-  })
-
-  test('rubbish is no order and no hours', async () => {
-    await day('Bbb')
-    await day('Aaa')
-    for (const raw of ['not json', '{"hour":9}']) {
-      await db.delete(schema.days).run()
-      await setDay(TODAY, { task_order: raw })
-      const v = await view()
-      expect(names(v.tasks)).toEqual(['Aaa', 'Bbb'])
-      expect(v.hours).toEqual([])
-    }
-  })
-
-  test('a malformed hour is dropped and the rest kept', async () => {
-    const a = await day('Aaa')
-    const b = await day('Bbb')
-    await setDay(TODAY, {
-      task_order: JSON.stringify([
-        { hour: 25 },
-        b,
-        { hour: '9' },
-        { hour: 9, m: 30 },
-        a,
-        { hour: 9 },
-      ]),
-    })
-    const v = await view()
-    expect(names(v.tasks)).toEqual(['Bbb', 'Aaa'])
-    expect(v.hours).toEqual([{ hour: 9, before: 2 }])
-  })
-
-  test('the view carries the viewer’s stored zone', async () => {
-    expect((await buildDayView(db, { id: USER, timezone: 'Asia/Tokyo' })).timezone).toBe(
-      'Asia/Tokyo',
-    )
-    expect((await view()).timezone).toBe(ZONE)
-  })
-
-  test('hours are today’s whatever week is viewed', async () => {
-    const a = await day('Aaa')
-    await setDay(TODAY, { task_order: [a, { hour: 9 }] })
-    expect((await buildDayView(db, VIEWER, LATER_DAY)).hours).toEqual([{ hour: 9, before: 1 }])
   })
 })
 
@@ -1182,8 +1022,8 @@ describe('buildHistoryView', () => {
     await addTask({ name: 'Archived', cadence: 'day', active: false })
 
     expect((await buildHistoryView(db, VIEWER, {})).columns.map((c) => c.name)).toEqual([
-      'Apple',
       'Zebra',
+      'Apple',
     ])
   })
 
@@ -1276,7 +1116,7 @@ describe('todo — rolled-over placements', () => {
 
 // ---------------------------------------------------------------------------
 // Category — ordering inside a To do group.
-// The full rule is: band → category (uncategorised last) → name.
+// The full rule is: band → baseline → category (uncategorised last) → name.
 // ---------------------------------------------------------------------------
 
 describe('todo — categories', () => {
@@ -1299,13 +1139,13 @@ describe('todo — categories', () => {
     expect(await names('day')).toEqual(['Zzz filed', 'Aaa loose end'])
   })
 
-  test('baseline does not outrank category', async () => {
-    // It did until v17. A baseline task in a category that sorts last now sorts
-    // last: the flag is a mark on the row, not a position.
+  test('baseline outranks category: it leads the group, above every heading', async () => {
+    // The baseline task is in a category that would otherwise sort LAST, and has
+    // a name that would otherwise sort last too — so only the flag can lift it.
     await addTask({ name: 'Zzz vital', cadence: 'day', is_baseline: true, category: 'Zebra' })
     await addTask({ name: 'Aaa chore', cadence: 'day', category: 'Admin' })
 
-    expect(await names('day')).toEqual(['Aaa chore', 'Zzz vital'])
+    expect(await names('day')).toEqual(['Zzz vital', 'Aaa chore'])
   })
 
   test('done still sinks, below every category', async () => {
@@ -1346,16 +1186,16 @@ describe('todo — categories', () => {
 // ---------------------------------------------------------------------------
 
 describe('history — columns and log', () => {
-  test('columns order by category, then name — as the panel does', async () => {
-    // Alphabetically: Aardvark < Brush < Dishes < Zzz. By the real rule Dog
-    // leads, then House, then Zebra — baseline or not — then none.
+  test('columns order by baseline, then category, then name — as the panel does', async () => {
+    // Alphabetically: Aardvark < Brush < Dishes < Zzz. By the real rule the
+    // baseline task leads despite its name, then Dog, then House, then none.
     await addTask({ name: 'Zzz vital', cadence: 'day', is_baseline: true, category: 'Zebra' })
     await addTask({ name: 'Aardvark chore', cadence: 'day', category: 'House' })
     await addTask({ name: 'Brush Ringo', cadence: 'day', category: 'Dog' })
     await addTask({ name: 'Dishes', cadence: 'day' })
 
     const names = (await buildHistoryView(db, VIEWER, {})).columns.map((c) => c.name)
-    expect(names).toEqual(['Brush Ringo', 'Aardvark chore', 'Zzz vital', 'Dishes'])
+    expect(names).toEqual(['Zzz vital', 'Brush Ringo', 'Aardvark chore', 'Dishes'])
 
     // And the panel agrees — one comparator, so they cannot drift apart.
     const panel = groupFor(await buildTodoView(db, VIEWER), 'day').tasks.map((t) => t.name)
@@ -1394,126 +1234,5 @@ describe('history — column colour', () => {
     expect(by('MED').color).toBe('#c2410c')
     expect(by('Zebra').color).toBeNull()
     expect(by('Plain').color).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Notes (v18)
-// ---------------------------------------------------------------------------
-
-describe('buildNotesView', () => {
-  let clock = 1_000
-  /** A note, each one edited later than the last unless told otherwise. */
-  async function addNote(n: {
-    title?: string
-    body?: string
-    pinned?: boolean
-    archived?: boolean
-    updated_at?: number
-    user_id?: number
-  }): Promise<number> {
-    const [row] = await db
-      .insert(schema.notes)
-      .values({
-        user_id: n.user_id ?? USER,
-        title: n.title ?? '',
-        body: n.body ?? '',
-        pinned: n.pinned ?? false,
-        archived: n.archived ?? false,
-        updated_at: n.updated_at ?? (clock += 10),
-      })
-      .returning({ id: schema.notes.id })
-      .all()
-    return row!.id
-  }
-  const titles = (ns: { title: string }[]) => ns.map((n) => n.title)
-  const board = (opts: { archived?: boolean; q?: string } = {}) => buildNotesView(db, VIEWER, opts)
-
-  test('pinned before the rest, each by last edit, newest first', async () => {
-    await addNote({ title: 'old' })
-    await addNote({ title: 'old pinned', pinned: true })
-    await addNote({ title: 'new' })
-    await addNote({ title: 'new pinned', pinned: true })
-    const v = await board()
-    expect(titles(v.pinned)).toEqual(['new pinned', 'old pinned'])
-    expect(titles(v.others)).toEqual(['new', 'old'])
-  })
-
-  test('a tie in edit time goes to the newer note', async () => {
-    await addNote({ title: 'first', updated_at: 5 })
-    await addNote({ title: 'second', updated_at: 5 })
-    expect(titles((await board()).others)).toEqual(['second', 'first'])
-  })
-
-  test('the board leaves archived notes out; Archived holds only them, unsplit', async () => {
-    await addNote({ title: 'live' })
-    await addNote({ title: 'gone pinned', archived: true, pinned: true })
-    await addNote({ title: 'gone', archived: true })
-    expect(titles([...(await board()).pinned, ...(await board()).others])).toEqual(['live'])
-    const archived = await board({ archived: true })
-    expect(archived.pinned).toEqual([])
-    // A pin is kept, so a restored note comes back where it was — but in
-    // Archived it splits nothing off.
-    expect(titles(archived.others)).toEqual(['gone', 'gone pinned'])
-    expect(archived.others.find((n) => n.title === 'gone pinned')!.pinned).toBe(true)
-  })
-
-  test('the view carries the zone and today in it', async () => {
-    const v = await buildNotesView(db, { id: USER, timezone: 'Asia/Tokyo' })
-    expect(v.timezone).toBe('Asia/Tokyo')
-    expect(v.date).toBe(today('Asia/Tokyo'))
-  })
-
-  describe('search', () => {
-    const found = async (q: string, opts: { archived?: boolean } = {}) =>
-      titles((await board({ ...opts, q })).others)
-
-    test('every word, in any order, ignoring case', async () => {
-      await addNote({ title: 'Vet', body: 'Appointment for the DOG on Tuesday' })
-      await addNote({ title: 'Dog food', body: 'buy more' })
-      expect(await found('dog vet')).toEqual(['Vet'])
-      expect(await found('TUESDAY appointment')).toEqual(['Vet'])
-      expect(await found('dog')).toEqual(['Dog food', 'Vet'])
-    })
-
-    test('a missing word fails the note', async () => {
-      await addNote({ title: 'Vet', body: 'the dog' })
-      expect(await found('dog cat')).toEqual([])
-    })
-
-    test('accents are ignored, both ways', async () => {
-      await addNote({ title: 'Café list' })
-      await addNote({ title: 'Plain cafe' })
-      expect(await found('cafe')).toEqual(['Plain cafe', 'Café list'])
-      expect(await found('café')).toEqual(['Plain cafe', 'Café list'])
-    })
-
-    test('finds what Markdown escapes — snake_case, AT&T, 1 < 2', async () => {
-      // As the editor stores them.
-      await addNote({ title: 'a', body: 'snake\\_case' })
-      await addNote({ title: 'b', body: 'AT&amp;T' })
-      await addNote({ title: 'c', body: '1 &lt; 2' })
-      expect(await found('snake_case')).toEqual(['a'])
-      expect(await found('at&t')).toEqual(['b'])
-      expect(await found('1 < 2')).toEqual(['c'])
-    })
-
-    test('a word only in the title is found', async () => {
-      await addNote({ title: 'Passwords', body: 'nothing here' })
-      expect(await found('passwords')).toEqual(['Passwords'])
-    })
-
-    test('it stays inside the view asked of it', async () => {
-      await addNote({ title: 'live dog' })
-      await addNote({ title: 'archived dog', archived: true })
-      expect(await found('dog')).toEqual(['live dog'])
-      expect(await found('dog', { archived: true })).toEqual(['archived dog'])
-    })
-
-    test('a blank query is no filter', async () => {
-      await addNote({ title: 'a' })
-      await addNote({ title: 'b' })
-      expect(await found('   ')).toEqual(['b', 'a'])
-    })
   })
 })

@@ -1,11 +1,4 @@
-import type {
-  CommandOk,
-  DayView,
-  TodoView,
-  HistoryView,
-  ISODate,
-  NotesView,
-} from '../shared/types.ts'
+import type { DayView, TodoView, HistoryView, ISODate } from '../shared/types.ts'
 
 /**
  * The whole client/server surface. Queries return view models; commands return
@@ -88,33 +81,12 @@ export function getHistory(opts: { limit?: number; before?: ISODate } = {}) {
   return request<HistoryView>(`/history${qs ? `?${qs}` : ''}`)
 }
 
-/** The Notes board, or Archived; `q` asks the server to search either. */
-export function getNotes(opts: { archived?: boolean; q?: string } = {}) {
-  const q = new URLSearchParams()
-  if (opts.archived) q.set('archived', 'true')
-  if (opts.q) q.set('q', opts.q)
-  const qs = q.toString()
-  return request<NotesView>(`/notes${qs ? `?${qs}` : ''}`)
-}
-
 /** Fire a named command. Returns nothing — refetch the current view after. */
 export async function command(name: string, body: Record<string, unknown> = {}): Promise<void> {
-  await request<CommandOk>(`/commands/${name}`, {
+  await request<{ ok: true }>(`/commands/${name}`, {
     method: 'POST',
     body: JSON.stringify(body),
   })
-}
-
-/**
- * The one command that answers with something: a new note, and its id. Every
- * save after a note's first has to name it.
- */
-export async function createNote(body: Record<string, unknown>): Promise<number> {
-  const res = await request<CommandOk>('/commands/create_note', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
-  return res.id!
 }
 /**
  * Signing in. Deliberately NOT routed through `request`: a wrong password is a

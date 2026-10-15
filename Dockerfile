@@ -1,7 +1,7 @@
 # alfred — see .plan/deployment.md
 #
-# One build step: the client, built and code-split by `bun run build:client`
-# below, and served from /app/dist. No Vite, no separate build stage.
+# No build stage. The client is bundled by Bun.serve from index.html on the
+# first request, inside this container: no Vite, no compile step.
 FROM oven/bun:1.3.14-slim
 WORKDIR /app
 
@@ -25,20 +25,12 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # Everything read at runtime, and all three are load-bearing:
-#   src/       the server, and the client the next step builds
+#   src/       the server and the client it bundles
 #   drizzle/   initDb() migrates from './drizzle', relative to WORKDIR
-#   tsconfig   the build reads it, and so does the server at runtime
+#   tsconfig   bundling happens in here, so Bun reads it at runtime
 COPY src ./src
 COPY drizzle ./drizzle
 COPY tsconfig.json ./
-
-# The client, built here rather than bundled on the machine at its first
-# request: code-split, so the notes editor is a chunk To do never loads, and
-# nothing bundles on a 256 MB machine — bundling there roughly doubled the
-# process. Fly builds images on its remote builder, so this never runs on the
-# machine either. See src/server/client.ts and .plan/changes-v19.md.
-RUN bun run build:client
-ENV CLIENT_DIST=/app/dist
 
 # Runs as root, deliberately. The base image provides a `bun` user, but the Fly
 # volume mounts at /data owned by root, and a single-tenant household app is not

@@ -36,6 +36,7 @@ export function TaskName({ task }: { task: DayTask }) {
 export function TaskRow({
   task,
   today,
+  bandStart,
   busy,
   onComplete,
   onUncomplete,
@@ -51,6 +52,7 @@ export function TaskRow({
 }: {
   task: DayTask
   today: ISODate
+  bandStart: boolean
   busy: boolean
   onComplete: () => void
   /**
@@ -90,6 +92,7 @@ export function TaskRow({
   const cls = [
     'day-row',
     task.is_baseline ? 'day-row--baseline' : '',
+    bandStart ? 'day-row--band-start' : '',
     overdue ? 'day-row--overdue' : '',
     task.is_done ? 'day-row--done' : '',
   ]
