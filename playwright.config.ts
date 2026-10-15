@@ -3,8 +3,9 @@ import { defineConfig } from '@playwright/test'
 /**
  * Each test gets its own server process and its own SQLite file — see e2e/fixtures.ts.
  * There is no `webServer` block here on purpose: a shared server would mean tests
- * share a database, and this app's data is append-only with no delete API, so one
- * test's completions would leak into the next one's grid.
+ * share a database, and this app's data is nearly append-only — the one delete is a
+ * note's, from Archived — so one test's completions would leak into the next one's
+ * grid.
  */
 const MOBILE = { width: 390, height: 844 }
 const DESKTOP = { width: 1280, height: 900 }

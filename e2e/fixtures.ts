@@ -71,6 +71,19 @@ export class Seed {
     return this.run({ kind: 'task', ...t }).id as number
   }
 
+  /** A note, with an edit time of the test's choosing (epoch ms; default now). */
+  note(n: {
+    title?: string
+    body?: string
+    color?: string | null
+    pinned?: boolean
+    archived?: boolean
+    updated_at?: number
+    user_id?: number
+  }): number {
+    return this.run({ kind: 'note', ...n }).id as number
+  }
+
   /** A completion on any date, including the past. */
   completion(task_id: number, completed_on: string): void {
     this.run({ kind: 'completion', task_id, completed_on })

@@ -18,13 +18,14 @@ This document describes what the system is now. Deployment is in
 | Bundling | `Bun.serve` builds the client from `src/client/index.html` on first request. No build step. |
 | Database | libSQL (`@libsql/client`) with Drizzle ORM on `sqlite-core` |
 | Drag and drop | `@dnd-kit` |
+| Notes editor | Tiptap 3 with `@tiptap/markdown`, pinned exactly — notes are stored as Markdown |
 | Tests | `bun test` for units, Playwright for browsers |
 
 ---
 
 ## Data model
 
-Five tables.
+Six tables.
 
 ### `users`
 
@@ -70,11 +71,25 @@ arrangement and the hour dividers in it, as one list.
 user picks from the same set. Edited directly in the database; there is no mood
 editor in the app.
 
+### `notes`
+
+| Column | |
+|---|---|
+| `id` | integer, autoincrement |
+| `user_id` | owner. Indexed. `loadNote` enforces it as `loadTask` does for tasks. |
+| `title` | text, may be empty |
+| `body` | Markdown, checklists included. Not validated beyond being a string, and stored byte for byte. |
+| `color` | a palette name — Keep's eleven — or null. Never a hex. |
+| `pinned` | boolean |
+| `archived` | boolean. Off the board; the only place a note can be deleted forever from. |
+| `updated_at` | epoch ms of the last change to the title or the body. A pin, a colour or an archive does not move it. |
+
 ### Dates
 
-Every date column is a `YYYY-MM-DD` string. No times are stored anywhere. The
-only instants in the system are the session cookie's expiry, the login lockout,
-and `claim_expires`, all epoch milliseconds.
+Every date column is a `YYYY-MM-DD` string. The one instant stored as data is a
+note's `updated_at`, since v18 — a date could not tell this morning's edit from
+last night's. The others are the session cookie's expiry, the login lockout,
+and `claim_expires`. All are epoch milliseconds.
 
 ---
 
@@ -168,7 +183,7 @@ src/server/
   today.ts       the only clock read for a date
   errors.ts      ApiFailure and its subclasses
   user-cli.ts    account management
-  views/         one builder per screen
+  views/         one builder per screen, notes.ts among them
 ```
 
 `src/shared/types.ts` is the contract both sides import: the wire types, the
@@ -194,7 +209,8 @@ becomes an identity.
 | `GET /api/day` | `DayView` — one `tasks` array, done last, today's `hours` and the viewer's `timezone`, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date`, `tasks` and `hours` are still **today's** whatever is asked for. |
 | `GET /api/todo` | `TodoView` — all six cadence groups, one-off first |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
-| `POST /api/commands/<name>` | `{ ok: true }` |
+| `GET /api/notes` | `NotesView` — `pinned` and `others`, each by last edit, plus the zone and today. `?archived=true` is the Archived view, one list; `?q=` searches either. |
+| `POST /api/commands/<name>` | `{ ok: true }` — and the new note's `id` from `create_note`, the one command that answers with anything |
 | `GET /api/account` | `{ username, timezone }` — the two fields a person can change about themselves |
 | `POST /api/account/timezone` | `{ timezone }` |
 | `POST /api/account/password` | `{ current, next }`, and a fresh session cookie |
@@ -207,10 +223,11 @@ Every response carries `cache-control: no-store`.
 
 `complete`, `uncomplete`, `place`, `unplan`, `reset_overdue`, `create_task`,
 `create_tasks`, `update_task`, `archive_task`, `set_mood`, `set_log`,
-`set_task_order`, `set_completion`.
+`set_task_order`, `set_completion`, `create_note`, `update_note`, `delete_note`.
 
 `runCommand` takes a `Viewer` — `{ id, timezone }` — reads the clock once, and
-passes that date down. `loadTask` is the single point where ownership is
+passes that date down; the note commands are handed the same instant for
+`updated_at`, so one command cannot straddle midnight with two answers. `loadTask` is the single point where ownership is
 enforced; a task belonging to somebody else is a 404.
 
 **Completing is a thing you do today.** `complete` and `uncomplete` take no date
@@ -284,7 +301,7 @@ src/client/
   api.ts             typed fetch, the client's only I/O
   dates.ts           date formatting and calendar arithmetic on strings
   zones.ts           the IANA zone list, for the two forms that offer one
-  ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet, placementMaxFor
+  ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet (bottom, or a note's panel), placementMaxFor
   TaskFields.tsx     the task definition fields
   TaskEditor.tsx     the editor, opened from a To do row's Edit button and from a backlog row's name
   styles.css         tokens and primitives, including .track and .pane
@@ -296,6 +313,7 @@ src/client/
     Login.tsx        the signed-out surface
     Claim.tsx        spending an invitation
     Settings.tsx     your own timezone and password
+    notes/           Notes.tsx, NoteCard, NoteBody, NotePanel, noteExtensions
 ```
 
 The server derives everything. The client renders arrays that arrive already
@@ -306,8 +324,8 @@ model names, for one purpose: where to draw the now-line.
 
 ### The shell
 
-A fixed top bar carries the two tabs — **To do** and **Tracker** — and an account
-menu. The labels are not the keys: the tabs are keyed `day` and `history`, which
+A fixed top bar carries the three tabs — **To do**, **Tracker** and **Notes** —
+and an account menu. The labels are not the keys: the tabs are keyed `day` and `history`, which
 name the view models, the routes and the files. "Day" stopped being a day in v8,
 when the rest of the week became panes beside it; renaming through the stack
 would have been a rename of everything to change two words on screen.
@@ -369,8 +387,10 @@ the point of the rule is that you can count them:
 | `arrangement` | Day.tsx — the reorder edit state, a locally rearranged list of task ids and keyed hours |
 | `intent` | Day.tsx, Todo.tsx, History.tsx — the done state asked for, until the model agrees |
 | the current hour | Day.tsx — `useHourIn`, read in the model's zone once a minute, for the now-line |
+| form drafts | the log, the task editor, capture, and an open note — text being typed, until it is saved |
 
-Three kinds, five instances. It said "exactly two" until v16 gave the Tracker its
+Four kinds. Form drafts went uncounted until v18 added a fourth one; they are
+counted now, as one row. It said "exactly two" until v16 gave the Tracker its
 own prediction, which is how a sentence like that earns its keep: it is supposed
 to be checkable, and it stopped being true the moment a third surface started
 predicting. Nothing else is held, and the model is still replaced wholesale on
@@ -452,6 +472,45 @@ going to the grid; the everyday tick still cannot name a day.
 
 Moods and logs are not editable here. Only the cells are.
 
+### Notes
+
+A board of cards. Tap one and the note opens over the board — the whole screen
+on a phone, a centred panel on anything wider; type, and it saves; close it, and
+you are back where you were. Pinned notes sit in a section above the rest.
+Searching matches every word typed, in any order, ignoring case and accents —
+on the server, like every other filter.
+
+**Notes are Markdown.** Tiptap edits them, through `@tiptap/markdown`, and the
+cards are drawn from the same parse — one extension list, `noteExtensions.ts` —
+walked into React, never `innerHTML`, and with nothing on a card interactive but
+the card itself. Underline, strike, inline code and quotes are switched off in
+the schema: Markdown cannot hold underline, and the others have shortcuts of
+their own. The rule and the code block stay in it, off the toolbar, because
+switching them off made a `---` line or an indented one vanish on reload.
+Checklists sit anywhere in the text; a tick is applied by the panel rather than
+by Tiptap, whose handler throws on touch devices and raises the keyboard.
+
+**There is no Save button.** A note saves a second after typing stops, when the
+app is hidden, and when it closes — from the panel's unmount, one path for every
+way of closing. Every note command runs on one chain, so a slow first save can
+be neither overtaken nor sent twice; `create_note` answers with the id the rest
+need. A note opened and closed blank never reaches the server; one emptied and
+closed is saved empty and deleted.
+
+**Back closes a note.** Opening one pushes a history entry without changing the
+URL, and Back pops it. It is the only history the app keeps besides the
+invitation link, and it has no URL.
+
+**Archive is the delete.** Archived is a second view of the board, where a note
+is restored or deleted forever behind `Confirm`. `delete_note` refuses a live
+note unless it is empty.
+
+The colour palette is Keep's, stored by name; each name has a light and a dark
+shade, and on a coloured surface the dimmed text, the accent and control borders
+are drawn in the body text colour, because most shades fail 4.5:1 against them.
+The board opts out of the 720px column as the Tracker does, and is capped at as
+many card widths as its larger section has cards, so both sections share columns.
+
 ### Settings
 
 Two independent forms, each saving on its own, because they carry different
@@ -468,15 +527,15 @@ the device's guess would hide the mismatch the form exists to fix.
 | `tests/period.test.ts` | period derivation and `today(zone)` |
 | `tests/sort.test.ts` | the two ordering functions |
 | `tests/views.test.ts` | the view builders, against a real database |
-| `tests/commands.test.ts` | what commands write |
+| `tests/commands.test.ts` | what commands write, `set_task_order`'s shape and the note commands included |
 | `tests/isolation.test.ts` | that one user never sees another's data |
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 266. Each suite names its own timezone rather than inheriting the
+`bun test` runs 290. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 164 tests in each of four projects — `mobile` and `desktop` on Chrome,
+Playwright runs 181 tests in each of four projects — `mobile` and `desktop` on Chrome,
 `mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
@@ -571,5 +630,18 @@ answer a question nobody has asked.
 has always saved on blur. Giving it a real abandon needs an explicit Discard or a
 confirm on clearing, and it would have to apply to blur too or it is inconsistent
 again. Worth doing on its own terms, not as a side effect.
+
+**From Keep, for notes:** labels, dragging cards into an order, a grid/list
+switch, selecting several, making a copy, shortcuts, sharing, images, background
+images, link previews, version history, reminders, drawings, voice, AI and
+offline editing — offered and declined. Also not here: underline, which Markdown
+cannot hold; a link button, since links make themselves and selected words take
+a pasted address; typo-tolerant search; ticking from a card; and links between
+notes and tasks, which Markdown was chosen to leave room for.
+
+**Splitting the editor into its own chunk.** It loads with the app. `Bun.serve`
+emits one chunk however the import is written, and splitting would need the
+build step the Dockerfile deliberately does not have — to save bytes a browser
+downloads once per deploy.
 
 **Per-user moods, a mood editor, an export UI.** Unchanged and still deferred.

@@ -24,6 +24,11 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@libsql/client": "^0.18.0",
+    "@tiptap/extension-list": "3.32.0",
+    "@tiptap/markdown": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
     "drizzle-orm": "^0.44.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

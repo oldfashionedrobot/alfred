@@ -67,3 +67,16 @@ jobs:
           echo "deployed sha: $deployed"
           echo "expected sha: ${{ github.sha }}"
           test "$deployed" = "${{ github.sha }}"
+
+          # The page, and the script it names. The client is bundled on the
+          # first request, so a dependency missing from the --production install
+          # fails HERE rather than for the first person to open the app. The
+          # content type and not just the status: an asset path the server does
+          # not recognise falls through to the HTML shell with a 200.
+          script=$(curl -sS --max-time 60 https://gg-alfred.fly.dev/ \
+            | grep -o 'src="[^"]*\.js"' | head -1 | sed 's/^src="//; s/"$//')
+          test -n "$script"
+          type=$(curl -sS -o /dev/null -w '%{content_type}' --max-time 60 \
+            "https://gg-alfred.fly.dev$script")
+          echo "client script: $script ($type)"
+          case "$type" in *javascript*) ;; *) exit 1 ;; esac

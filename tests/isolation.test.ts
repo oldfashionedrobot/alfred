@@ -10,6 +10,7 @@ import { runCommand } from '../src/server/commands.ts'
 import { buildDayView } from '../src/server/views/day.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
+import { buildNotesView } from '../src/server/views/notes.ts'
 
 /**
  * ONE USER MUST NEVER SEE ANOTHER'S DATA.
@@ -276,5 +277,43 @@ describe('a command that writes without naming a task stamps the caller', () => 
     expect(a.tasks).toEqual([])
     const b = await buildDayView(db, viewer(B))
     expect(b.tasks.filter((t) => t.is_done).map((t) => t.name)).toEqual(["B's daily"])
+  })
+})
+
+describe("notes are their owner's", () => {
+  const note = (as: number, n: Record<string, unknown>) =>
+    runCommand(db, viewer(as), 'create_note', n) as Promise<{ id: number }>
+  const titles = (v: { pinned: { title: string }[]; others: { title: string }[] }) =>
+    [...v.pinned, ...v.others].map((n) => n.title)
+
+  test("the board, Archived and a search all show only the caller's notes", async () => {
+    await note(A, { title: "A's dog note", pinned: true })
+    const bArchived = await note(B, { title: "B's dog note" })
+    await runCommand(db, viewer(B), 'update_note', { id: bArchived.id, archived: true })
+    await note(B, { title: "B's live dog note" })
+
+    expect(titles(await buildNotesView(db, viewer(A)))).toEqual(["A's dog note"])
+    expect(titles(await buildNotesView(db, viewer(A), { archived: true }))).toEqual([])
+    expect(titles(await buildNotesView(db, viewer(A), { q: 'dog' }))).toEqual(["A's dog note"])
+    expect(titles(await buildNotesView(db, viewer(B), { q: 'dog' }))).toEqual(["B's live dog note"])
+  })
+
+  test("update_note and delete_note on another's note are a 404, and change nothing", async () => {
+    const { id } = await note(B, { title: "B's", body: 'private' })
+    await runCommand(db, viewer(B), 'update_note', { id, archived: true })
+
+    await expect(
+      runCommand(db, viewer(A), 'update_note', { id, title: 'taken over' }),
+    ).rejects.toThrow(/no note/)
+    await expect(runCommand(db, viewer(A), 'delete_note', { id })).rejects.toThrow(/no note/)
+
+    const [row] = await db.select().from(schema.notes).all()
+    expect(row).toMatchObject({ id, user_id: B, title: "B's", body: 'private', archived: true })
+  })
+
+  test('create_note stamps the caller', async () => {
+    await note(B, { title: 'mine' })
+    const [row] = await db.select().from(schema.notes).all()
+    expect(row!.user_id).toBe(B)
   })
 })

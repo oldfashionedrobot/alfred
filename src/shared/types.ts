@@ -6,7 +6,10 @@
 
 export type Cadence = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
-/** 'YYYY-MM-DD'. Dates are strings end to end — never Date, never a timestamp. */
+/**
+ * 'YYYY-MM-DD'. Dates are strings end to end — never Date. The one instant on the
+ * wire is a note's `updated_at`, epoch ms, since v18.
+ */
 export type ISODate = string
 
 /**
@@ -353,11 +356,111 @@ export interface HistoryView {
 }
 
 // ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+/**
+ * The note palette — Keep's names. A note stores the NAME, never a hex, so each
+ * colour can have a light shade and a dark one and the theme picks. A task's
+ * colour is a different field with a different purpose, and stays `#rrggbb`.
+ */
+export const NOTE_COLORS = [
+  'coral',
+  'peach',
+  'sand',
+  'mint',
+  'sage',
+  'fog',
+  'storm',
+  'dusk',
+  'blossom',
+  'clay',
+  'chalk',
+] as const
+
+export type NoteColor = (typeof NOTE_COLORS)[number]
+
+export function isNoteColor(v: unknown): v is NoteColor {
+  return typeof v === 'string' && (NOTE_COLORS as readonly string[]).includes(v)
+}
+
+/**
+ * A note's Markdown as the text you typed, near enough: backslash escapes and
+ * the entities the editor writes are undone, so `snake_case`, `AT&T` and `1 < 2`
+ * are found by a search for exactly that.
+ *
+ * Not a Markdown renderer, and it imports no editor. What it leaves in is
+ * accepted: a ticked item's `[x]`, a link's address and a heading's `#` are still
+ * text, so a search for `x` finds every note with something ticked.
+ */
+export function plain(markdown: string): string {
+  return (
+    markdown
+      // CommonMark: a backslash before any ASCII punctuation is an escape.
+      .replace(/\\([!-/:-@[-`{-~])/g, '$1')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Last, or `&amp;lt;` would decode twice.
+      .replace(/&amp;/g, '&')
+  )
+}
+
+/**
+ * Nothing in it: a blank title, and a body that is blank once its escapes and
+ * entities are undone. A body of `&nbsp;` lines is nothing; an empty checklist
+ * item, `- [ ] `, is something.
+ *
+ * Shared because both sides ask it and must agree: the client discards a note
+ * emptied and closed, and the server allows `delete_note` on a live note only
+ * when it is blank. Two definitions would turn a disagreement into a 409.
+ */
+export function isBlankNote(note: { title: string; body: string }): boolean {
+  return note.title.trim() === '' && plain(note.body).trim() === ''
+}
+
+export interface Note {
+  id: number
+  title: string
+  /** Markdown. The client parses it to draw a card and edits it in the panel. */
+  body: string
+  /** A palette name, or null for the default. */
+  color: NoteColor | null
+  pinned: boolean
+  archived: boolean
+  /** Epoch ms of the last change to the title or the body. */
+  updated_at: number
+}
+
+/**
+ * The Notes board, or its Archived view — the same shape, asked for with
+ * `?archived=true`, with `pinned` empty there. Each array arrives ordered: the
+ * note edited most recently first, a tie to the newer note. The client never
+ * sorts or filters; `?q=` asks the server to.
+ */
+export interface NotesView {
+  pinned: Note[]
+  others: Note[]
+  /** The viewer's stored zone, for "Edited 3:42pm". */
+  timezone: string
+  /** Today in that zone, so the label can say a time today and a date before. */
+  date: ISODate
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
+/**
+ * Every command answers `{ ok: true }` and nothing else — except `create_note`,
+ * which adds the new note's `id`. A note saves while it is being typed, and
+ * every save after the first needs to know which note it is.
+ */
 export interface CommandOk {
   ok: true
+  id?: number
 }
 
 export interface ApiError {

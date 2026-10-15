@@ -453,3 +453,111 @@ describe('set_task_order', () => {
     })
   }
 })
+
+describe('notes', () => {
+  const noteRows = () => db.select().from(schema.notes).all()
+  const run = (name: string, body: Record<string, unknown>) => runCommand(db, VIEWER, name, body)
+  const create = async (body: Record<string, unknown> = {}) =>
+    ((await run('create_note', body)) as { id: number }).id
+  /** Puts `updated_at` somewhere a test can see it move from. */
+  const backdate = (id: number) =>
+    db.update(schema.notes).set({ updated_at: 1 }).where(eq(schema.notes.id, id)).run()
+  const updatedAt = async (id: number) =>
+    (await db.select().from(schema.notes).where(eq(schema.notes.id, id)).get())!.updated_at
+
+  test('create_note stamps the caller and the time, and is the one command with an id', async () => {
+    const before = Date.now()
+    const id = await create({ title: 'Groceries', body: '- [ ] milk', color: 'sage', pinned: true })
+    const [row] = await noteRows()
+    expect(row).toMatchObject({
+      id,
+      user_id: OWNER,
+      title: 'Groceries',
+      body: '- [ ] milk',
+      color: 'sage',
+      pinned: true,
+      archived: false,
+    })
+    expect(row!.updated_at).toBeGreaterThanOrEqual(before)
+    // Every other command still answers with nothing.
+    expect(await run('update_note', { id, title: 'Shopping' })).toBeUndefined()
+  })
+
+  test('the body is stored byte for byte — never trimmed', async () => {
+    const body = '  indented\n\n  \n- [ ] milk  '
+    const id = await create({ title: '  spaced  ', body })
+    const [row] = await noteRows()
+    expect(row!.body).toBe(body)
+    expect(row!.title).toBe('  spaced  ')
+    await run('update_note', { id, body: '' })
+    expect((await noteRows())[0]!.body).toBe('')
+  })
+
+  test('updated_at moves when the title or body changes', async () => {
+    const id = await create({ title: 'A', body: 'one' })
+    await backdate(id)
+    await run('update_note', { id, title: 'B' })
+    expect(await updatedAt(id)).toBeGreaterThan(1)
+    await backdate(id)
+    await run('update_note', { id, body: 'two' })
+    expect(await updatedAt(id)).toBeGreaterThan(1)
+  })
+
+  test('updated_at does not move for the same text resent, a pin, a colour or an archive', async () => {
+    // Ordering is by updated_at, so pinning must not reshuffle the section it
+    // was done in.
+    const id = await create({ title: 'A', body: 'one' })
+    await backdate(id)
+    await run('update_note', { id, title: 'A', body: 'one' })
+    await run('update_note', { id, pinned: true })
+    await run('update_note', { id, color: 'coral' })
+    await run('update_note', { id, archived: true })
+    expect(await updatedAt(id)).toBe(1)
+    expect((await noteRows())[0]).toMatchObject({ pinned: true, color: 'coral', archived: true })
+  })
+
+  test('null clears a colour; an unknown one is a 400', async () => {
+    const id = await create({ color: 'fog' })
+    await run('update_note', { id, color: null })
+    expect((await noteRows())[0]!.color).toBeNull()
+    await expect(run('update_note', { id, color: '#ff0000' })).rejects.toThrow('palette colour')
+    await expect(run('create_note', { color: 'mauve' })).rejects.toThrow('palette colour')
+  })
+
+  test('an unknown field or a wrong type is a 400, and writes nothing', async () => {
+    await expect(run('create_note', { title: 'x', archived: true })).rejects.toThrow('unexpected')
+    await expect(run('create_note', { title: 7 })).rejects.toThrow('must be a string')
+    await expect(run('create_note', { pinned: 'yes' })).rejects.toThrow('true or false')
+    expect(await noteRows()).toEqual([])
+    const id = await create({ title: 'x' })
+    await expect(run('update_note', { id, owner: 2 })).rejects.toThrow('unexpected')
+    await expect(run('update_note', { id, body: null })).rejects.toThrow('must be a string')
+  })
+
+  test('delete_note refuses a live note with something in it, and leaves it', async () => {
+    const id = await create({ title: 'Keep me' })
+    await expect(run('delete_note', { id })).rejects.toThrow('only from Archived')
+    expect(await noteRows()).toHaveLength(1)
+  })
+
+  test('delete_note deletes an archived note, forever', async () => {
+    const id = await create({ title: 'Old', body: 'stuff' })
+    await run('update_note', { id, archived: true })
+    await run('delete_note', { id })
+    expect(await noteRows()).toEqual([])
+  })
+
+  test('delete_note deletes a live note that has been emptied', async () => {
+    // What closing an emptied note does. Blank means blank once Markdown's own
+    // escapes are undone — a body of `&nbsp;` lines is nothing.
+    const id = await create({ title: 'x', body: 'y' })
+    await run('update_note', { id, title: '  ', body: '&nbsp;\n\n&nbsp;' })
+    await run('delete_note', { id })
+    expect(await noteRows()).toEqual([])
+  })
+
+  test('an empty checklist item is something, not nothing', async () => {
+    const id = await create({ body: '- [ ] ' })
+    await expect(run('delete_note', { id })).rejects.toThrow('only from Archived')
+  })
+})

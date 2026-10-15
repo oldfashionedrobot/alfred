@@ -12,6 +12,7 @@ import { placeableDates, placementMax, placementRanges } from '../src/server/vie
 import { isDone } from '../src/server/period.ts'
 import { buildTodoView } from '../src/server/views/todo.ts'
 import { buildHistoryView } from '../src/server/views/history.ts'
+import { buildNotesView } from '../src/server/views/notes.ts'
 
 /**
  * The view builders, against a real on-disk SQLite database.
@@ -1393,5 +1394,126 @@ describe('history — column colour', () => {
     expect(by('MED').color).toBe('#c2410c')
     expect(by('Zebra').color).toBeNull()
     expect(by('Plain').color).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Notes (v18)
+// ---------------------------------------------------------------------------
+
+describe('buildNotesView', () => {
+  let clock = 1_000
+  /** A note, each one edited later than the last unless told otherwise. */
+  async function addNote(n: {
+    title?: string
+    body?: string
+    pinned?: boolean
+    archived?: boolean
+    updated_at?: number
+    user_id?: number
+  }): Promise<number> {
+    const [row] = await db
+      .insert(schema.notes)
+      .values({
+        user_id: n.user_id ?? USER,
+        title: n.title ?? '',
+        body: n.body ?? '',
+        pinned: n.pinned ?? false,
+        archived: n.archived ?? false,
+        updated_at: n.updated_at ?? (clock += 10),
+      })
+      .returning({ id: schema.notes.id })
+      .all()
+    return row!.id
+  }
+  const titles = (ns: { title: string }[]) => ns.map((n) => n.title)
+  const board = (opts: { archived?: boolean; q?: string } = {}) => buildNotesView(db, VIEWER, opts)
+
+  test('pinned before the rest, each by last edit, newest first', async () => {
+    await addNote({ title: 'old' })
+    await addNote({ title: 'old pinned', pinned: true })
+    await addNote({ title: 'new' })
+    await addNote({ title: 'new pinned', pinned: true })
+    const v = await board()
+    expect(titles(v.pinned)).toEqual(['new pinned', 'old pinned'])
+    expect(titles(v.others)).toEqual(['new', 'old'])
+  })
+
+  test('a tie in edit time goes to the newer note', async () => {
+    await addNote({ title: 'first', updated_at: 5 })
+    await addNote({ title: 'second', updated_at: 5 })
+    expect(titles((await board()).others)).toEqual(['second', 'first'])
+  })
+
+  test('the board leaves archived notes out; Archived holds only them, unsplit', async () => {
+    await addNote({ title: 'live' })
+    await addNote({ title: 'gone pinned', archived: true, pinned: true })
+    await addNote({ title: 'gone', archived: true })
+    expect(titles([...(await board()).pinned, ...(await board()).others])).toEqual(['live'])
+    const archived = await board({ archived: true })
+    expect(archived.pinned).toEqual([])
+    // A pin is kept, so a restored note comes back where it was — but in
+    // Archived it splits nothing off.
+    expect(titles(archived.others)).toEqual(['gone', 'gone pinned'])
+    expect(archived.others.find((n) => n.title === 'gone pinned')!.pinned).toBe(true)
+  })
+
+  test('the view carries the zone and today in it', async () => {
+    const v = await buildNotesView(db, { id: USER, timezone: 'Asia/Tokyo' })
+    expect(v.timezone).toBe('Asia/Tokyo')
+    expect(v.date).toBe(today('Asia/Tokyo'))
+  })
+
+  describe('search', () => {
+    const found = async (q: string, opts: { archived?: boolean } = {}) =>
+      titles((await board({ ...opts, q })).others)
+
+    test('every word, in any order, ignoring case', async () => {
+      await addNote({ title: 'Vet', body: 'Appointment for the DOG on Tuesday' })
+      await addNote({ title: 'Dog food', body: 'buy more' })
+      expect(await found('dog vet')).toEqual(['Vet'])
+      expect(await found('TUESDAY appointment')).toEqual(['Vet'])
+      expect(await found('dog')).toEqual(['Dog food', 'Vet'])
+    })
+
+    test('a missing word fails the note', async () => {
+      await addNote({ title: 'Vet', body: 'the dog' })
+      expect(await found('dog cat')).toEqual([])
+    })
+
+    test('accents are ignored, both ways', async () => {
+      await addNote({ title: 'Café list' })
+      await addNote({ title: 'Plain cafe' })
+      expect(await found('cafe')).toEqual(['Plain cafe', 'Café list'])
+      expect(await found('café')).toEqual(['Plain cafe', 'Café list'])
+    })
+
+    test('finds what Markdown escapes — snake_case, AT&T, 1 < 2', async () => {
+      // As the editor stores them.
+      await addNote({ title: 'a', body: 'snake\\_case' })
+      await addNote({ title: 'b', body: 'AT&amp;T' })
+      await addNote({ title: 'c', body: '1 &lt; 2' })
+      expect(await found('snake_case')).toEqual(['a'])
+      expect(await found('at&t')).toEqual(['b'])
+      expect(await found('1 < 2')).toEqual(['c'])
+    })
+
+    test('a word only in the title is found', async () => {
+      await addNote({ title: 'Passwords', body: 'nothing here' })
+      expect(await found('passwords')).toEqual(['Passwords'])
+    })
+
+    test('it stays inside the view asked of it', async () => {
+      await addNote({ title: 'live dog' })
+      await addNote({ title: 'archived dog', archived: true })
+      expect(await found('dog')).toEqual(['live dog'])
+      expect(await found('dog', { archived: true })).toEqual(['archived dog'])
+    })
+
+    test('a blank query is no filter', async () => {
+      await addNote({ title: 'a' })
+      await addNote({ title: 'b' })
+      expect(await found('   ')).toEqual(['b', 'a'])
+    })
   })
 })

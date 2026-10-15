@@ -5,14 +5,15 @@ import { logout, onSignedOut } from './api.ts'
 import { Popover } from './ui.tsx'
 import Day from './views/day/Day.tsx'
 import History from './views/History.tsx'
+import Notes from './views/notes/Notes.tsx'
 import Login from './views/Login.tsx'
 import Claim from './views/Claim.tsx'
 import Settings from './views/Settings.tsx'
 
-type Tab = 'day' | 'history' | 'settings'
+type Tab = 'day' | 'history' | 'notes' | 'settings'
 
-/** The two tabs the bar shows. Settings is reached from the menu, not from here. */
-const TABS = ['day', 'history'] as const
+/** The three tabs the bar shows. Settings is reached from the menu, not from here. */
+const TABS = ['day', 'history', 'notes'] as const
 
 /**
  * What each tab is CALLED, which is no longer what it is keyed by.
@@ -25,6 +26,7 @@ const TABS = ['day', 'history'] as const
 const TAB_LABEL: Record<(typeof TABS)[number], string> = {
   day: 'To do',
   history: 'Tracker',
+  notes: 'Notes',
 }
 
 /**
@@ -144,6 +146,7 @@ function App() {
       <main className="app" key={session}>
         {tab === 'day' && <Day />}
         {tab === 'history' && <History />}
+        {tab === 'notes' && <Notes />}
         {tab === 'settings' && <Settings />}
       </main>
     </>

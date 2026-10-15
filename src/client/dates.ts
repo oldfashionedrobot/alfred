@@ -170,3 +170,18 @@ export function timeLabel(hour: number, minute?: number): string {
   const mm = minute === undefined ? '' : `:${String(minute).padStart(2, '0')}`
   return `${h12}${mm}${hour < 12 ? 'am' : 'pm'}`
 }
+
+/**
+ * When a note was last edited, as its foot says it: `Edited 3:42pm` today,
+ * `Edited 12 Oct` before that, and the year too once it is not this one.
+ *
+ * `today` is the model's — the client still never asks what day it is — and the
+ * instant is read in the model's zone.
+ */
+export function editedLabel(zone: string, today: ISODate, instant: number): string {
+  const at = clockIn(zone, instant)
+  if (at.date === today) return `Edited ${timeLabel(at.hour, at.minute)}`
+  const { y, m, d } = parts(at.date)
+  const year = y === parts(today).y ? '' : ` ${y}`
+  return `Edited ${d} ${MON[m - 1]}${year}`
+}

@@ -145,11 +145,13 @@ bundled.
 
 The boot time is module loading and `migrate()`, not the Turso sync.
 
-**The client bundle** is 281,121 bytes of JavaScript, measured against a local
-production build. The 120,013 gzipped figure below it was taken over the wire
-from Fly and has not been re-measured since; it will have moved with the raw
-size, and local `gzip -9` is not what the proxy does, so it is left as the last
-real reading rather than replaced with a number from a different instrument. CSS is compressed too. Nothing sets `Cache-Control`;
+**The client bundle** is 777,801 bytes of JavaScript since v18, measured against
+a local production build — 245,944 gzipped locally. Most of it is the notes
+editor, which loads with the app because `Bun.serve` emits one chunk. It was
+281,121 before, and 120,013 over the wire from Fly; that over-the-wire figure has
+not been re-measured since and should be, after the next deploy, along with the
+memory the machine settles at once bundling is done — locally that rose from 85
+MB to 123 MB, against the 101 MB `fly.toml` records from Fly itself. CSS is compressed too. Nothing sets `Cache-Control`;
 Bun sends an `ETag` and honours `If-None-Match`, so a returning visitor pays one
 round trip rather than the bundle.
 
