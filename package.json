@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "start": "bun src/server/index.ts",
+    "build:client": "rm -rf dist && bun build ./src/client/index.html --outdir dist --splitting --production --target browser --public-path=/assets/",
     "test": "bun test tests/",
-    "e2e": "playwright test --project=mobile --project=desktop",
+    "e2e": "playwright test --project=mobile --project=desktop --project=built",
     "e2e:all": "playwright test",
     "e2e:docker": "docker build -q -f Dockerfile.test -t alfred-test . && docker run --rm -v \"$PWD\":/app -v alfred-test-nm:/app/node_modules -w /app alfred-test sh -c \"bun install --frozen-lockfile >/dev/null && bunx playwright test --project=mobile-webkit --project=desktop-webkit\"",
     "e2e:ui": "playwright test --ui --project=mobile --project=desktop",

@@ -1,7 +1,7 @@
 # alfred — Architecture
 
 A household task tracker. One Bun process serves a JSON API and a React client
-bundled from HTML at request time. Data is SQLite, reached through libSQL.
+built ahead of time. Data is SQLite, reached through libSQL.
 
 This document describes what the system is now. Deployment is in
 [`deployment.md`](deployment.md).
@@ -15,7 +15,7 @@ This document describes what the system is now. Deployment is in
 | Runtime | Bun 1.3.14 |
 | Server | `Bun.serve` — routes for `/api/*`, an HTML import for everything else |
 | Client | React 19, no router, no state library, no component library |
-| Bundling | `Bun.serve` builds the client from `src/client/index.html` on first request. No build step. |
+| Bundling | Production: `bun run build:client` in the Dockerfile, code-split, served from `dist/`. Development: `Bun.serve` bundles from `src/client/index.html` on first request, with hot reload. |
 | Database | libSQL (`@libsql/client`) with Drizzle ORM on `sqlite-core` |
 | Drag and drop | `@dnd-kit` |
 | Notes editor | Tiptap 3 with `@tiptap/markdown`, pinned exactly — notes are stored as Markdown |
@@ -172,7 +172,8 @@ from the clock. It takes the viewer's timezone.
 
 ```
 src/server/
-  index.ts       Bun.serve: /api/* to the router, /* to the bundled client
+  index.ts       Bun.serve: /api/* to the router, the rest to the client
+  client.ts      the built client's routes, from its directory
   routes.ts      the whole HTTP surface
   auth.ts        argon2id, session cookie, lockout, invitations
   commands.ts    every write
@@ -321,6 +322,22 @@ ordered and sectioned, posts named commands, and refetches. It never sorts,
 filters, or computes a period. It never asks what day it is — every view model
 carries its own date. Since v17 it asks what **hour** it is, in the zone the Day
 model names, for one purpose: where to draw the now-line.
+
+### Loading
+
+In production the client is built ahead — `bun run build:client` in the
+Dockerfile, with code splitting — and `src/server/client.ts` serves it: every
+hashed file under `/assets/`, cached forever, an unknown `/assets/` path a 404,
+and the page, never cached, for everything else. `CLIENT_DIST` names the
+directory; without it the server bundles from the HTML import, as development
+always does. It is its own switch rather than `NODE_ENV`, which would also make
+the session cookie `Secure` and the built client untestable on localhost.
+
+**The Notes tab is a chunk of its own**, fetched with `React.lazy` the first time
+it is opened — the editor is two thirds of the client, and the cards parse with
+it, so the whole tab goes. A tab open across a deploy asks for a chunk the new
+build does not have; an error boundary offers a Reload, and the page, never
+cached, brings the new one.
 
 ### The shell
 
@@ -532,11 +549,16 @@ the device's guess would hide the mismatch the form exists to fix.
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 290. Each suite names its own timezone rather than inheriting the
+`bun test` runs 297. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 181 tests in each of four projects — `mobile` and `desktop` on Chrome,
-`mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
+Playwright runs 181 tests in each of four projects — `mobile` and `desktop` on
+Chrome, `mobile-webkit` and `desktop-webkit` on WebKit — against the development
+client, on purpose: its React warns about the mistakes the console-error tests
+exist to catch, and production React strips the warnings. A fifth project,
+`built`, runs three more on Chrome against the client as production serves it,
+for what only the build can break: that Notes is a separate chunk, the cache
+headers, and a tab left open across a deploy. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
 the WebKit half in Linux.
@@ -639,9 +661,9 @@ cannot hold; a link button, since links make themselves and selected words take
 a pasted address; typo-tolerant search; ticking from a card; and links between
 notes and tasks, which Markdown was chosen to leave room for.
 
-**Splitting the editor into its own chunk.** It loads with the app. `Bun.serve`
-emits one chunk however the import is written, and splitting would need the
-build step the Dockerfile deliberately does not have — to save bytes a browser
-downloads once per deploy.
+**Fly's `[[statics]]`, compressing in Bun, prefetching Notes.** Statics are
+served from inside the machine, wake it like any request, and cannot carry a
+`Cache-Control`; Fly's proxy already compresses; and prefetching would put the
+editor back onto every cold load of To do, which is what splitting removed.
 
 **Per-user moods, a mood editor, an export UI.** Unchanged and still deferred.

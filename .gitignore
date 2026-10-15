@@ -18,6 +18,9 @@ test-results/
 # typescript incremental build cache
 *.tsbuildinfo
 
+# the built client — `bun run build:client`; the image builds its own
+dist/
+
 # scratch file for `fly secrets import` — never commit one of these
 secrets.txt
 

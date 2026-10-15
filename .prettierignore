@@ -12,6 +12,7 @@
 drizzle/
 
 # Not ours, or not source.
+dist/
 node_modules/
 data/
 e2e-report/

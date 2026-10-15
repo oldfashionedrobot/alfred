@@ -52,8 +52,10 @@ else is in place.
 
 ## The container
 
-`oven/bun:1.3.14-slim`. No build stage: the client is bundled by `Bun.serve` on
-the first request.
+`oven/bun:1.3.14-slim`. One build step since v19: the client is built in the
+image with `bun run build:client` — code-split, so the notes editor is a chunk
+To do never loads — and the server serves the result from `/app/dist`. Fly builds
+the image on its remote builder, so the build never runs on the machine.
 
 ```dockerfile
 FROM oven/bun:1.3.14-slim
@@ -73,6 +75,9 @@ COPY src ./src
 COPY drizzle ./drizzle
 COPY tsconfig.json ./
 
+RUN bun run build:client
+ENV CLIENT_DIST=/app/dist
+
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA NODE_ENV=production
 CMD ["bun", "src/server/index.ts"]
@@ -81,8 +86,8 @@ CMD ["bun", "src/server/index.ts"]
 `node_modules` is installed inside the image and never copied in: libSQL ships a
 native binary per platform. `.dockerignore` enforces that.
 
-`tsconfig.json` is a runtime input, because the client is bundled inside the
-container. `drizzle/` is too — `initDb()` migrates from `./drizzle`, relative to
+`tsconfig.json` is read by the client build and by the server at runtime.
+`drizzle/` is a runtime input too — `initDb()` migrates from `./drizzle`, relative to
 the working directory.
 
 Runs as root. The Fly volume mounts root-owned at `/data`.
@@ -125,8 +130,10 @@ a 60-second lag.
 **No `[checks]`.** CI's smoke test covers the same ground and works while the
 machine is stopped.
 
-**256 MB** against a measured 67 MB at boot and 101 MB once the client has been
-bundled.
+**256 MB** against a measured 67 MB at boot, and 101 MB once the client had been
+bundled — on Fly, before v19. Since v19 nothing bundles on the machine; locally
+the process stays at about 70 MB after serving the client, where bundling it on
+request took it to about 140. Re-measure on Fly after the next deploy.
 
 **Secrets**, set with `fly secrets import`: `TURSO_URL`, `TURSO_AUTH_TOKEN`.
 
@@ -145,19 +152,29 @@ bundled.
 
 The boot time is module loading and `migrate()`, not the Turso sync.
 
-**The client bundle** is 777,801 bytes of JavaScript since v18, measured against
-a local production build — 245,944 gzipped locally. Most of it is the notes
-editor, which loads with the app because `Bun.serve` emits one chunk. It was
-281,121 before, and 120,013 over the wire from Fly; that over-the-wire figure has
-not been re-measured since and should be, after the next deploy, along with the
-memory the machine settles at once bundling is done — locally that rose from 85
-MB to 123 MB, against the 101 MB `fly.toml` records from Fly itself. CSS is compressed too. Nothing sets `Cache-Control`;
-Bun sends an `ETag` and honours `If-None-Match`, so a returning visitor pays one
-round trip rather than the bundle.
+**The client** is built ahead and split since v19. To do and the Tracker load a
+266 KB entry and a 22 KB shared chunk — 92 KB gzipped locally; the Notes tab adds
+a 490 KB chunk, 155 KB gzipped, the first time it is opened after a deploy.
+Before v19 it was one 777,801-byte script for every page.
 
-**Asset paths** are emitted as `/../../chunk-<hash>.js`. Browsers normalise that
-and the app loads. Requested literally, without normalisation, the path falls
-through to the `/*` route and returns the HTML shell with a 200.
+Fly's proxy compresses on the way out — zstd, then Brotli, then gzip, whichever
+the browser accepts — so the gzipped sizes overstate what crosses the wire: the
+pre-v18 bundle went 283 KB → 106 KB with zstd.
+
+**Caching.** Everything under `/assets/` is content-hashed and sent
+`Cache-Control: public, max-age=31536000, immutable`, so a returning browser does
+not ask for it at all. The page is `no-cache`, so every load checks it and a
+deploy is picked up on the next one. Fly's proxy caches nothing in front of the
+app; these headers are all the caching there is. The CI smoke test checks the
+immutable header arrives through the proxy.
+
+**Paths.** Assets are `/assets/<name>-<hash>.<ext>`. An unknown `/assets/` path is
+a 404; every other path outside `/api/` is the page, which keeps `/claim?t=…`
+working. The `/../../chunk-<hash>.js` paths, and the HTML shell answering for an
+unknown asset with a 200, went with the HTML import.
+
+**A tab open across a deploy** asks for a Notes chunk the new image does not
+have. To do and the Tracker are unaffected; Notes offers a Reload.
 
 **Fly Doctor reports that the app is not listening on the expected port.** It is.
 `Bun.serve` binds the IPv6 wildcard, which Linux serves for both families —
