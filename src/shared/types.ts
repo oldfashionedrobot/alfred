@@ -6,10 +6,7 @@
 
 export type Cadence = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
-/**
- * 'YYYY-MM-DD'. Dates are strings end to end — never Date. The one instant on the
- * wire is a note's `updated_at`, epoch ms, since v18.
- */
+/** 'YYYY-MM-DD'. Dates are strings end to end — never Date, never a timestamp. */
 export type ISODate = string
 
 /**
@@ -39,37 +36,6 @@ export function isISODate(v: unknown): v is ISODate {
   if (m < 1 || m > 12 || d < 1 || d > 31) return false
   const dt = new Date(Date.UTC(y, m - 1, d))
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
-}
-
-// ---------------------------------------------------------------------------
-// The day's arrangement
-// ---------------------------------------------------------------------------
-
-/** A divider in today's arrangement: an hour of the day, 0–23. */
-export interface HourEntry {
-  hour: number
-}
-
-/**
- * One entry of `days.task_order`, and of `set_task_order`'s `task_ids`: a task
- * id, or an hour. The day's order and its shape are one list, because where a
- * task sits and which hour it sits under are the same question.
- */
-export type OrderEntry = number | HourEntry
-
-/**
- * `{ hour: 0..23 }` and nothing else — exactly one key, an integer in range.
- *
- * One definition because two places need it: `set_task_order` refuses what fails
- * it, and the day view's reader drops what fails it. A typo'd key is not an
- * hour, the same stance `onlyFields` takes on a command body.
- */
-export function isHourEntry(v: unknown): v is HourEntry {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false
-  const keys = Object.keys(v)
-  if (keys.length !== 1 || keys[0] !== 'hour') return false
-  const h = (v as { hour: unknown }).hour
-  return typeof h === 'number' && Number.isInteger(h) && h >= 0 && h <= 23
 }
 
 // ---------------------------------------------------------------------------
@@ -148,12 +114,6 @@ export interface DayTask {
   category: string | null
 }
 
-/** A divider on today's list: the hour, and the index in `tasks` it is drawn above. */
-export interface HourMark {
-  hour: number
-  before: number
-}
-
 /**
  * One future day of the VIEWED week, in `DayView.upcoming`.
  *
@@ -200,22 +160,6 @@ export interface DayView {
    * panes" would be two things to keep in step.
    */
   tasks: DayTask[]
-  /**
-   * Today's dividers, in the order they are drawn. Each is drawn above
-   * `tasks[before]`; `before` counts live rows only, so it never exceeds the
-   * number of rows not done, and an hour at the foot of the plan sits above the
-   * done block. Two hours with the same `before` are an empty hour.
-   *
-   * The server places them; the client splices. It never has to reason about a
-   * stale id, a done row or a task the arrangement does not list.
-   */
-  hours: HourMark[]
-  /**
-   * The viewer's stored zone, for the now-line. The client reads the clock for
-   * the HOUR, in this zone — never the browser's, because a day belongs to a
-   * person and not to the device they are holding.
-   */
-  timezone: string
   /**
    * All seven days of the VIEWED week, Sunday first. The day strip renders one
    * button each and disables those before `date`; the client never derives a
@@ -356,124 +300,11 @@ export interface HistoryView {
 }
 
 // ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
-/**
- * The note palette — Keep's names. A note stores the NAME, never a hex, so each
- * colour can have a light shade and a dark one and the theme picks. A task's
- * colour is a different field with a different purpose, and stays `#rrggbb`.
- */
-export const NOTE_COLORS = [
-  'coral',
-  'peach',
-  'sand',
-  'mint',
-  'sage',
-  'fog',
-  'storm',
-  'dusk',
-  'blossom',
-  'clay',
-  'chalk',
-] as const
-
-export type NoteColor = (typeof NOTE_COLORS)[number]
-
-export function isNoteColor(v: unknown): v is NoteColor {
-  return typeof v === 'string' && (NOTE_COLORS as readonly string[]).includes(v)
-}
-
-/**
- * A note's Markdown as the text you typed, near enough: backslash escapes and
- * the entities the editor writes are undone, so `snake_case`, `AT&T` and `1 < 2`
- * are found by a search for exactly that.
- *
- * Not a Markdown renderer, and it imports no editor. What it leaves in is
- * accepted: a ticked item's `[x]`, a link's address and a heading's `#` are still
- * text, so a search for `x` finds every note with something ticked.
- */
-export function plain(markdown: string): string {
-  return (
-    markdown
-      // CommonMark: a backslash before any ASCII punctuation is an escape.
-      .replace(/\\([!-/:-@[-`{-~])/g, '$1')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      // Last, or `&amp;lt;` would decode twice.
-      .replace(/&amp;/g, '&')
-  )
-}
-
-/**
- * Nothing in it: a blank title, a body that is blank once its escapes and
- * entities are undone, no colour and no pin. A body of `&nbsp;` lines is
- * nothing; an empty checklist item, `- [ ] `, is something — and so is a colour
- * or a pin, which is what creates a note in the first place.
- *
- * Shared because both sides ask it and must agree: the client discards a note
- * emptied and closed, and the server allows `delete_note` on a live note only
- * when it is blank. Two definitions would turn a disagreement into a 409. Without
- * the colour and the pin, emptying a pinned note's text to start it again and
- * closing it would have deleted it forever, unasked.
- */
-export function isBlankNote(note: {
-  title: string
-  body: string
-  color?: string | null
-  pinned?: boolean
-}): boolean {
-  return (
-    note.title.trim() === '' &&
-    plain(note.body).trim() === '' &&
-    (note.color ?? null) === null &&
-    !note.pinned
-  )
-}
-
-export interface Note {
-  id: number
-  title: string
-  /** Markdown. The client parses it to draw a card and edits it in the panel. */
-  body: string
-  /** A palette name, or null for the default. */
-  color: NoteColor | null
-  pinned: boolean
-  archived: boolean
-  /** Epoch ms of the last change to the title or the body. */
-  updated_at: number
-}
-
-/**
- * The Notes board, or its Archived view — the same shape, asked for with
- * `?archived=true`, with `pinned` empty there. Each array arrives ordered: the
- * note edited most recently first, a tie to the newer note. The client never
- * sorts or filters; `?q=` asks the server to.
- */
-export interface NotesView {
-  pinned: Note[]
-  others: Note[]
-  /** The viewer's stored zone, for "Edited 3:42pm". */
-  timezone: string
-  /** Today in that zone, so the label can say a time today and a date before. */
-  date: ISODate
-}
-
-// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
-/**
- * Every command answers `{ ok: true }` and nothing else — except `create_note`,
- * which adds the new note's `id`. A note saves while it is being typed, and
- * every save after the first needs to know which note it is.
- */
 export interface CommandOk {
   ok: true
-  id?: number
 }
 
 export interface ApiError {

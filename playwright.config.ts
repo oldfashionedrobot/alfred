@@ -1,22 +1,16 @@
 import { defineConfig } from '@playwright/test'
-import type { Options } from './e2e/fixtures.ts'
 
 /**
  * Each test gets its own server process and its own SQLite file — see e2e/fixtures.ts.
  * There is no `webServer` block here on purpose: a shared server would mean tests
- * share a database, and this app's data is nearly append-only — the one delete is a
- * note's, from Archived — so one test's completions would leak into the next one's
- * grid.
+ * share a database, and this app's data is append-only with no delete API, so one
+ * test's completions would leak into the next one's grid.
  */
 const MOBILE = { width: 390, height: 844 }
-/** The spec only the `built` project runs. */
-const BUILT = /built\.spec\.ts$/
 const DESKTOP = { width: 1280, height: 900 }
 
-export default defineConfig<Options>({
+export default defineConfig({
   testDir: './e2e',
-  // Builds `dist/` once, before any project, for the `built` one. About 50 ms.
-  globalSetup: './e2e/build-client.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // One retry in CI only. A retried pass is reported as *flaky* rather than as
@@ -45,8 +39,7 @@ export default defineConfig<Options>({
   },
 
   /*
-   * Four projects: two engines, two viewports — and a fifth, `built`, which runs
-   * one spec against the client as production serves it.
+   * Four projects: two engines, two viewports.
    *
    * `channel` lives on the Chrome projects rather than in `use`, because WebKit
    * inherits anything there and cannot take it. That single line was the only
@@ -65,30 +58,12 @@ export default defineConfig<Options>({
       name: 'mobile',
       // The locally installed Google Chrome, so Chrome needs no browser download.
       use: { channel: 'chrome', viewport: MOBILE, isMobile: true, hasTouch: true },
-      testIgnore: BUILT,
     },
-    { name: 'desktop', use: { channel: 'chrome', viewport: DESKTOP }, testIgnore: BUILT },
+    { name: 'desktop', use: { channel: 'chrome', viewport: DESKTOP } },
     {
       name: 'mobile-webkit',
       use: { browserName: 'webkit', viewport: MOBILE, isMobile: true, hasTouch: true },
-      testIgnore: BUILT,
     },
-    {
-      name: 'desktop-webkit',
-      use: { browserName: 'webkit', viewport: DESKTOP },
-      testIgnore: BUILT,
-    },
-    /*
-     * The client as production serves it: built ahead, code-split, minified, with
-     * production React. The rest of the suite runs the development client — see
-     * `builtClient` in fixtures.ts for why — so what only the build can break is
-     * tested here: that Notes is a chunk of its own, the cache headers, and a tab
-     * left open across a deploy.
-     */
-    {
-      name: 'built',
-      use: { channel: 'chrome', viewport: DESKTOP, builtClient: true },
-      testMatch: BUILT,
-    },
+    { name: 'desktop-webkit', use: { browserName: 'webkit', viewport: DESKTOP } },
   ],
 })

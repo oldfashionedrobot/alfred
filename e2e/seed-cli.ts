@@ -5,7 +5,7 @@
  *
  *   bun e2e/seed-cli.ts <dbPath> '<json op>'
  *
- * Prints JSON to stdout: { id } for a task or a note, {} otherwise.
+ * Prints JSON to stdout: { id } for a task, {} otherwise.
  */
 import { Database } from 'bun:sqlite'
 
@@ -38,24 +38,6 @@ switch (op.kind) {
   case 'completion':
     db.run('INSERT OR IGNORE INTO completions (task_id, completed_on) VALUES (?, ?)', [op.task_id, op.completed_on])
     break
-  // A note with an edit time of the test's choosing — the command API always
-  // stamps now, and "Edited 12 Oct" needs a note last edited before today.
-  case 'note': {
-    db.run(
-      'INSERT INTO notes (user_id, title, body, color, pinned, archived, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [
-        op.user_id ?? 1,
-        op.title ?? '',
-        op.body ?? '',
-        op.color ?? null,
-        op.pinned ? 1 : 0,
-        op.archived ? 1 : 0,
-        op.updated_at ?? Date.now(),
-      ],
-    )
-    out = db.query('SELECT last_insert_rowid() AS id').get() as Record<string, unknown>
-    break
-  }
   case 'day':
     db.run(
       'INSERT INTO days (user_id, date, mood, log, task_order) VALUES (?, ?, ?, ?, ?) ' +

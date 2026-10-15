@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test'
 import type { TaskRow } from '../src/server/schema.ts'
-import { byCategoryName, sortTasks } from '../src/server/sort.ts'
+import { sortTasks } from '../src/server/sort.ts'
 
 /** What a view passes in: a task row plus the doneness it derived for it. */
 type Row = TaskRow & { is_done: boolean }
@@ -35,7 +35,7 @@ describe('sortTasks', () => {
     expect(sortTasks([], [1, 2, 3])).toEqual([])
   })
 
-  test('null taskOrder: everything sorts by name', () => {
+  test('null taskOrder: everything sorts by name within its band', () => {
     const tasks = [task(1, 'Vacuum'), task(2, 'Bins'), task(3, 'Laundry')]
     expect(names(sortTasks(tasks, null))).toEqual(['Bins', 'Laundry', 'Vacuum'])
   })
@@ -45,30 +45,33 @@ describe('sortTasks', () => {
     expect(names(sortTasks(tasks, []))).toEqual(['Bins', 'Vacuum'])
   })
 
-  test('baseline does not lift a task: names decide', () => {
-    // It was the top band until v17. Hour dividers need live rows in their
-    // stored order, and a band hoists rows past their neighbours.
+  test('baseline is always the top band, whatever the names', () => {
     const tasks = [
-      task(1, 'Aardvark'),
-      task(2, 'Zebra', true), // baseline, alphabetically last
+      task(1, 'Aardvark'), // non-baseline, alphabetically first overall
+      task(2, 'Zebra', true), // baseline, alphabetically last overall
       task(3, 'Bins'),
       task(4, 'Meds', true),
     ]
-    expect(names(sortTasks(tasks, null))).toEqual(['Aardvark', 'Bins', 'Meds', 'Zebra'])
+    expect(names(sortTasks(tasks, null))).toEqual(['Meds', 'Zebra', 'Aardvark', 'Bins'])
   })
 
-  test('the arrangement interleaves baseline and plain tasks freely', () => {
+  test('bands never mix, even when taskOrder interleaves them', () => {
     const tasks = [
-      task(1, 'Bins'),
-      task(2, 'Meds', true),
-      task(3, 'Vacuum'),
-      task(4, 'Sleep', true),
+      task(1, 'Bins'), // band 2
+      task(2, 'Meds', true), // band 1
+      task(3, 'Vacuum'), // band 2
+      task(4, 'Sleep', true), // band 1
     ]
-    // Alternating baseline and plain, which bands used to forbid.
-    expect(ids(sortTasks(tasks, [1, 4, 3, 2]))).toEqual([1, 4, 3, 2])
+    // taskOrder deliberately alternates bands.
+    const out = sortTasks(tasks, [1, 4, 3, 2])
+    expect(ids(out)).toEqual([4, 2, 1, 3])
+    // Every baseline task precedes every non-baseline one.
+    const lastBaseline = out.map((t) => t.is_baseline).lastIndexOf(true)
+    const firstOther = out.map((t) => t.is_baseline).indexOf(false)
+    expect(lastBaseline).toBeLessThan(firstOther)
   })
 
-  test('taskOrder is respected', () => {
+  test('taskOrder is respected within a band', () => {
     const tasks = [task(1, 'Aaa'), task(2, 'Bbb'), task(3, 'Ccc')]
     expect(ids(sortTasks(tasks, [3, 1, 2]))).toEqual([3, 1, 2])
     expect(ids(sortTasks(tasks, [2, 3, 1]))).toEqual([2, 3, 1])
@@ -81,19 +84,16 @@ describe('sortTasks', () => {
     expect(names(out)).toEqual(['Mango', 'Zucchini', 'Apple', 'Banana'])
   })
 
-  test('unlistedAt puts the unlisted rows where the caller says', () => {
-    // Day passes its first hour's position, so a task the arrangement does not
-    // place waits above every hour instead of falling under the last one.
-    const tasks = [task(1, 'Aaa'), task(2, 'Bbb'), task(3, 'Zzz new'), task(4, 'Mmm new')]
-    expect(names(sortTasks(tasks, [1, 2], 1))).toEqual(['Aaa', 'Mmm new', 'Zzz new', 'Bbb'])
-    expect(names(sortTasks(tasks, [1, 2], 0))).toEqual(['Mmm new', 'Zzz new', 'Aaa', 'Bbb'])
-    // At the end of the list it is the default: below everything listed.
-    expect(names(sortTasks(tasks, [1, 2], 2))).toEqual(names(sortTasks(tasks, [1, 2])))
-  })
-
-  test('an unlisted done task still sinks, wherever unlisted rows wait', () => {
-    const tasks = [task(1, 'Aaa'), ticked(task(2, 'Bbb')), task(3, 'Ccc')]
-    expect(names(sortTasks(tasks, [1, 3], 0))).toEqual(['Aaa', 'Ccc', 'Bbb'])
+  test('listed-below-unlisted holds inside each band independently', () => {
+    const tasks = [
+      task(1, 'Meds', true),
+      task(2, 'Sleep', true),
+      task(3, 'Bins'),
+      task(4, 'Vacuum'),
+    ]
+    // Arrange one task in each band; the other in each band falls below it.
+    const out = sortTasks(tasks, [2, 4])
+    expect(names(out)).toEqual(['Sleep', 'Meds', 'Vacuum', 'Bins'])
   })
 
   test('ids in taskOrder that match no passed task are ignored harmlessly', () => {
@@ -131,7 +131,7 @@ describe('sortTasks', () => {
     expect(names(sortTasks(tasks, null))).toEqual(expected)
   })
 
-  test('name prefixes group naturally', () => {
+  test('name prefixes group naturally within a band', () => {
     const tasks = [
       task(1, 'Dog: Feed Barney 2'),
       task(2, 'Bins out'),
@@ -146,15 +146,15 @@ describe('sortTasks', () => {
     ])
   })
 
-  test('runs over any array carrying the four fields it compares', () => {
+  test('runs over any array carrying the five fields it compares', () => {
     // Views pass their own row shapes, not TaskRow — the signature is structural.
     // `is_done` is in it and NOT on TaskRow: every caller derives it.
     const rows = [
-      { id: 2, name: 'Meds', category: null, is_done: false, state: 'daily' },
-      { id: 1, name: 'Bins', category: null, is_done: false, state: 'planned' },
+      { id: 1, name: 'Bins', is_baseline: false, category: null, is_done: false, state: 'planned' },
+      { id: 2, name: 'Meds', is_baseline: true, category: null, is_done: false, state: 'daily' },
     ]
     const out = sortTasks(rows, null)
-    expect(out.map((r) => r.state)).toEqual(['planned', 'daily'])
+    expect(out.map((r) => r.state)).toEqual(['daily', 'planned'])
   })
 
   test('a done task sinks below every live one, whatever its name says', () => {
@@ -167,14 +167,27 @@ describe('sortTasks', () => {
 
   test('a done task sinks even when the arrangement puts it first', () => {
     const tasks = [ticked(task(1, 'Bins')), task(2, 'Vacuum')]
-    // The arrangement is obeyed among live rows and among done ones, never
-    // across the two.
+    // The arrangement is obeyed inside a band, never across one.
     expect(ids(sortTasks(tasks, [1, 2]))).toEqual([2, 1])
   })
 
+  test('DONE OUTRANKS BASELINE — a ticked baseline task sinks below live ones', () => {
+    // The `byBand` argument, applied here: a struck-through row at the top is
+    // not what "the bare minimum to function" should look like.
+    const tasks = [ticked(task(1, 'Meds', true)), task(2, 'Bins'), task(3, 'Sleep', true)]
+    expect(names(sortTasks(tasks, null))).toEqual(['Sleep', 'Bins', 'Meds'])
+  })
+
+  test('baseline still leads inside the done band', () => {
+    // Done is a band of its own, not a flattening: the rest of the order still
+    // applies within it, which is what makes a ticked list readable.
+    const tasks = [ticked(task(1, 'Apple')), ticked(task(2, 'Zebra', true)), task(3, 'Bins')]
+    expect(names(sortTasks(tasks, null))).toEqual(['Bins', 'Zebra', 'Apple'])
+  })
+
   test('the done band keeps its own arrangement, so tick and untick returns a task', () => {
-    // A task ticked after the day was arranged keeps its slot in task_order, so
-    // the position survives the round trip through the done band.
+    // set_task_order stores the whole rendered list, done ids included, and this
+    // is why: the position survives the round trip through the done band.
     const tasks = [ticked(task(1, 'Aaa')), ticked(task(2, 'Bbb')), task(3, 'Ccc')]
     expect(ids(sortTasks(tasks, [2, 1]))).toEqual([3, 2, 1])
   })
@@ -201,7 +214,7 @@ describe('sortTasks', () => {
     expect(ids(sortTasks(tasks, [1, 2]))).toEqual([1, 2])
   })
 
-  test('a full Day-view shaped list: arrangement, then names', () => {
+  test('a full Day-view shaped list: bands, arrangement, then names', () => {
     const tasks = [
       task(10, 'Sleep', true),
       task(11, 'Meds', true),
@@ -210,35 +223,8 @@ describe('sortTasks', () => {
       task(21, 'Bins'),
       task(22, 'Grocery run'),
     ]
-    // The user arranged Meds, Sleep and Vacuum; the rest fall below, by name,
-    // baseline or not.
+    // The user arranged Meds above Sleep, and Vacuum above everything else.
     const out = sortTasks(tasks, [11, 10, 20])
-    expect(names(out)).toEqual(['Meds', 'Sleep', 'Vacuum', 'Bins', 'Exercise', 'Grocery run'])
-  })
-})
-
-describe('byCategoryName', () => {
-  test('baseline decides nothing', () => {
-    const vital = { name: 'Zzz vital', category: 'Zebra', is_baseline: true }
-    const chore = { name: 'Aaa chore', category: 'Admin', is_baseline: false }
-    expect([vital, chore].sort(byCategoryName).map((t) => t.name)).toEqual([
-      'Aaa chore',
-      'Zzz vital',
-    ])
-  })
-
-  test('category first, uncategorised last, then name', () => {
-    const rows = [
-      { name: 'Aaa loose', category: null },
-      { name: 'Walk', category: 'Dog' },
-      { name: 'Bins', category: 'House' },
-      { name: 'Brush', category: 'Dog' },
-    ]
-    expect(rows.sort(byCategoryName).map((t) => t.name)).toEqual([
-      'Brush',
-      'Walk',
-      'Bins',
-      'Aaa loose',
-    ])
+    expect(names(out)).toEqual(['Meds', 'Sleep', 'Exercise', 'Vacuum', 'Bins', 'Grocery run'])
   })
 })

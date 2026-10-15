@@ -9,7 +9,7 @@ import { TaskFields, draftIsValid, draftToPatch, type TaskDraft } from './TaskFi
  * It opens from two places now — a name in the To do panel, and the edit button
  * on a Day row. A name is not an edit target on Day; a distinct button is.
  *
- * Archive is the only removal for a task; a task is never deleted.
+ * Archive is the only removal; there is no delete anywhere.
  */
 
 /** The fields the editor needs. Both `DayTask` and `TodoTask` satisfy it. */

@@ -15,7 +15,6 @@ import { periodStart } from './period.ts'
 import { today } from './today.ts'
 import { buildDayView } from './views/day.ts'
 import { buildHistoryView } from './views/history.ts'
-import { buildNotesView } from './views/notes.ts'
 import { buildTodoView } from './views/todo.ts'
 
 /** History pages back at most a year at a time. The only ceiling, and it is here. */
@@ -25,9 +24,8 @@ const MAX_LIMIT = 365
  * The /api router. Two endpoint kinds and nothing else:
  *   GET  /api/status                          -> { ok, date, sha }, ungated
  *   POST /api/login | /api/logout             -> { ok: true }, ungated
- *   GET  /api/day | /api/todo | /api/history | /api/notes -> a view model
- *   POST /api/commands/<name>                  -> { ok: true }, and an `id`
- *                                                 from `create_note` alone
+ *   GET  /api/day | /api/todo | /api/history  -> a view model
+ *   POST /api/commands/<name>                  -> { ok: true }
  *
  * Every one of them is answered FOR A USER. `currentUser` is the only place a
  * request becomes an identity, and nothing below it can forget to ask.
@@ -161,18 +159,15 @@ export async function handleApi(req: Request): Promise<Response> {
     if (req.method === 'POST' && path.startsWith('/api/commands/')) {
       const name = path.slice('/api/commands/'.length)
       if (name !== '' && !name.includes('/')) {
-        // Spread rather than returned: `{ ok: true }` is still the whole answer
-        // for every command but `create_note`, which adds the note's id.
-        const result = await runCommand(db, user, name, await readBody(req))
-        return json({ ok: true, ...result })
+        await runCommand(db, user, name, await readBody(req))
+        return json({ ok: true })
       }
     }
 
     if (req.method === 'GET') {
       switch (path) {
-        // Not a view: the two fields a person can change about themselves.
-        // The Day view carries the zone too since v17, for its now-line — but as
-        // a fact to draw with, not a setting to edit, and the username nowhere.
+        // Not a view: the two fields a person can change about themselves,
+        // which no view payload carries.
         case '/api/account':
           return json({ username: user.username, timezone: user.timezone })
         case '/api/day':
@@ -183,8 +178,6 @@ export async function handleApi(req: Request): Promise<Response> {
           return json(
             await buildHistoryView(db, user, historyOptions(url.searchParams, user.timezone)),
           )
-        case '/api/notes':
-          return json(await buildNotesView(db, user, notesOptions(url.searchParams)))
       }
     }
 
@@ -284,23 +277,6 @@ function historyOptions(
     opts.before = before
   }
 
-  return opts
-}
-
-/**
- * The whole query-string boundary for Notes. `archived` is `true` or absent —
- * not `1`, not `false`, so there is one spelling of the Archived view. `q` is any
- * text, and a blank one asks for nothing.
- */
-function notesOptions(params: URLSearchParams): { archived?: boolean; q?: string } {
-  const opts: { archived?: boolean; q?: string } = {}
-  const archived = params.get('archived')
-  if (archived !== null) {
-    if (archived !== 'true') throw new BadRequest('archived must be true, or absent')
-    opts.archived = true
-  }
-  const q = params.get('q')
-  if (q !== null) opts.q = q
   return opts
 }
 
