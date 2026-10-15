@@ -409,16 +409,29 @@ export function plain(markdown: string): string {
 }
 
 /**
- * Nothing in it: a blank title, and a body that is blank once its escapes and
- * entities are undone. A body of `&nbsp;` lines is nothing; an empty checklist
- * item, `- [ ] `, is something.
+ * Nothing in it: a blank title, a body that is blank once its escapes and
+ * entities are undone, no colour and no pin. A body of `&nbsp;` lines is
+ * nothing; an empty checklist item, `- [ ] `, is something — and so is a colour
+ * or a pin, which is what creates a note in the first place.
  *
  * Shared because both sides ask it and must agree: the client discards a note
  * emptied and closed, and the server allows `delete_note` on a live note only
- * when it is blank. Two definitions would turn a disagreement into a 409.
+ * when it is blank. Two definitions would turn a disagreement into a 409. Without
+ * the colour and the pin, emptying a pinned note's text to start it again and
+ * closing it would have deleted it forever, unasked.
  */
-export function isBlankNote(note: { title: string; body: string }): boolean {
-  return note.title.trim() === '' && plain(note.body).trim() === ''
+export function isBlankNote(note: {
+  title: string
+  body: string
+  color?: string | null
+  pinned?: boolean
+}): boolean {
+  return (
+    note.title.trim() === '' &&
+    plain(note.body).trim() === '' &&
+    (note.color ?? null) === null &&
+    !note.pinned
+  )
 }
 
 export interface Note {

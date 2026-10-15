@@ -66,11 +66,17 @@ export default function Notes() {
    * A ref, not state: nothing renders from it. A failure shows a notice; the next
    * save carries the whole text and heals it.
    */
-  const chain = useRef<Promise<void>>(Promise.resolve())
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
   const enqueue: Enqueue = (job) => {
-    chain.current = chain.current.then(job).catch((e: unknown) => {
-      setNotice({ tone: 'error', text: `Not saved. ${errorText(e)}` })
-    })
+    const ran = chain.current.then(job).then(
+      () => true,
+      (e: unknown) => {
+        setNotice({ tone: 'error', text: `Not saved. ${errorText(e)}` })
+        return false
+      },
+    )
+    chain.current = ran
+    return ran
   }
 
   /*
@@ -81,8 +87,20 @@ export default function Notes() {
    * nothing after a reload.
    */
   const pushed = useRef(false)
+  /*
+   * A `history.back()` closing asked for, not landed yet. It lands
+   * asynchronously, so a note opened in between — Escape, then Enter on the card
+   * — would otherwise have its OWN entry popped by it and close at once. Its
+   * popstate is ours, not a Back press, and is passed over; the new note keeps
+   * its entry, one step further on, and Back still closes it.
+   */
+  const backing = useRef(false)
   useEffect(() => {
     const onPop = () => {
+      if (backing.current) {
+        backing.current = false
+        return
+      }
       if (!pushed.current) return
       pushed.current = false
       setOpen(null)
@@ -109,6 +127,7 @@ export default function Notes() {
     setOpen(null)
     if (pushed.current) {
       pushed.current = false
+      backing.current = true
       window.history.back()
     }
   }

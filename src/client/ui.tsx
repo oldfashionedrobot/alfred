@@ -361,16 +361,28 @@ export function Sheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Read during the first render, not in an effect: a sheet whose first field
+  // autofocuses — a new note's title, capture's name — has already moved focus
+  // by the time an effect runs, and would then return it to an input that is
+  // gone, which is nowhere.
+  //
+  // Only on a REAL unmount, when the sheet's own node has left the document.
+  // React's development StrictMode rehearses an unmount straight after mounting,
+  // with the node still in place — and returning focus then pulled it out of the
+  // autofocused field the moment the sheet opened.
+  const [opener] = useState(() => document.activeElement)
+  const scrim = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const opener = document.activeElement
+    const node = scrim.current
     return () => {
+      if (node?.isConnected) return
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
     }
-  }, [])
+  }, [opener])
 
   const panel = variant === 'panel'
   return (
-    <div className={panel ? 'sheet-scrim sheet-scrim--panel' : 'sheet-scrim'}>
+    <div ref={scrim} className={panel ? 'sheet-scrim sheet-scrim--panel' : 'sheet-scrim'}>
       {/* Not in the tab order: Escape and the Close button already cover keyboard. */}
       <button className="sheet-scrim-hit" tabIndex={-1} aria-label="Close" onClick={onClose} />
       <div

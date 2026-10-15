@@ -120,9 +120,12 @@ Since v15 a save has appended every done id after the arrangement, so that a tas
 ticked and unticked would come back to where it was. With hours, the end of the
 arrangement is the last hour's block, and a task done when you arranged the day
 would come back under 5pm. Left out of the save, it is simply unlisted, and comes
-back above the first hour. A task ticked *after* the save keeps its slot as it
-always has; only the done block's own order loses its arrangement, and falls to
-category and name.
+back above the first hour. A task ticked *after* the save keeps its slot — until
+the arrangement is saved again, which leaves it out like any done task, so
+unticked after that it comes back above the first hour, one drag from where it
+was. Keeping it in place across saves would need the server to merge the old
+arrangement into the new, for an untick after a re-arrangement; not worth it.
+The done block's own order falls to category and name.
 
 **Hours are per-day, and a new day starts blank.** `task_order` is keyed
 `(user_id, date)` like the mood and the log, so the dividers are too. Every

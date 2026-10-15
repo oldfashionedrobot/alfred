@@ -556,6 +556,18 @@ describe('notes', () => {
     expect(await noteRows()).toEqual([])
   })
 
+  test('an emptied note with a pin or a colour is something, not nothing', async () => {
+    // What creates a note — text, a colour or a pin — is what keeps it. Emptying
+    // a pinned note's text to start it again must not delete it forever.
+    const pinned = await create({ title: 'x', pinned: true })
+    const tinted = await create({ title: 'y', color: 'coral' })
+    await run('update_note', { id: pinned, title: '' })
+    await run('update_note', { id: tinted, title: '' })
+    await expect(run('delete_note', { id: pinned })).rejects.toThrow('only from Archived')
+    await expect(run('delete_note', { id: tinted })).rejects.toThrow('only from Archived')
+    expect(await noteRows()).toHaveLength(2)
+  })
+
   test('an empty checklist item is something, not nothing', async () => {
     const id = await create({ body: '- [ ] ' })
     await expect(run('delete_note', { id })).rejects.toThrow('only from Archived')

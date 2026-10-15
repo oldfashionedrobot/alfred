@@ -12,8 +12,12 @@ import { editedLabel } from '../../dates.ts'
 import { Confirm, Popover, Sheet } from '../../ui.tsx'
 import { noteExtensions } from './noteExtensions.ts'
 
-/** The board's one command chain, every note command in order. See `Notes`. */
-export type Enqueue = (job: () => Promise<void>) => void
+/**
+ * The board's one command chain, every note command in order — see `Notes`.
+ * Resolves true when the job ran, false when it failed (the board has already
+ * said so).
+ */
+export type Enqueue = (job: () => Promise<void>) => Promise<boolean>
 
 type Draft = { title: string; body: string }
 
@@ -33,10 +37,16 @@ type Draft = { title: string; body: string }
  * - The panel seeds its text ONCE and never re-reads it. The board refetches
  *   after every save, as it does after every command here, and a refetch must not
  *   overwrite what is being typed.
- * - Closing — by Close, Escape, a tap outside, Back, a tab switch or signing out
- *   — saves from this component's unmount, the way the day's log already does:
- *   one path for all of them. A note emptied here and closed is saved empty and
- *   then deleted.
+ * - Closing by Close, Escape or a tap outside WAITS for the last save, and stays
+ *   open if it fails — the text is still on screen and the notice says why. A
+ *   brand-new note closed inside its first second would otherwise be lost
+ *   whole, not just its last second. Archive waits the same way.
+ * - Back, a tab switch and signing out cannot wait — the panel is already
+ *   leaving — so they save from this component's unmount, the way the day's log
+ *   does, and a failure there loses what that save carried. Accepted.
+ * - A note emptied here and closed is saved empty and then deleted — the delete
+ *   only once the empty save has landed, since the server deletes a live note
+ *   only when what it holds IS empty.
  *
  * The unsaved text is a form draft, the same kind the log, the task editor and
  * capture already hold.
@@ -78,6 +88,8 @@ export function NotePanel({
   const touched = useRef(false)
   /** Archived or deleted from here: nothing more of it to save. */
   const gone = useRef(false)
+  /** A close is waiting on its save — a second tap on Close is not another. */
+  const closing = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // The board's callbacks change identity with every render of the board; the
@@ -85,13 +97,14 @@ export function NotePanel({
   const props = useRef({ enqueue, onSaved, onCreated })
   props.current = { enqueue, onSaved, onCreated }
 
-  const save = () => {
+  /** True once there is nothing unsaved — saved now, or nothing to save. */
+  const save = (): Promise<boolean> => {
     clearTimeout(timer.current)
-    if (gone.current) return
-    props.current.enqueue(async () => {
+    if (gone.current) return Promise.resolve(true)
+    return props.current.enqueue(async () => {
       const d = draft.current
       if (id.current === null) {
-        if (isBlankNote(d)) return
+        if (isBlankNote({ ...d, ...extras.current })) return
         id.current = await createNote({ ...d, ...extras.current })
         props.current.onCreated(id.current)
       } else if (d.title !== sent.current.title || d.body !== sent.current.body) {
@@ -173,13 +186,14 @@ export function NotePanel({
       clearTimeout(timer.current)
       if (gone.current) return
       saveNow.current()
-      // Emptied here: saved empty first, on the same chain, because the server
-      // deletes a live note only once it IS empty — then deleted. The id is read
-      // when the delete runs, so a first save still in flight is waited for.
-      if (touched.current && isBlankNote(draft.current)) {
+      // Emptied here: saved empty first, on the same chain, then deleted. The
+      // delete reads what was last SAVED, so if the empty save failed it does
+      // not go out to be refused; and it reads the id when it runs, so a first
+      // save still in flight is waited for.
+      if (touched.current && isBlankNote({ ...draft.current, ...extras.current })) {
         gone.current = true
         props.current.enqueue(async () => {
-          if (id.current === null) return
+          if (id.current === null || !isBlankNote({ ...sent.current, ...extras.current })) return
           await command('delete_note', { id: id.current })
           props.current.onSaved()
         })
@@ -205,13 +219,27 @@ export function NotePanel({
     })
   }
 
+  /** Close, Escape, a tap outside: once the last save has landed, or not at all. */
+  const close = async () => {
+    if (closing.current) return
+    closing.current = true
+    const saved = await save()
+    closing.current = false
+    if (saved) onClose()
+  }
+
   /**
-   * Archive, restore or delete forever — each closes the note. Whatever was typed
-   * is saved first, on the same chain, and the id is read when the gesture runs,
-   * so a first save still in flight is waited for rather than missed.
+   * Archive, restore or delete forever — each closes the note, once whatever was
+   * typed is saved. If that save fails, nothing is archived and the note stays
+   * open: archiving a note whose text never arrived would archive the wrong
+   * thing, or nothing at all.
    */
-  const finish = (gesture: 'archive' | 'restore' | 'delete') => {
-    save()
+  const finish = async (gesture: 'archive' | 'restore' | 'delete') => {
+    if (closing.current) return
+    closing.current = true
+    const saved = await save()
+    closing.current = false
+    if (!saved) return
     gone.current = true
     props.current.enqueue(async () => {
       const target = id.current
@@ -232,7 +260,7 @@ export function NotePanel({
       title={note === null ? 'New note' : note.title.trim() || 'Note'}
       variant="panel"
       color={color}
-      onClose={onClose}
+      onClose={close}
       actions={
         <>
           {!archivedView && (

@@ -271,6 +271,10 @@ other way steps back over the entry this session pushed. There is no URL to
 reload, link to or confuse with an invitation. The cost is one Back press that
 does nothing after a reload.
 
+That step back lands asynchronously, so a note opened in between — Escape, then
+Enter on the next card — would have had its own entry popped and closed at once.
+The board passes over the popstate it asked for. Found in review.
+
 Escape is ignored while an input method is composing. Escape inside the colour
 popover closes only the popover: `Popover` stops the key going further, one line,
 and no popover sits inside a sheet today, so nothing else changes.
@@ -279,7 +283,10 @@ Opening an existing note does not focus anything. A new note focuses its title �
 a native input, focused inside the tap, because iOS only raises the keyboard for
 focus that happens during the gesture and Tiptap's own autofocus runs just after
 it. `Sheet` returns focus to whatever opened it when it closes, which every sheet
-gains.
+gains. It records the opener during its first render, not in an effect — a new
+note's title has taken focus by then — and returns focus only once its node has
+really left the document, because React's development StrictMode rehearses an
+unmount straight after mounting. Both found in review.
 
 **There is no Save button.** A note saves a second after you stop typing, when
 you switch away from the app, and when it closes.
@@ -291,18 +298,27 @@ you switch away from the app, and when it closes.
 - So a note opened and closed blank never reaches the server, and discarding it
   costs nothing. A saved note emptied here and closed is saved empty and then
   deleted, on the same chain: the server deletes a live note only once it IS
-  empty, and checks what is stored, not what the client says.
+  empty, and checks what is stored, not what the client says. The delete goes
+  out only if the empty save landed.
+- *Empty* means no title, no text, **no colour and no pin** — the same things
+  that create a note. Found in review: without the last two, emptying a pinned
+  note's text to start it again and closing it deleted it forever, unasked.
 - Every save sends the whole title and body, and only when they differ from what
   was last sent. All of a note's commands run one after another on one chain, so
   a slow first save cannot be overtaken — and cannot be sent twice.
 - After each save the board is refetched, as after every command here. The open
   panel seeds its text once and never re-reads it, so a refetch cannot overwrite
   what you are typing. Behind the panel, the edited card moves to the front.
-- Closing saves from the panel's unmount, the way the log already does — one path
-  for Close, Escape, a tap outside, Back, a tab switch and signing out.
-- A failed save shows a notice, and the next save, carrying the whole text, heals
-  it. A failed save on close loses that last second; so does being signed out
-  mid-edit. Both accepted.
+- Close, Escape and a tap outside **wait for the last save**, and stay open if it
+  fails, the text still on screen and the notice saying why. Archive waits the
+  same way. Found in review: closing straight away, a brand-new note closed
+  inside its first second lost the whole note on a failed save, not just a
+  second of it.
+- Back, a tab switch and signing out cannot wait — the panel is already going —
+  so they save from its unmount, the way the log does, and a failure there loses
+  what that save carried. Accepted.
+- A failed save while the note stays open shows a notice, and the next save,
+  carrying the whole text, heals it.
 
 **A new note opens the same panel, empty.** Keep's expanding *"Take a note…"* bar
 is a second editing surface with its own rules, and one is enough.

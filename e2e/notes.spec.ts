@@ -299,10 +299,87 @@ test('Back, Escape and a tap outside each close a note, and focus comes home', a
   }
 })
 
-test('a new note focuses its title', async ({ page, app }) => {
+test('a new note focuses its title, and closing it focuses New note again', async ({
+  page,
+  app,
+}) => {
   await openNotes(page, app)
   await page.getByRole('button', { name: 'New note' }).click()
   await expect(titleBox(page)).toBeFocused()
+  // The title's autofocus moves focus before the sheet could record where it
+  // came from — so the sheet records it during its first render instead.
+  await close(page)
+  await expect(page.getByRole('button', { name: 'New note' })).toBeFocused()
+})
+
+test('a close whose save fails keeps the note open, with its text', async ({ page, app }) => {
+  await page.route('**/api/commands/create_note', (route) =>
+    route.fulfill({ status: 500, body: '{"error":"down"}' }),
+  )
+  await openNotes(page, app)
+  await page.getByRole('button', { name: 'New note' }).click()
+  await titleBox(page).fill('Do not lose me')
+  await close(page)
+
+  await expect(page.getByText(/^Not saved/)).toBeVisible()
+  await expect(panel(page)).toBeVisible()
+  await expect(titleBox(page)).toHaveValue('Do not lose me')
+
+  // Once the server answers, closing saves and closes.
+  await page.unroute('**/api/commands/create_note')
+  await close(page)
+  await expect(panel(page)).toHaveCount(0)
+  expect(all(await notesView(app)).map((n) => n.title)).toEqual(['Do not lose me'])
+})
+
+test('emptying a pinned note keeps it — a pin is something', async ({ page, app }) => {
+  app.seed.note({ title: 'Keep me', body: 'old list', pinned: true })
+  await openNotes(page, app)
+  await card(page, 'Keep me').click()
+  await titleBox(page).fill('')
+  await editor(page).click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.press('Backspace')
+
+  const saved_ = saved(page, 'update_note')
+  await close(page)
+  await saved_
+  await expect(panel(page)).toHaveCount(0)
+  const [note] = all(await notesView(app))
+  expect(note).toMatchObject({ title: '', pinned: true })
+})
+
+test('closing a note and opening another at once leaves the new one open', async ({
+  page,
+  app,
+}) => {
+  app.seed.note({ title: 'Alpha', body: 'a' })
+  app.seed.note({ title: 'Bravo', body: 'b' })
+  await openNotes(page, app)
+
+  // Hold history.back() until released, so the second note is provably opened
+  // before the first one's traversal lands — the race, made deterministic.
+  await page.evaluate(() => {
+    const w = window as unknown as { held?: () => void }
+    const back = history.back.bind(history)
+    history.back = () => {
+      w.held = back
+    }
+  })
+
+  await card(page, 'Alpha').click()
+  await page.keyboard.press('Escape')
+  await expect(panel(page)).toHaveCount(0)
+  await card(page, 'Bravo').click()
+  await expect(page.getByRole('dialog', { name: 'Bravo' })).toBeVisible()
+
+  const popped = page.evaluate(
+    () => new Promise<void>((r) => addEventListener('popstate', () => r(), { once: true })),
+  )
+  await page.evaluate(() => (window as unknown as { held: () => void }).held())
+  await popped
+  // Alpha's traversal landed — and Bravo is still open.
+  await expect(page.getByRole('dialog', { name: 'Bravo' })).toBeVisible()
 })
 
 test('a ticked item is struck through and stays where it is', async ({ page, app }) => {
@@ -439,4 +516,13 @@ test('no console errors working a note', async ({ page, app }) => {
 
   await page.waitForLoadState('networkidle')
   expect(errors).toEqual([])
+})
+
+test('the notes view takes ?archived=true and no other spelling', async ({ app }) => {
+  // One spelling of the Archived view — routes.ts is the whole query-string
+  // boundary, and checks it as strictly as it checks `week`.
+  expect((await app.fetch('/api/notes?archived=true')).status).toBe(200)
+  for (const bad of ['1', 'false', 'yes', '']) {
+    expect((await app.fetch(`/api/notes?archived=${bad}`)).status).toBe(400)
+  }
 })

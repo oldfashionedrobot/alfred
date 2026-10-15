@@ -439,7 +439,14 @@ export default function Day() {
      * came back where it was. With hours, the end of the arrangement is the last
      * hour's block, and a task already done when the day was laid out would have
      * come back under 5pm. Left out, it is unlisted, and an unlisted task waits
-     * above the first hour. A task ticked AFTER this save keeps its slot.
+     * above the first hour.
+     *
+     * So a task ticked after this save keeps its slot only UNTIL THE NEXT ONE:
+     * saving again leaves it out like any done task, and unticked after that it
+     * comes back above the first hour, unscheduled, to be dragged where it goes.
+     * Keeping it in place across saves would need the server to merge the old
+     * arrangement into the new, for an untick after a re-arrangement — and the
+     * answer it gives instead is visible and one drag from right.
      *
      * Cleared only once the write has landed: clearing first threw the
      * arrangement away on failure, silently (D5).

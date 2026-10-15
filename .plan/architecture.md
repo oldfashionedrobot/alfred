@@ -436,7 +436,8 @@ out. Move to top means above every hour; send to bottom means the last hour's
 block. The saved arrangement is the live rows and the hours. Done ids are not
 saved since v17 — the end of the arrangement is the last hour's block, so a task
 already done when the day was laid out would come back under it when unticked;
-unlisted, it waits above the first hour instead.
+unlisted, it waits above the first hour instead. A task ticked after a save keeps
+its slot until the next save, which leaves it out the same way.
 
 The mood and the log sit behind a button on the date heading that wears the
 selected mood. They are a once-a-day gesture and were taking permanent space on a
@@ -512,7 +513,10 @@ app is hidden, and when it closes — from the panel's unmount, one path for eve
 way of closing. Every note command runs on one chain, so a slow first save can
 be neither overtaken nor sent twice; `create_note` answers with the id the rest
 need. A note opened and closed blank never reaches the server; one emptied and
-closed is saved empty and deleted.
+closed is saved empty and deleted — unless it has a colour or a pin, which count
+as something, as they do when a note is created. Close, Escape and a tap outside
+wait for the last save and stay open if it fails; Back and a tab switch cannot,
+and save on the way out.
 
 **Back closes a note.** Opening one pushes a history entry without changing the
 URL, and Back pops it. It is the only history the app keeps besides the
