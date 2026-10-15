@@ -27,14 +27,26 @@
 .notes-tools {
   display: flex;
   flex: 1 1 18rem;
+  /* Allowed to be narrower than its content, so the search box gives way. */
+  min-width: 0;
   align-items: center;
   gap: var(--gap-2);
 }
 
+/* No width of its own: WebKit counts a text input's built-in width — about
+   twenty characters — towards the row's minimum, which pushed New note off a
+   390px screen while Chrome's narrower measure hid it. Zero, and it takes
+   whatever the buttons leave. */
 .notes-search {
-  flex: 1;
+  flex: 1 1 0;
+  width: 0;
   min-width: 0;
   min-height: var(--tap);
+}
+
+.notes-tools .btn {
+  flex: none;
+  white-space: nowrap;
 }
 
 .notes-h2 {

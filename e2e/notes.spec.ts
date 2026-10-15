@@ -138,9 +138,10 @@ test('a blank new note sends nothing; an emptied note is deleted on close', asyn
   await page.getByRole('banner').getByRole('button', { name: 'Notes', exact: true }).click()
   await card(page, 'Temp').click()
   await titleBox(page).fill('')
-  await editor(page).click()
-  await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.press('Backspace')
+  // fill, not a select-all chord: Ctrl+A did not select the editor's text on
+  // WebKit in CI, and the note was never emptied.
+  await editor(page).fill('')
+  await expect(editor(page)).toHaveText('')
 
   const deleted = saved(page, 'delete_note')
   await close(page)
@@ -337,9 +338,8 @@ test('emptying a pinned note keeps it — a pin is something', async ({ page, ap
   await openNotes(page, app)
   await card(page, 'Keep me').click()
   await titleBox(page).fill('')
-  await editor(page).click()
-  await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.press('Backspace')
+  await editor(page).fill('')
+  await expect(editor(page)).toHaveText('')
 
   const saved_ = saved(page, 'update_note')
   await close(page)
@@ -347,6 +347,7 @@ test('emptying a pinned note keeps it — a pin is something', async ({ page, ap
   await expect(panel(page)).toHaveCount(0)
   const [note] = all(await notesView(app))
   expect(note).toMatchObject({ title: '', pinned: true })
+  expect(note!.body.replace(/&nbsp;/g, '').trim()).toBe('')
 })
 
 test('closing a note and opening another at once leaves the new one open', async ({
@@ -482,10 +483,16 @@ test('one column on a phone, centred columns on a desktop, never sideways', asyn
     // Two cards, two columns, in the middle — the gap left equals the gap right.
     expect(Math.abs(a.x - b.right)).toBeLessThanOrEqual(2)
   }
-  const sideways = await page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-  )
-  expect(sideways).toBe(false)
+  const sideways = () =>
+    page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(await sideways()).toBe(false)
+
+  // And on the narrowest phone, where Chrome too pushed New note off the screen
+  // until the search box stopped claiming a width of its own (WebKit did at 390).
+  if (test.info().project.name.startsWith('mobile')) {
+    await page.setViewportSize({ width: 320, height: 640 })
+    expect(await sideways()).toBe(false)
+  }
 })
 
 test('no console errors working a note', async ({ page, app }) => {
