@@ -185,16 +185,13 @@
   margin-block: var(--gap-2);
 }
 
-/* Baseline band: a quiet tint, not a heading. The server has already sorted
-   these to the top; the boundary is read off is_baseline, never re-grouped. */
+/* Baseline: a quiet tint. It was the fill of the baseline band until v17; now
+   that a baseline task can sit anywhere — under 2pm, between two plain rows — it
+   is what still tells you at a glance which rows are baseline. */
 .day-row--baseline {
   /* background-color, not the shorthand: the shorthand would reset the
      background-image that draws the cadence stripe. */
   background-color: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
-}
-
-.day-row--band-start {
-  border-top: 2px solid var(--border);
 }
 
 /* Overdue means "needs a new day", not "you failed": a warm edge and a plain
@@ -299,6 +296,120 @@
 .day-mood-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* --- hours ---------------------------------------------------------------
+   A divider is a tag and a rule, never a task: no tick, no stripe, no name. It
+   does not use .day-row, which draws the cadence stripe. The tag sits INSIDE
+   the row — `.day-list` clips its overflow and a phone has no gutter to hang
+   one in. */
+
+.day-hour {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  min-height: 32px;
+  padding: 0 var(--gap-3);
+  background: var(--surface-2);
+}
+
+/* The rule across, after the tag. */
+.day-hour::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-control);
+}
+
+.day-hour-tag {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Behind now: the tag dims and nothing else does. --text-dim, not opacity, so
+   it still holds 4.5:1 — and the tasks under it are still owed, so they stay. */
+.day-hour[data-past] .day-hour-tag {
+  color: var(--text-dim);
+}
+
+.day-row + .day-hour,
+.day-hour + .day-row,
+.day-hour + .day-hour {
+  border-top: 1px solid var(--border);
+}
+
+/* Where you are: under the divider of the hour you are in. */
+.day-now {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  padding: 0 var(--gap-3);
+  height: 18px;
+}
+
+.day-now::before {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--accent);
+}
+
+.day-now-label {
+  order: 1;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Reorder mode: the hint, and the one control that adds to the day's shape. */
+.day-reorder-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-2);
+  margin-bottom: var(--gap-2);
+}
+
+.day-reorder-bar .day-hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.day-hour--reordering {
+  cursor: grab;
+  padding: 0 var(--gap-1) 0 0;
+  min-height: var(--tap);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--gap-1);
+}
+
+.day-hour--reordering::after {
+  display: none;
+}
+
+.day-hour--reordering[data-dragging] {
+  cursor: grabbing;
+  z-index: 1;
+  box-shadow: var(--shadow);
+  opacity: 0.9;
+}
+
+.day-hour-select {
+  min-height: var(--tap);
+  padding: 0 var(--gap-2);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.day-hour-remove {
+  margin-left: auto;
 }
 
 /* --- capture ------------------------------------------------------------ */

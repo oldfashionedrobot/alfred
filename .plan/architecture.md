@@ -1,7 +1,7 @@
 # alfred — Architecture
 
 A household task tracker. One Bun process serves a JSON API and a React client
-bundled from HTML at request time. Data is SQLite, reached through libSQL.
+built ahead of time. Data is SQLite, reached through libSQL.
 
 This document describes what the system is now. Deployment is in
 [`deployment.md`](deployment.md).
@@ -15,16 +15,17 @@ This document describes what the system is now. Deployment is in
 | Runtime | Bun 1.3.14 |
 | Server | `Bun.serve` — routes for `/api/*`, an HTML import for everything else |
 | Client | React 19, no router, no state library, no component library |
-| Bundling | `Bun.serve` builds the client from `src/client/index.html` on first request. No build step. |
+| Bundling | Production: `bun run build:client` in the Dockerfile, code-split, served from `dist/`. Development: `Bun.serve` bundles from `src/client/index.html` on first request, with hot reload. |
 | Database | libSQL (`@libsql/client`) with Drizzle ORM on `sqlite-core` |
 | Drag and drop | `@dnd-kit` |
+| Notes editor | Tiptap 3 with `@tiptap/markdown`, pinned exactly — notes are stored as Markdown |
 | Tests | `bun test` for units, Playwright for browsers |
 
 ---
 
 ## Data model
 
-Five tables.
+Six tables.
 
 ### `users`
 
@@ -45,7 +46,7 @@ Five tables.
 | `id` | integer, autoincrement |
 | `user_id` | owner. Indexed. Every query filters on it. |
 | `name` | text |
-| `is_baseline` | boolean. Sorts above everything else. |
+| `is_baseline` | boolean. A mark on the row — its colour, a heavier name and a tint. Decides no position anywhere since v17. |
 | `cadence` | `day` \| `week` \| `month` \| `quarter` \| `year`, or **null for a one-off** |
 | `planned_date` | `YYYY-MM-DD`, or null. The day this is placed on. |
 | `color` | `#rrggbb`, or null. Rendered only for baseline tasks. |
@@ -60,8 +61,9 @@ completing twice on one date is a no-op. `completed_on` is indexed.
 ### `days`
 
 One row per user per day: `user_id` + `date` as a composite primary key, plus
-`mood` (a foreign key to `moods.slug`), `log` (free text), and `task_order` (a
-JSON array of task ids).
+`mood` (a foreign key to `moods.slug`), `log` (free text), and `task_order` — a
+JSON array of task ids and, since v17, `{ "hour": 0–23 }` entries: the day's
+arrangement and the hour dividers in it, as one list.
 
 ### `moods`
 
@@ -69,11 +71,25 @@ JSON array of task ids).
 user picks from the same set. Edited directly in the database; there is no mood
 editor in the app.
 
+### `notes`
+
+| Column | |
+|---|---|
+| `id` | integer, autoincrement |
+| `user_id` | owner. Indexed. `loadNote` enforces it as `loadTask` does for tasks. |
+| `title` | text, may be empty |
+| `body` | Markdown, checklists included. Not validated beyond being a string, and stored byte for byte. |
+| `color` | a palette name — Keep's eleven — or null. Never a hex. |
+| `pinned` | boolean |
+| `archived` | boolean. Off the board; the only place a note can be deleted forever from. |
+| `updated_at` | epoch ms of the last change to the title or the body. A pin, a colour or an archive does not move it. |
+
 ### Dates
 
-Every date column is a `YYYY-MM-DD` string. No times are stored anywhere. The
-only instants in the system are the session cookie's expiry, the login lockout,
-and `claim_expires`, all epoch milliseconds.
+Every date column is a `YYYY-MM-DD` string. The one instant stored as data is a
+note's `updated_at`, since v18 — a date could not tell this morning's edit from
+last night's. The others are the session cookie's expiry, the login lockout,
+and `claim_expires`. All are epoch milliseconds.
 
 ---
 
@@ -124,15 +140,28 @@ edited.
 **Ordering** is two functions, deliberately not one.
 
 `sortTasks` orders the To do list: **done** last whatever else is true of it,
-then baseline, then the day's own arrangement from `days.task_order`, then
-category (uncategorised last), then name. Done outranks baseline because a
-struck-through row at the top is not what "the bare minimum to function" should
-look like.
+then the day's own arrangement from `days.task_order`, then category
+(uncategorised last), then name. A task the arrangement does not list waits
+above the day's first hour — unscheduled — or, on a day with no hours, falls
+below everything listed.
 
-`byBand` orders a backlog group: overdue, placed, unplaced, done — then baseline,
-category, name. It has bands the To do list does not want and no `task_order`,
-which is the whole point of the other one. Folding them would produce one
-function taking flags to switch off half of itself.
+`byBand` orders a backlog group: overdue, placed, unplaced, done — then category,
+name. It has bands the To do list does not want and no `task_order`, which is
+the whole point of the other one. Folding them would produce one function taking
+flags to switch off half of itself. The category-then-name tail is one function,
+`byCategoryName`, shared by both and by the Tracker's columns.
+
+**Baseline is not a position.** It was a band above everything else until v17,
+when the hour dividers needed live rows to render in exactly their stored order:
+a band hoists rows past their stored neighbours, and a divider placed between two
+of them could not survive it.
+
+**Hours** are entries in `days.task_order`, not properties of a task. The view
+says where each is drawn — above however many live rows the arrangement lists
+before it — so stale ids, duplicates and done rows count for nothing, and
+ticking a task leaves the dividers where they were. `arrangementPosition` in
+`sort.ts` is the one definition of where a task sits, used by both the sort and
+the hour placement.
 
 **Today** is `today(zone)` in `src/server/today.ts`, the only place a date is read
 from the clock. It takes the viewer's timezone.
@@ -143,18 +172,19 @@ from the clock. It takes the viewer's timezone.
 
 ```
 src/server/
-  index.ts       Bun.serve: /api/* to the router, /* to the bundled client
+  index.ts       Bun.serve: /api/* to the router, the rest to the client
+  client.ts      the built client's routes, from its directory
   routes.ts      the whole HTTP surface
   auth.ts        argon2id, session cookie, lockout, invitations
   commands.ts    every write
   schema.ts      drizzle tables
   db.ts          libSQL connection, migrations, mood seed
   period.ts      period derivation
-  sort.ts        the one ordering function
+  sort.ts        the ordering functions
   today.ts       the only clock read for a date
   errors.ts      ApiFailure and its subclasses
   user-cli.ts    account management
-  views/         one builder per screen
+  views/         one builder per screen, notes.ts among them
 ```
 
 `src/shared/types.ts` is the contract both sides import: the wire types, the
@@ -177,11 +207,12 @@ becomes an identity.
 
 | | |
 |---|---|
-| `GET /api/day` | `DayView` — one `tasks` array, done last, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date` and `tasks` are still **today's** whatever is asked for. |
+| `GET /api/day` | `DayView` — one `tasks` array, done last, today's `hours` and the viewer's `timezone`, plus one week's panes. `?week=YYYY-MM-DD` chooses the week, forward only; `date`, `tasks` and `hours` are still **today's** whatever is asked for. |
 | `GET /api/todo` | `TodoView` — all six cadence groups, one-off first |
 | `GET /api/history` | `HistoryView`, accepting `limit` (max 365) and `before` |
-| `POST /api/commands/<name>` | `{ ok: true }` |
-| `GET /api/account` | `{ username, timezone }` — the two fields no view payload carries |
+| `GET /api/notes` | `NotesView` — `pinned` and `others`, each by last edit, plus the zone and today. `?archived=true` is the Archived view, one list; `?q=` searches either. |
+| `POST /api/commands/<name>` | `{ ok: true }` — and the new note's `id` from `create_note`, the one command that answers with anything |
+| `GET /api/account` | `{ username, timezone }` — the two fields a person can change about themselves |
 | `POST /api/account/timezone` | `{ timezone }` |
 | `POST /api/account/password` | `{ current, next }`, and a fresh session cookie |
 
@@ -193,10 +224,11 @@ Every response carries `cache-control: no-store`.
 
 `complete`, `uncomplete`, `place`, `unplan`, `reset_overdue`, `create_task`,
 `create_tasks`, `update_task`, `archive_task`, `set_mood`, `set_log`,
-`set_task_order`, `set_completion`.
+`set_task_order`, `set_completion`, `create_note`, `update_note`, `delete_note`.
 
 `runCommand` takes a `Viewer` — `{ id, timezone }` — reads the clock once, and
-passes that date down. `loadTask` is the single point where ownership is
+passes that date down; the note commands are handed the same instant for
+`updated_at`, so one command cannot straddle midnight with two answers. `loadTask` is the single point where ownership is
 enforced; a task belonging to somebody else is a 404.
 
 **Completing is a thing you do today.** `complete` and `uncomplete` take no date
@@ -270,29 +302,47 @@ src/client/
   api.ts             typed fetch, the client's only I/O
   dates.ts           date formatting and calendar arithmetic on strings
   zones.ts           the IANA zone list, for the two forms that offer one
-  ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet, placementMaxFor
+  ui.tsx             NoticeBar, Tick, Popover, DayPicker, Confirm, Sheet (bottom, or a note's panel), placementMaxFor
   TaskFields.tsx     the task definition fields
   TaskEditor.tsx     the editor, opened from a To do row's Edit button and from a backlog row's name
   styles.css         tokens and primitives, including .track and .pane
   icons/             generated favicons
   views/
-    day/             Day.tsx, TaskRow, DayStrip, GroupStrip, PagedTrack, UpcomingPane, CaptureSheet, DragBand, MoodAndLog
+    day/             Day.tsx, TaskRow, DayStrip, GroupStrip, PagedTrack, UpcomingPane, CaptureSheet, DragList, MoodAndLog
     Todo.tsx         the Backlog track
     History.tsx      the Tracker grid
     Login.tsx        the signed-out surface
     Claim.tsx        spending an invitation
     Settings.tsx     your own timezone and password
+    notes/           Notes.tsx, NoteCard, NoteBody, NotePanel, noteExtensions
 ```
 
 The server derives everything. The client renders arrays that arrive already
 ordered and sectioned, posts named commands, and refetches. It never sorts,
 filters, or computes a period. It never asks what day it is — every view model
-carries its own date.
+carries its own date. Since v17 it asks what **hour** it is, in the zone the Day
+model names, for one purpose: where to draw the now-line.
+
+### Loading
+
+In production the client is built ahead — `bun run build:client` in the
+Dockerfile, with code splitting — and `src/server/client.ts` serves it: every
+hashed file under `/assets/`, cached forever, an unknown `/assets/` path a 404,
+and the page, never cached, for everything else. `CLIENT_DIST` names the
+directory; without it the server bundles from the HTML import, as development
+always does. It is its own switch rather than `NODE_ENV`, which would also make
+the session cookie `Secure` and the built client untestable on localhost.
+
+**The Notes tab is a chunk of its own**, fetched with `React.lazy` the first time
+it is opened — the editor is two thirds of the client, and the cards parse with
+it, so the whole tab goes. A tab open across a deploy asks for a chunk the new
+build does not have; an error boundary offers a Reload, and the page, never
+cached, brings the new one.
 
 ### The shell
 
-A fixed top bar carries the two tabs — **To do** and **Tracker** — and an account
-menu. The labels are not the keys: the tabs are keyed `day` and `history`, which
+A fixed top bar carries the three tabs — **To do**, **Tracker** and **Notes** —
+and an account menu. The labels are not the keys: the tabs are keyed `day` and `history`, which
 name the view models, the routes and the files. "Day" stopped being a day in v8,
 when the rest of the week became panes beside it; renaming through the stack
 would have been a rename of everything to change two words on screen.
@@ -344,8 +394,24 @@ the model agrees, so the box moves on the tap rather than after the round trip.
 The command is chosen from what is on screen, not from the model — otherwise a
 tap on a visibly-checked box re-sends `complete` and the undo is lost. Only the
 box is predicted; the re-sort waits for the refetch, or the row would leave from
-under the finger that tapped it. With `orderIds` this is one of exactly two
-things the client holds that it did not derive from a model.
+under the finger that tapped it.
+
+**What the client holds that it did not derive from a model**, in full, because
+the point of the rule is that you can count them:
+
+| | |
+|---|---|
+| `arrangement` | Day.tsx — the reorder edit state, a locally rearranged list of task ids and keyed hours |
+| `intent` | Day.tsx, Todo.tsx, History.tsx — the done state asked for, until the model agrees |
+| the current hour | Day.tsx — `useHourIn`, read in the model's zone once a minute, for the now-line |
+| form drafts | the log, the task editor, capture, and an open note — text being typed, until it is saved |
+
+Four kinds. Form drafts went uncounted until v18 added a fourth one; they are
+counted now, as one row. It said "exactly two" until v16 gave the Tracker its
+own prediction, which is how a sentence like that earns its keep: it is supposed
+to be checkable, and it stopped being true the moment a third surface started
+predicting. Nothing else is held, and the model is still replaced wholesale on
+refetch everywhere except the Tracker, which says why below.
 
 Commands for one row are **ordered**: two taps send two commands, and unordered
 they race, so an `uncomplete` can land before the `complete` it was undoing.
@@ -354,12 +420,24 @@ A row shows a tick, a name, a left stripe (border grey, overdue colour, or a
 baseline task's own colour), and an Edit button. Overdue and future rows also
 offer a day picker and an unplan.
 
-Reorder is a modal state holding a locally rearranged id list; drags cannot cross
-the baseline boundary because each band is its own drag context. Move to top and
-send to bottom go through the same reorder a drag does, so they obey the bands
-for free. The saved order is the whole rendered list, done ids included — sending
-only the live half would drop their positions, since `sortTasks` arranges the
-done band by the same `task_order`.
+**Hours divide the day.** A divider is a row in the same list — a heading inside
+a list item, so a screen reader hears the day's shape — carrying an hour you put
+there and no other: a 2pm, five tasks, a 5pm. Done rows sink below every hour.
+Anything the arrangement does not place waits above the first hour. A new day
+starts with none.
+
+A **now-line** sits under the divider of the latest hour that has started, or
+above the first before any has; the dividers before it dim their tags, never
+their tasks. It is drawn, never stored, and not drawn while reordering.
+
+Reorder is a modal state that arranges the day: drag rows and hours in one list
+and one drag context, add an hour, re-time one with a native select, take one
+out. Move to top means above every hour; send to bottom means the last hour's
+block. The saved arrangement is the live rows and the hours. Done ids are not
+saved since v17 — the end of the arrangement is the last hour's block, so a task
+already done when the day was laid out would come back under it when unticked;
+unlisted, it waits above the first hour instead. A task ticked after a save keeps
+its slot until the next save, which leaves it out the same way.
 
 The mood and the log sit behind a button on the date heading that wears the
 selected mood. They are a once-a-day gesture and were taking permanent space on a
@@ -412,6 +490,48 @@ going to the grid; the everyday tick still cannot name a day.
 
 Moods and logs are not editable here. Only the cells are.
 
+### Notes
+
+A board of cards. Tap one and the note opens over the board — the whole screen
+on a phone, a centred panel on anything wider; type, and it saves; close it, and
+you are back where you were. Pinned notes sit in a section above the rest.
+Searching matches every word typed, in any order, ignoring case and accents —
+on the server, like every other filter.
+
+**Notes are Markdown.** Tiptap edits them, through `@tiptap/markdown`, and the
+cards are drawn from the same parse — one extension list, `noteExtensions.ts` —
+walked into React, never `innerHTML`, and with nothing on a card interactive but
+the card itself. Underline, strike, inline code and quotes are switched off in
+the schema: Markdown cannot hold underline, and the others have shortcuts of
+their own. The rule and the code block stay in it, off the toolbar, because
+switching them off made a `---` line or an indented one vanish on reload.
+Checklists sit anywhere in the text; a tick is applied by the panel rather than
+by Tiptap, whose handler throws on touch devices and raises the keyboard.
+
+**There is no Save button.** A note saves a second after typing stops, when the
+app is hidden, and when it closes — from the panel's unmount, one path for every
+way of closing. Every note command runs on one chain, so a slow first save can
+be neither overtaken nor sent twice; `create_note` answers with the id the rest
+need. A note opened and closed blank never reaches the server; one emptied and
+closed is saved empty and deleted — unless it has a colour or a pin, which count
+as something, as they do when a note is created. Close, Escape and a tap outside
+wait for the last save and stay open if it fails; Back and a tab switch cannot,
+and save on the way out.
+
+**Back closes a note.** Opening one pushes a history entry without changing the
+URL, and Back pops it. It is the only history the app keeps besides the
+invitation link, and it has no URL.
+
+**Archive is the delete.** Archived is a second view of the board, where a note
+is restored or deleted forever behind `Confirm`. `delete_note` refuses a live
+note unless it is empty.
+
+The colour palette is Keep's, stored by name; each name has a light and a dark
+shade, and on a coloured surface the dimmed text, the accent and control borders
+are drawn in the body text colour, because most shades fail 4.5:1 against them.
+The board opts out of the 720px column as the Tracker does, and is capped at as
+many card widths as its larger section has cards, so both sections share columns.
+
 ### Settings
 
 Two independent forms, each saving on its own, because they carry different
@@ -428,16 +548,21 @@ the device's guess would hide the mismatch the form exists to fix.
 | `tests/period.test.ts` | period derivation and `today(zone)` |
 | `tests/sort.test.ts` | the two ordering functions |
 | `tests/views.test.ts` | the view builders, against a real database |
-| `tests/commands.test.ts` | what commands write |
+| `tests/commands.test.ts` | what commands write, `set_task_order`'s shape and the note commands included |
 | `tests/isolation.test.ts` | that one user never sees another's data |
 | `tests/auth.test.ts` | claiming an invitation, and changing your own zone or password |
 | `tests/harness.ts` | a temporary migrated database per test |
 
-`bun test` runs 234. Each suite names its own timezone rather than inheriting the
+`bun test` runs 297. Each suite names its own timezone rather than inheriting the
 process's.
 
-Playwright runs 636 across four projects — `mobile` and `desktop` on Chrome,
-`mobile-webkit` and `desktop-webkit` on WebKit. Every test gets its own server
+Playwright runs 181 tests in each of four projects — `mobile` and `desktop` on
+Chrome, `mobile-webkit` and `desktop-webkit` on WebKit — against the development
+client, on purpose: its React warns about the mistakes the console-error tests
+exist to catch, and production React strips the warnings. A fifth project,
+`built`, runs three more on Chrome against the client as production serves it,
+for what only the build can break: that Notes is a separate chunk, the cache
+headers, and a tab left open across a deploy. Every test gets its own server
 process and its own database file; the fixture signs in over HTTP. WebKit cannot
 run on macOS 14, so `bun run e2e` is Chrome only and `bun run e2e:docker` runs
 the WebKit half in Linux.
@@ -448,6 +573,12 @@ different waits were tried against it before the question became whether the
 animation should be running at all. It should not, for anybody who has asked for
 less motion, and the app honours that. One test opts back in, because the smooth
 path is what most people get.
+
+**The time of day is pinned, not waited for.** The now-line depends on the
+hour, so its tests fix the browser's clock with Playwright's `page.clock`. The
+account's zone stays New York — moving it would set the hour but not the minute,
+and shift the fixture's idea of today — and the instants are in January, where
+that zone's offset cannot change under the test.
 
 **Coverage still moves with the weekday**, because both suites run against the
 real `today()` — but far less than it did. `views.test.ts` gates six tests on what
@@ -525,5 +656,18 @@ answer a question nobody has asked.
 has always saved on blur. Giving it a real abandon needs an explicit Discard or a
 confirm on clearing, and it would have to apply to blur too or it is inconsistent
 again. Worth doing on its own terms, not as a side effect.
+
+**From Keep, for notes:** labels, dragging cards into an order, a grid/list
+switch, selecting several, making a copy, shortcuts, sharing, images, background
+images, link previews, version history, reminders, drawings, voice, AI and
+offline editing — offered and declined. Also not here: underline, which Markdown
+cannot hold; a link button, since links make themselves and selected words take
+a pasted address; typo-tolerant search; ticking from a card; and links between
+notes and tasks, which Markdown was chosen to leave room for.
+
+**Fly's `[[statics]]`, compressing in Bun, prefetching Notes.** Statics are
+served from inside the machine, wake it like any request, and cannot carry a
+`Cache-Control`; Fly's proxy already compresses; and prefetching would put the
+editor back onto every cold load of To do, which is what splitting removed.
 
 **Per-user moods, a mood editor, an export UI.** Unchanged and still deferred.

@@ -133,7 +133,12 @@ export function Popover({
     el.showPopover()
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close.current()
+      if (e.key !== 'Escape') return
+      // Kept to itself: a popover opened inside a sheet — a note's colour picker
+      // — closes alone, rather than taking the sheet behind it with it. Sheet
+      // listens on `window`, which this listener on `document` runs before.
+      e.stopPropagation()
+      close.current()
     }
     // Anything whose target is inside the popover keeps it open — which includes
     // the date field, and therefore the browser chrome the date field opens.
@@ -319,31 +324,77 @@ export function Confirm({
 
 // --- sheet ----------------------------------------------------------------
 
-/** A bottom sheet. Escape and the scrim both close it. */
+/**
+ * A bottom sheet. Escape and the scrim both close it.
+ *
+ * `panel` is the same dialog laid out for a note: the whole screen on a phone, a
+ * centred panel on anything wider. Its title is for a screen reader only,
+ * `actions` sit in the bar beside Close, and `color` paints it a note's colour.
+ *
+ * Focus goes back to whatever opened it when it closes — a sheet that closes into
+ * nowhere strands anybody driving this from a keyboard, which the account menu
+ * already guards against.
+ */
 export function Sheet({
   title,
   onClose,
   children,
+  variant = 'bottom',
+  actions,
+  color,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  variant?: 'bottom' | 'panel'
+  actions?: ReactNode
+  /** A note palette name, drawn by the same `[data-color]` rule as its card. */
+  color?: string | null
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      // Not while an input method is composing: Escape there cancels the
+      // composition, and closing the sheet as well would lose what was typed.
+      if (e.key === 'Escape' && !e.isComposing) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Read during the first render, not in an effect: a sheet whose first field
+  // autofocuses — a new note's title, capture's name — has already moved focus
+  // by the time an effect runs, and would then return it to an input that is
+  // gone, which is nowhere.
+  //
+  // Only on a REAL unmount, when the sheet's own node has left the document.
+  // React's development StrictMode rehearses an unmount straight after mounting,
+  // with the node still in place — and returning focus then pulled it out of the
+  // autofocused field the moment the sheet opened.
+  const [opener] = useState(() => document.activeElement)
+  const scrim = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = scrim.current
+    return () => {
+      if (node?.isConnected) return
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
+    }
+  }, [opener])
+
+  const panel = variant === 'panel'
   return (
-    <div className="sheet-scrim">
+    <div ref={scrim} className={panel ? 'sheet-scrim sheet-scrim--panel' : 'sheet-scrim'}>
       {/* Not in the tab order: Escape and the Close button already cover keyboard. */}
       <button className="sheet-scrim-hit" tabIndex={-1} aria-label="Close" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        className={panel ? 'sheet sheet--panel' : 'sheet'}
+        data-color={color ?? undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="sheet-bar">
-          <h2>{title}</h2>
+          <h2 className={panel ? 'sr' : undefined}>{title}</h2>
+          {actions && <div className="sheet-actions">{actions}</div>}
           <button className="btn btn--small btn--quiet" onClick={onClose}>
             Close
           </button>

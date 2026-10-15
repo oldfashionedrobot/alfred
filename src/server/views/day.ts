@@ -1,11 +1,14 @@
 import { and, asc, eq } from 'drizzle-orm'
-import type {
-  DayTask,
-  DayTaskState,
-  DayView,
-  ISODate,
-  Mood,
-  UpcomingDay,
+import {
+  isHourEntry,
+  type DayTask,
+  type DayTaskState,
+  type DayView,
+  type HourMark,
+  type ISODate,
+  type Mood,
+  type OrderEntry,
+  type UpcomingDay,
 } from '../../shared/types.ts'
 import type { DB } from '../db.ts'
 import { days, moods, tasks } from '../schema.ts'
@@ -17,7 +20,7 @@ import {
   placementRanges,
   weekDates,
 } from './completions.ts'
-import { sortTasks } from '../sort.ts'
+import { arrangementPosition, sortTasks } from '../sort.ts'
 import { today, type Viewer } from '../today.ts'
 
 /**
@@ -62,6 +65,9 @@ import { today, type Viewer } from '../today.ts'
  *
  * One array since v15, sorted with sortTasks() using today's days.task_order,
  * which sinks the done rows to the bottom of it.
+ *
+ * Since v17 the arrangement also holds the day's HOURS, and `hours` says where
+ * each divider is drawn. See `placeHours`.
  */
 export async function buildDayView(db: DB, viewer: Viewer, week?: ISODate): Promise<DayView> {
   const userId = viewer.id
@@ -107,7 +113,12 @@ export async function buildDayView(db: DB, viewer: Viewer, week?: ISODate): Prom
     .select()
     .from(days)
     .where(and(eq(days.user_id, userId), eq(days.date, date)))
-  const order = parseTaskOrder(dayRow?.task_order ?? null)
+  const { ids, hours } = splitArrangement(parseTaskOrder(dayRow?.task_order ?? null))
+  // A task the arrangement does not place waits above the first hour,
+  // unscheduled, rather than falling under the last one. With no hours this is
+  // undefined, and an unlisted task falls to the bottom as it always has.
+  const unlistedAt = hours[0]?.at
+  const sorted = sortTasks(members, ids, unlistedAt)
 
   const picker: Mood[] = await db
     .select()
@@ -127,7 +138,13 @@ export async function buildDayView(db: DB, viewer: Viewer, week?: ISODate): Prom
     mood: dayRow?.mood ?? null,
     log: dayRow?.log ?? null,
     moods: picker,
-    tasks: sortTasks(members, order),
+    tasks: sorted,
+    hours: placeHours(
+      hours,
+      sorted.filter((t) => !t.is_done),
+      arrangementPosition(ids, unlistedAt),
+    ),
+    timezone: viewer.timezone,
     // The strip's seven weekday buttons, which label whichever week is on screen.
     week_dates: viewedWeek,
     // TODAY through Saturday, whatever week is being viewed. The reschedule
@@ -243,14 +260,67 @@ function toDayTask(
   }
 }
 
-/** days.task_order is stored opaquely; anything unreadable is simply no order. */
-function parseTaskOrder(raw: string | null): number[] | null {
+/**
+ * days.task_order is stored opaquely. A value that is not a JSON array is no
+ * order at all; inside one, an element that is neither a number nor an hour is
+ * dropped and the rest kept — a malformed hour the same as any other rubbish.
+ *
+ * A row written before v17 is a plain `number[]`, which reads as an arrangement
+ * with no hours. Rolling back is as safe: v16 kept only the numbers.
+ */
+function parseTaskOrder(raw: string | null): OrderEntry[] | null {
   if (raw === null) return null
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return null
-    return parsed.filter((v): v is number => typeof v === 'number')
+    return parsed.filter((v): v is OrderEntry => typeof v === 'number' || isHourEntry(v))
   } catch {
     return null
   }
+}
+
+/**
+ * The arrangement split once, here: its task ids in order for `sortTasks`,
+ * which never sees an hour, and each hour with `at` — how many ids precede it.
+ * `at` is an hour's position in the id list, which is the scale
+ * `arrangementPosition` measures tasks on.
+ */
+function splitArrangement(order: OrderEntry[] | null): {
+  ids: number[] | null
+  hours: { hour: number; at: number }[]
+} {
+  if (order === null) return { ids: null, hours: [] }
+  const ids: number[] = []
+  const hours: { hour: number; at: number }[] = []
+  for (const entry of order) {
+    if (typeof entry === 'number') ids.push(entry)
+    else hours.push({ hour: entry.hour, at: ids.length })
+  }
+  return { ids, hours }
+}
+
+/**
+ * Where each divider is drawn: above however many LIVE rows sit before it in
+ * the arrangement.
+ *
+ * Live rows render in exactly their arranged order — done rows sink below them,
+ * and baseline no longer hoists anything — so counting the live tasks whose
+ * position is before an hour's gives that hour's index in the rendered list.
+ * That is why positional anchoring survives use: ticking a task does not rewrite
+ * the arrangement, it just stops counting, and the 9am divider goes on preceding
+ * the same remaining tasks. Stale ids, duplicates and done rows count for
+ * nothing, so none of them can move an hour.
+ *
+ * `before` never exceeds the live count, so an hour at the foot of the plan sits
+ * above the done block, which is where "done sinks below every hour" puts it.
+ */
+function placeHours(
+  hours: { hour: number; at: number }[],
+  live: DayTask[],
+  position: (id: number) => number,
+): HourMark[] {
+  return hours.map(({ hour, at }) => ({
+    hour,
+    before: live.filter((t) => position(t.id) < at).length,
+  }))
 }

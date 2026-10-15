@@ -444,6 +444,49 @@ select {
   padding: var(--gap-4) var(--gap-3) calc(var(--gap-5) + env(safe-area-inset-bottom));
 }
 
+/* The bar's own controls, beside Close: a note's pin and colour. */
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-1);
+  margin-left: auto;
+}
+
+/* A note, opened over the board: the whole screen on a phone — Keep's small
+   fixed overlay on the web is one of the complaints about it — and a centred
+   panel on anything wider. The top bar has a safe-area inset and so does this,
+   since it covers the bar. */
+.sheet-scrim--panel {
+  justify-content: center;
+}
+
+.sheet--panel {
+  height: 100dvh;
+  max-height: 100dvh;
+  border-top: none;
+  border-radius: 0;
+  padding-top: env(safe-area-inset-top);
+  background: var(--note-bg, var(--bg));
+}
+
+.sheet--panel .sheet-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 600px) {
+  .sheet--panel {
+    height: auto;
+    min-height: 50dvh;
+    max-height: 85dvh;
+    padding-top: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+}
+
 /* --- forms --------------------------------------------------------------- */
 
 .form {

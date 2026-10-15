@@ -67,3 +67,25 @@ jobs:
           echo "deployed sha: $deployed"
           echo "expected sha: ${{ github.sha }}"
           test "$deployed" = "${{ github.sha }}"
+
+          # The page, the script it names, and the Notes chunk the script
+          # names in turn. A deploy is otherwise checked only for starting and
+          # not crash-looping, so this is the check that the built client is
+          # whole: a wrong public path ships a To do list that works and a Notes
+          # tab that never loads. The content type, not just the status, and
+          # the cache header too — no Fly document says outright that the proxy
+          # leaves Cache-Control alone, so this checks the real thing.
+          site=https://gg-alfred.fly.dev
+          script=$(curl -sS --max-time 60 "$site/" \
+            | grep -o 'src="[^"]*\.js"' | head -1 | sed 's/^src="//; s/"$//')
+          test -n "$script"
+          head=$(curl -sS -o /dev/null -D - --max-time 60 "$site$script" | tr -d '\r')
+          echo "client script: $script"
+          echo "$head" | grep -iq '^content-type: .*javascript'
+          echo "$head" | grep -iq '^cache-control: .*immutable'
+          notes=$(curl -sS --max-time 60 "$site$script" \
+            | grep -o '/assets/Notes-[a-z0-9]*\.js' | head -1)
+          test -n "$notes"
+          echo "notes chunk: $notes"
+          curl -sS -o /dev/null -D - --max-time 60 "$site$notes" | tr -d '\r' \
+            | grep -iq '^content-type: .*javascript'

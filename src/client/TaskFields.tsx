@@ -102,7 +102,7 @@ export function TaskFields({
         />
         <span>
           Baseline
-          <span className="hint"> — the bare minimum to function. Sorts to the top.</span>
+          <span className="hint"> — the bare minimum to function.</span>
         </span>
       </label>
 

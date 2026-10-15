@@ -71,6 +71,19 @@ export class Seed {
     return this.run({ kind: 'task', ...t }).id as number
   }
 
+  /** A note, with an edit time of the test's choosing (epoch ms; default now). */
+  note(n: {
+    title?: string
+    body?: string
+    color?: string | null
+    pinned?: boolean
+    archived?: boolean
+    updated_at?: number
+    user_id?: number
+  }): number {
+    return this.run({ kind: 'note', ...n }).id as number
+  }
+
   /** A completion on any date, including the past. */
   completion(task_id: number, completed_on: string): void {
     this.run({ kind: 'completion', task_id, completed_on })
@@ -81,7 +94,8 @@ export class Seed {
     d: {
       mood?: string | null
       log?: string | null
-      task_order?: number[] | null
+      /** Task ids, and since v17 the hours dividing them. */
+      task_order?: (number | { hour: number })[] | null
       user_id?: number
     },
   ): void {
@@ -133,7 +147,10 @@ export type App = {
   database: string
 }
 
-export const test = base.extend<{ app: App; signedIn: boolean }>({
+/** The options a project or a spec can set. See playwright.config.ts. */
+export type Options = { signedIn: boolean; builtClient: boolean }
+
+export const test = base.extend<{ app: App } & Options>({
   /**
    * Every test arrives signed in, because the app has no other mode: auth is
    * unconditional and there is no flag to turn it off. The fixture signs in as
@@ -145,7 +162,18 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
    */
   signedIn: [true, { option: true }],
 
-  app: async ({ context, signedIn }, use) => {
+  /**
+   * Serve the client `bun run build:client` built — split, minified, production
+   * React — instead of bundling it from the HTML import. The `built` project
+   * sets it; Playwright's global setup has already built `dist/`.
+   *
+   * Everything else runs the development client on purpose: its React warns
+   * about duplicate keys and the like, and the console-error tests exist to
+   * catch exactly those. Production React strips them.
+   */
+  builtClient: [false, { option: true }],
+
+  app: async ({ context, signedIn, builtClient }, use) => {
     const dir = mkdtempSync(join(tmpdir(), 'alfred-e2e-'))
     const dbPath = join(dir, 'test.db')
 
@@ -182,7 +210,15 @@ export const test = base.extend<{ app: App; signedIn: boolean }>({
      */
     const proc: ChildProcess = spawn('bun', ['--no-env-file', 'src/server/index.ts'], {
       cwd: ROOT,
-      env: { ...process.env, TURSO_URL: '', TURSO_AUTH_TOKEN: '', DB_PATH: dbPath, PORT: '0' },
+      env: {
+        ...process.env,
+        TURSO_URL: '',
+        TURSO_AUTH_TOKEN: '',
+        DB_PATH: dbPath,
+        PORT: '0',
+        // Empty is unset — see TURSO_* above for why it is never deleted.
+        CLIENT_DIST: builtClient ? join(ROOT, 'dist') : '',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

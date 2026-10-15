@@ -11,12 +11,8 @@
 # 0003 is hand-written SQL besides.
 drizzle/
 
-# Stray Bun build output — not source, and not referenced by anything. Listed
-# so `bun run format` cannot walk into 1.2 MB of built JS. The real fix is to
-# delete the directory.
-undefined/
-
 # Not ours, or not source.
+dist/
 node_modules/
 data/
 e2e-report/

@@ -1,18 +1,63 @@
-import { StrictMode, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  Component,
+  StrictMode,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 import { logout, onSignedOut } from './api.ts'
 import { Popover } from './ui.tsx'
 import Day from './views/day/Day.tsx'
 import History from './views/History.tsx'
+/*
+ * Notes is a chunk of its own — the editor is two thirds of the client — fetched
+ * the first time the tab is opened, so To do and the Tracker never load it. Not
+ * just the open note: the cards parse Markdown with the editor's own parser.
+ *
+ * In development `Bun.serve` inlines this import and nothing splits; the built
+ * client is where it matters (see src/server/client.ts).
+ */
+const Notes = lazy(() => import('./views/notes/Notes.tsx'))
+
+/**
+ * Notes that would not load. Almost always a tab opened before a deploy: its
+ * script names the old Notes chunk, the new build does not have it, and the
+ * import fails. Reloading fetches the new page — never cached — and the new
+ * chunk with it. A real error rendering Notes lands here too, and gets the same
+ * way out.
+ */
+class NotesFailed extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div className="state">
+        <p>Notes could not load — Alfred has probably been updated since this page was opened.</p>
+        <button className="btn" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      </div>
+    )
+  }
+}
 import Login from './views/Login.tsx'
 import Claim from './views/Claim.tsx'
 import Settings from './views/Settings.tsx'
 
-type Tab = 'day' | 'history' | 'settings'
+type Tab = 'day' | 'history' | 'notes' | 'settings'
 
-/** The two tabs the bar shows. Settings is reached from the menu, not from here. */
-const TABS = ['day', 'history'] as const
+/** The three tabs the bar shows. Settings is reached from the menu, not from here. */
+const TABS = ['day', 'history', 'notes'] as const
 
 /**
  * What each tab is CALLED, which is no longer what it is keyed by.
@@ -25,6 +70,7 @@ const TABS = ['day', 'history'] as const
 const TAB_LABEL: Record<(typeof TABS)[number], string> = {
   day: 'To do',
   history: 'Tracker',
+  notes: 'Notes',
 }
 
 /**
@@ -144,6 +190,13 @@ function App() {
       <main className="app" key={session}>
         {tab === 'day' && <Day />}
         {tab === 'history' && <History />}
+        {tab === 'notes' && (
+          <NotesFailed>
+            <Suspense fallback={<div className="state">Loading notes…</div>}>
+              <Notes />
+            </Suspense>
+          </NotesFailed>
+        )}
         {tab === 'settings' && <Settings />}
       </main>
     </>

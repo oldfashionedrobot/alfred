@@ -13,6 +13,10 @@ data
 *.db-shm
 *.db-wal
 
+# A locally built client. The image builds its own from src/, and must never be
+# handed one built from somebody's working tree.
+dist
+
 # Tests, their output, and everything else the runtime never reads.
 e2e
 tests
